@@ -1,13 +1,14 @@
 """Shared test fixtures."""
 
 import sqlite3
+from collections.abc import Generator
 from pathlib import Path
 
 import pytest
 
 
 @pytest.fixture
-def sqlite_db(tmp_path: Path):
+def sqlite_db(tmp_path: Path) -> Generator[Path, None, None]:
     """Create a SQLite database with test schema and seed data."""
     db_path = tmp_path / "test.db"
     conn = sqlite3.connect(str(db_path))
@@ -28,7 +29,7 @@ def sqlite_db(tmp_path: Path):
 
 
 @pytest.fixture
-def sqlite_memory_db():
+def sqlite_memory_db() -> Generator[sqlite3.Connection, None, None]:
     """Create an in-memory SQLite database with test data."""
     conn = sqlite3.connect(":memory:")
     conn.execute(

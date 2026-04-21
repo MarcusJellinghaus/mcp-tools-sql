@@ -65,14 +65,14 @@ class DatabaseBackend(ABC):
 
 
 def create_backend(config: ConnectionConfig) -> DatabaseBackend:
-    """Factory: instantiate the appropriate backend for *config.driver*."""
-    if config.driver == "sqlite":
+    """Factory: instantiate the appropriate backend for *config.backend*."""
+    if config.backend == "sqlite":
         from mcp_tools_sql.backends.sqlite import SQLiteBackend
 
         return SQLiteBackend(config)
-    if config.driver in ("mssql", "pyodbc"):
+    if config.backend in ("mssql", "pyodbc"):
         from mcp_tools_sql.backends.mssql import MSSQLBackend
 
         return MSSQLBackend(config)
-    msg = f"Unsupported driver: {config.driver}"
+    msg = f"Unsupported backend: {config.backend}"
     raise ValueError(msg)
