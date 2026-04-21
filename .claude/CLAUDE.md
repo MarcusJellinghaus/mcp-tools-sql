@@ -41,6 +41,8 @@ Use MCP tools for **all** operations. Never use `Read`, `Write`, `Edit`, or `Bas
 | `gh issue list` | `mcp__workspace__github_issue_list` |
 | `gh pr view` | `mcp__workspace__github_pr_view` |
 | `gh search` | `mcp__workspace__github_search` |
+| Check branch status | `mcp__workspace__check_branch_status` |
+| Check file size | `mcp__workspace__check_file_size` (default max_lines=600) |
 
 ## Code quality checks
 
@@ -66,8 +68,6 @@ When debugging test failures, add `"-v", "-s", "--tb=short"` to extra_args.
 
 ```
 git commit / add / rebase / push
-mcp-coder check branch-status
-mcp-coder check file-size --max-lines 750
 mcp-coder gh-tool set-status <label>
 ```
 
