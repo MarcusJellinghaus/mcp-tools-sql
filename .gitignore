@@ -1,0 +1,50 @@
+# Byte-compiled / optimized / DLL files
+__pycache__/
+*.py[cod]
+*$py.class
+
+# Virtual environment
+.venv/
+venv/
+
+# IDE files
+.vscode/
+.idea/
+*.swp
+
+# Local configuration
+.env
+
+# Build / distribution
+dist/
+build/
+*.egg-info/
+
+# default log folder used by mcp servers
+/logs/
+
+# Cache files
+.pytest_cache/
+.mypy_cache/
+.ruff_cache/
+
+# Rope project cache
+.ropeproject/
+
+# MCP coder session files
+.mcp-coder/
+
+uv.lock
+
+# VSCodeClaude session files (auto-generated)
+.vscodeclaude_status.txt
+.vscodeclaude_analysis.json
+.vscodeclaude_start.bat
+.vscodeclaude_start.sh
+
+# Windows reserved-name artifacts
+nul
+
+# Credential safety net
+config.toml
+connections.toml

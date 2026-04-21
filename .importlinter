@@ -1,0 +1,33 @@
+[importlinter]
+root_package = mcp_tools_sql
+root_package_paths = src
+
+[importlinter:contract:layers]
+name = Layered Architecture
+type = layers
+layers =
+    mcp_tools_sql.main
+    mcp_tools_sql.server
+    mcp_tools_sql.schema_tools | mcp_tools_sql.query_tools | mcp_tools_sql.update_tools | mcp_tools_sql.validation_tools
+    mcp_tools_sql.backends | mcp_tools_sql.config | mcp_tools_sql.formatting
+    mcp_tools_sql.utils
+ignore_imports =
+    mcp_tools_sql.schema_tools -> mcp_tools_sql.server
+    mcp_tools_sql.query_tools -> mcp_tools_sql.server
+    mcp_tools_sql.update_tools -> mcp_tools_sql.server
+    mcp_tools_sql.validation_tools -> mcp_tools_sql.server
+
+[importlinter:contract:forbidden-imports]
+name = Forbidden external imports
+type = forbidden
+source_modules =
+    mcp_tools_sql.utils
+forbidden_modules =
+    mcp_tools_sql.backends
+    mcp_tools_sql.config
+    mcp_tools_sql.formatting
+    mcp_tools_sql.schema_tools
+    mcp_tools_sql.query_tools
+    mcp_tools_sql.update_tools
+    mcp_tools_sql.validation_tools
+    mcp_tools_sql.server

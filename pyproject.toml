@@ -1,0 +1,159 @@
+[project]
+name = "mcp-tools-sql"
+dynamic = ["version"]
+authors = [
+    {name = "Marcus Jellinghaus"},
+]
+description = "An MCP server for safe, configurable SQL database access"
+readme = "README.md"
+requires-python = ">=3.11"
+license = {text = "MIT"}
+keywords = ["mcp", "sql", "database", "llm", "claude", "ai", "sql-server", "postgresql", "sqlite"]
+classifiers = [
+    "Programming Language :: Python :: 3",
+    "Operating System :: OS Independent",
+    "License :: OSI Approved :: MIT License",
+    "Development Status :: 3 - Alpha",
+    "Intended Audience :: Developers",
+    "Topic :: Software Development :: Libraries :: Python Modules",
+]
+dependencies = [
+    "mcp>=1.3.0",
+    "mcp[cli]>=1.3.0",
+    "structlog>=24.5.0",
+    "python-json-logger>=3.2.1",
+    "mcp-coder-utils",
+    "tabulate>=0.9.0",
+    "pydantic>=2.0",
+]
+
+[project.optional-dependencies]
+mssql = ["pyodbc>=5.0.0"]
+postgresql = ["psycopg[binary]>=3.1.0"]
+all-backends = [
+    "pyodbc>=5.0.0",
+    "psycopg[binary]>=3.1.0",
+]
+dev = [
+    "mcp-workspace",
+    "mcp-coder",
+    "black",
+    "isort",
+    "pylint",
+    "mypy",
+    "ruff",
+    "tach>=0.15.0",
+    "pycycle>=0.0.8",
+    "vulture>=2.13",
+    "pydeps>=1.12.0",
+    "pytest",
+    "pytest-asyncio",
+    "pytest-xdist",
+]
+
+[project.scripts]
+mcp-tools-sql = "mcp_tools_sql.main:main"
+
+[project.urls]
+"Homepage" = "https://github.com/MarcusJellinghaus/mcp-tools-sql"
+"Bug Tracker" = "https://github.com/MarcusJellinghaus/mcp-tools-sql/issues"
+"Documentation" = "https://github.com/MarcusJellinghaus/mcp-tools-sql#readme"
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+asyncio_default_fixture_loop_scope = "function"
+pythonpath = ["src"]
+addopts = "-n auto"
+markers = [
+    "sqlite_integration: Integration tests using SQLite",
+    "mssql_integration: Integration tests using Microsoft SQL Server",
+    "postgresql_integration: Integration tests using PostgreSQL",
+    "integration: General integration tests requiring external resources",
+]
+
+[tool.black]
+line-length = 88
+target-version = ["py311"]
+
+[tool.isort]
+profile = "black"
+line_length = 88
+float_to_top = true
+
+[tool.mypy]
+python_version = "3.11"
+warn_return_any = true
+warn_unused_configs = true
+disallow_untyped_defs = true
+disallow_incomplete_defs = true
+check_untyped_defs = true
+no_implicit_optional = true
+strict_optional = true
+mypy_path = "src"
+namespace_packages = true
+explicit_package_bases = true
+
+[[tool.mypy.overrides]]
+module = ["pytest.*"]
+ignore_missing_imports = true
+
+[[tool.mypy.overrides]]
+module = ["mcp.server.fastmcp"]
+ignore_missing_imports = true
+
+[[tool.mypy.overrides]]
+module = ["mcp_coder_utils", "mcp_coder_utils.*"]
+ignore_missing_imports = true
+
+[[tool.mypy.overrides]]
+module = ["pyodbc", "pyodbc.*"]
+ignore_missing_imports = true
+
+[[tool.mypy.overrides]]
+module = ["psycopg", "psycopg.*"]
+ignore_missing_imports = true
+
+[[tool.mypy.overrides]]
+module = ["tabulate", "tabulate.*"]
+ignore_missing_imports = true
+
+[tool.pylint.messages_control]
+# W, C, R: disabled by design (warnings, conventions, refactoring)
+# W1203: logging-fstring-interpolation — redundant while W is disabled, but kept
+#        as documentation: f-strings in logging calls are acceptable for readability
+disable = ["W", "C", "R", "W1203"]
+
+[tool.mcp-coder.install-from-github]
+# All installed together WITH deps — uv resolves siblings in one pass
+packages = [
+    "mcp-coder-utils @ git+https://github.com/MarcusJellinghaus/mcp-coder-utils.git",
+    "mcp-config-tool @ git+https://github.com/MarcusJellinghaus/mcp-config.git",
+    "mcp-workspace @ git+https://github.com/MarcusJellinghaus/mcp-workspace.git",
+    "mcp-coder @ git+https://github.com/MarcusJellinghaus/mcp_coder.git",
+]
+
+# Include tools directory in the distribution
+[tool.setuptools]
+include-package-data = true
+
+[tool.setuptools.packages.find]
+where = ["src"]
+
+[tool.setuptools.package-data]
+"*" = ["py.typed"]
+
+[tool.uv.sources]
+mcp-coder-utils = { git = "https://github.com/MarcusJellinghaus/mcp-coder-utils.git" }
+mcp-config-tool = { git = "https://github.com/MarcusJellinghaus/mcp-config.git" }
+mcp-workspace = { git = "https://github.com/MarcusJellinghaus/mcp-workspace.git" }
+mcp-coder = { git = "https://github.com/MarcusJellinghaus/mcp_coder.git" }
+
+[build-system]
+requires = ["setuptools>=61.0", "setuptools-scm>=8.0"]
+build-backend = "setuptools.build_meta"
+
+[tool.setuptools_scm]
+tag_regex = '^(?P<version>\d+\.\d+\.\d+)$'
+# Version is automatically determined from git tags
+# Tag format: 0.1.0 -> version 0.1.0
+# Between releases: 0.1.0.devN+gHASH (includes commit count and hash)

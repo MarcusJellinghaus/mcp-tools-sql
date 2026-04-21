@@ -1,0 +1,108 @@
+# Tach configuration for architectural boundaries
+source_roots = ["src"]
+exact = false
+forbid_circular_dependencies = true
+
+# Define layers
+[[layers]]
+name = "entry_point"
+
+[[layers]]
+name = "server"
+
+[[layers]]
+name = "tool_implementation"
+
+[[layers]]
+name = "infrastructure"
+
+[[layers]]
+name = "utilities"
+
+# Define architectural modules
+[[modules]]
+path = "mcp_tools_sql.schema_tools"
+layer = "tool_implementation"
+depends_on = [
+    { path = "mcp_tools_sql.backends" },
+    { path = "mcp_tools_sql.config" },
+    { path = "mcp_tools_sql.formatting" },
+    { path = "mcp_tools_sql.utils" },
+]
+
+[[modules]]
+path = "mcp_tools_sql.query_tools"
+layer = "tool_implementation"
+depends_on = [
+    { path = "mcp_tools_sql.backends" },
+    { path = "mcp_tools_sql.config" },
+    { path = "mcp_tools_sql.formatting" },
+    { path = "mcp_tools_sql.utils" },
+]
+
+[[modules]]
+path = "mcp_tools_sql.update_tools"
+layer = "tool_implementation"
+depends_on = [
+    { path = "mcp_tools_sql.backends" },
+    { path = "mcp_tools_sql.config" },
+    { path = "mcp_tools_sql.formatting" },
+    { path = "mcp_tools_sql.utils" },
+]
+
+[[modules]]
+path = "mcp_tools_sql.validation_tools"
+layer = "tool_implementation"
+depends_on = [
+    { path = "mcp_tools_sql.backends" },
+    { path = "mcp_tools_sql.config" },
+    { path = "mcp_tools_sql.formatting" },
+    { path = "mcp_tools_sql.utils" },
+]
+
+[[modules]]
+path = "mcp_tools_sql.backends"
+layer = "infrastructure"
+depends_on = [
+    { path = "mcp_tools_sql.utils" },
+]
+
+[[modules]]
+path = "mcp_tools_sql.config"
+layer = "infrastructure"
+depends_on = [
+    { path = "mcp_tools_sql.utils" },
+]
+
+[[modules]]
+path = "mcp_tools_sql.formatting"
+layer = "infrastructure"
+depends_on = [
+    { path = "mcp_tools_sql.utils" },
+]
+
+[[modules]]
+path = "mcp_tools_sql.server"
+layer = "server"
+depends_on = [
+    { path = "mcp_tools_sql.schema_tools" },
+    { path = "mcp_tools_sql.query_tools" },
+    { path = "mcp_tools_sql.update_tools" },
+    { path = "mcp_tools_sql.validation_tools" },
+    { path = "mcp_tools_sql.backends" },
+    { path = "mcp_tools_sql.config" },
+    { path = "mcp_tools_sql.formatting" },
+    { path = "mcp_tools_sql.utils" },
+]
+
+[[modules]]
+path = "mcp_tools_sql.main"
+layer = "entry_point"
+depends_on = [
+    { path = "mcp_tools_sql.server" },
+]
+
+[[modules]]
+path = "mcp_tools_sql.utils"
+layer = "utilities"
+depends_on = []

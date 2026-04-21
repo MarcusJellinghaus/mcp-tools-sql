@@ -1,0 +1,194 @@
+name: Python CI
+
+on:
+  push:
+    branches: [ "*" ]
+  pull_request:
+    branches: [ main ]
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  # Matrix approach: Each check runs as independent job with individual pass/fail status
+  # fail-fast: false ensures all checks complete even if one fails
+  test:
+    runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        check:
+          - {name: "black", cmd: "black --version && black --check src tests"}
+          - {name: "isort", cmd: "isort --version && isort --check --profile=black --float-to-top src tests"}
+          - {name: "pylint", cmd: "pylint --version && pylint -E ./src ./tests"}
+          - {name: "pytest", cmd: "pytest --version && pytest tests -m 'not sqlite_integration and not mssql_integration and not postgresql_integration'"}
+          - {name: "mypy", cmd: "mypy --version && mypy --strict src tests"}
+    name: ${{ matrix.check.name }}
+    steps:
+      - uses: actions/checkout@v6
+
+      - name: Install uv
+        uses: astral-sh/setup-uv@v5
+
+      - name: Set up Python 3.11
+        uses: actions/setup-python@v5
+        with:
+          python-version: 3.11
+
+      - name: Install dependencies
+        run: uv pip install --system ".[dev]"
+
+      - name: Environment info
+        run: |
+          uname -a
+          python --version
+          uv --version
+          git --version
+
+      - name: Run ${{ matrix.check.name }}
+        run: ${{ matrix.check.cmd }}
+
+  # SQLite integration tests (always available, no service container needed)
+  sqlite-integration:
+    runs-on: ubuntu-latest
+    name: sqlite-integration
+    steps:
+      - uses: actions/checkout@v6
+
+      - name: Install uv
+        uses: astral-sh/setup-uv@v5
+
+      - name: Set up Python 3.11
+        uses: actions/setup-python@v5
+        with:
+          python-version: 3.11
+
+      - name: Install dependencies
+        run: uv pip install --system ".[dev]"
+
+      - name: Run SQLite integration tests
+        run: pytest tests -m sqlite_integration -v
+
+  # PostgreSQL integration tests
+  postgresql-integration:
+    runs-on: ubuntu-latest
+    name: postgresql-integration
+    services:
+      postgres:
+        image: postgres:16
+        env:
+          POSTGRES_USER: testuser
+          POSTGRES_PASSWORD: testpass
+          POSTGRES_DB: testdb
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd="pg_isready -U testuser -d testdb"
+          --health-interval=10s
+          --health-timeout=5s
+          --health-retries=5
+    steps:
+      - uses: actions/checkout@v6
+
+      - name: Install uv
+        uses: astral-sh/setup-uv@v5
+
+      - name: Set up Python 3.11
+        uses: actions/setup-python@v5
+        with:
+          python-version: 3.11
+
+      - name: Install dependencies
+        run: uv pip install --system ".[dev,postgresql]"
+
+      - name: Run PostgreSQL integration tests
+        env:
+          TEST_PG_HOST: localhost
+          TEST_PG_PORT: 5432
+          TEST_PG_USER: testuser
+          TEST_PG_PASSWORD: testpass
+          TEST_PG_DB: testdb
+        run: pytest tests -m postgresql_integration -v
+
+  # MSSQL integration tests (best-effort)
+  mssql-integration:
+    runs-on: ubuntu-latest
+    name: mssql-integration
+    continue-on-error: true
+    services:
+      mssql:
+        image: mcr.microsoft.com/mssql/server:2022-latest
+        env:
+          ACCEPT_EULA: "Y"
+          MSSQL_SA_PASSWORD: "TestPass123!"
+        ports:
+          - 1433:1433
+        options: >-
+          --health-cmd="/opt/mssql-tools18/bin/sqlcmd -S localhost -U sa -P 'TestPass123!' -C -Q 'SELECT 1'"
+          --health-interval=15s
+          --health-timeout=10s
+          --health-retries=10
+          --health-start-period=30s
+    steps:
+      - uses: actions/checkout@v6
+
+      - name: Install uv
+        uses: astral-sh/setup-uv@v5
+
+      - name: Set up Python 3.11
+        uses: actions/setup-python@v5
+        with:
+          python-version: 3.11
+
+      - name: Install system dependencies
+        run: |
+          sudo apt-get update
+          sudo ACCEPT_EULA=Y apt-get install -y msodbcsql18 unixodbc-dev
+
+      - name: Install dependencies
+        run: uv pip install --system ".[dev,mssql]"
+
+      - name: Run MSSQL integration tests
+        env:
+          TEST_MSSQL_HOST: localhost
+          TEST_MSSQL_PORT: 1433
+          TEST_MSSQL_USER: sa
+          TEST_MSSQL_PASSWORD: "TestPass123!"
+        run: pytest tests -m mssql_integration -v
+
+  # Architecture and code quality checks (PR only)
+  architecture:
+    runs-on: ubuntu-latest
+    if: github.event_name == 'pull_request'
+    strategy:
+      fail-fast: false
+      matrix:
+        check:
+          - {name: "import-linter", cmd: "lint-imports --help > /dev/null && lint-imports"}
+          - {name: "tach", cmd: "tach --version && tach check"}
+          - {name: "vulture", cmd: "vulture --version && vulture src tests --min-confidence 60"}
+    name: ${{ matrix.check.name }}
+    steps:
+      - uses: actions/checkout@v6
+
+      - name: Install uv
+        uses: astral-sh/setup-uv@v5
+
+      - name: Set up Python 3.11
+        uses: actions/setup-python@v5
+        with:
+          python-version: 3.11
+
+      - name: Install dependencies
+        run: uv pip install --system ".[dev]"
+
+      - name: Environment info
+        run: |
+          uname -a
+          python --version
+          uv --version
+          git --version
+
+      - name: Run ${{ matrix.check.name }}
+        run: ${{ matrix.check.cmd }}
