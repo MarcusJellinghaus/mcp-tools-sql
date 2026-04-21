@@ -77,8 +77,6 @@ jobs:
                 owner: context.repo.owner,
                 repo: context.repo.repo,
                 issue_number: issue.number,
-                body: `⚠️ Cannot promote issue. The issue must have one of these statuses:\n- \`status-01:created\`
-- \`status-04:plan-review\`
-- \`status-07:code-review\`\n\nCurrent labels: ${labels.filter(l => l.startsWith('status-')).join(', ') || 'none'}`
+                body: `⚠️ Cannot promote issue. The issue must have one of these statuses:\n- \`status-01:created\`\n- \`status-04:plan-review\`\n- \`status-07:code-review\`\n\nCurrent labels: ${labels.filter(l => l.startsWith('status-')).join(', ') || 'none'}`
               });
             }
