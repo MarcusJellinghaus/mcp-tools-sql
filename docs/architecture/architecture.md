@@ -77,8 +77,10 @@ MCP server providing safe, configurable SQL database access for LLM-assisted wor
 ├─────────────────────────────────────────────────────┤
 │  Infrastructure Layer                               │
 │  ├── mcp_tools_sql.backends (sqlite, mssql, pg)     │
-│  ├── mcp_tools_sql.config (models, loader)          │
 │  └── mcp_tools_sql.formatting                       │
+├─────────────────────────────────────────────────────┤
+│  Config Layer                                       │
+│  └── mcp_tools_sql.config (models, loader)          │
 ├─────────────────────────────────────────────────────┤
 │  Utilities Layer                                    │
 │  └── mcp_tools_sql.utils                            │
