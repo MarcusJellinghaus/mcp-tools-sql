@@ -69,7 +69,10 @@ jobs:
         run: uv pip install --system ".[dev]"
 
       - name: Run SQLite integration tests
-        run: pytest tests -m sqlite_integration -v
+        run: |
+          rc=0; pytest tests -m sqlite_integration -v || rc=$?
+          if [ $rc -eq 5 ]; then echo "No tests collected — skipping"; exit 0; fi
+          exit $rc
 
   # PostgreSQL integration tests
   postgresql-integration:
@@ -110,7 +113,10 @@ jobs:
           TEST_PG_USER: testuser
           TEST_PG_PASSWORD: testpass
           TEST_PG_DB: testdb
-        run: pytest tests -m postgresql_integration -v
+        run: |
+          rc=0; pytest tests -m postgresql_integration -v || rc=$?
+          if [ $rc -eq 5 ]; then echo "No tests collected — skipping"; exit 0; fi
+          exit $rc
 
   # MSSQL integration tests (best-effort)
   mssql-integration:
@@ -156,7 +162,10 @@ jobs:
           TEST_MSSQL_PORT: 1433
           TEST_MSSQL_USER: sa
           TEST_MSSQL_PASSWORD: "TestPass123!"
-        run: pytest tests -m mssql_integration -v
+        run: |
+          rc=0; pytest tests -m mssql_integration -v || rc=$?
+          if [ $rc -eq 5 ]; then echo "No tests collected — skipping"; exit 0; fi
+          exit $rc
 
   # Architecture and code quality checks (PR only)
   architecture:

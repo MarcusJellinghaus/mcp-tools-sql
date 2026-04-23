@@ -46,5 +46,9 @@ def create_server(
     config: QueryFileConfig,
     backend: DatabaseBackend,
 ) -> ToolServer:
-    """Factory: build and return a configured ToolServer."""
+    """Factory: build and return a configured ToolServer.
+
+    Returns:
+        A configured ToolServer instance.
+    """
     return ToolServer(config=config, backend=backend)

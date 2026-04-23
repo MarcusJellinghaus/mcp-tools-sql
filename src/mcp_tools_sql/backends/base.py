@@ -65,7 +65,14 @@ class DatabaseBackend(ABC):
 
 
 def create_backend(config: ConnectionConfig) -> DatabaseBackend:
-    """Factory: instantiate the appropriate backend for *config.backend*."""
+    """Factory: instantiate the appropriate backend for *config.backend*.
+
+    Returns:
+        A DatabaseBackend instance for the requested backend type.
+
+    Raises:
+        ValueError: If the backend type is not supported.
+    """
     if config.backend == "sqlite":
         from mcp_tools_sql.backends.sqlite import SQLiteBackend
 
