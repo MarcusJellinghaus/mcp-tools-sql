@@ -64,6 +64,7 @@ depends_on = [
 path = "mcp_tools_sql.backends"
 layer = "infrastructure"
 depends_on = [
+    { path = "mcp_tools_sql.config" },
     { path = "mcp_tools_sql.utils" },
 ]
 
