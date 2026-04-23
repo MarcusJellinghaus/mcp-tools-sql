@@ -22,7 +22,9 @@ class SQLiteBackend(DatabaseBackend):
         """Close the SQLite connection."""
         raise NotImplementedError
 
-    def execute_query(self, sql: str, params: dict[str, Any] | None = None) -> list[dict[str, Any]]:
+    def execute_query(
+        self, sql: str, params: dict[str, Any] | None = None
+    ) -> list[dict[str, Any]]:
         """Execute a SELECT query."""
         raise NotImplementedError
 

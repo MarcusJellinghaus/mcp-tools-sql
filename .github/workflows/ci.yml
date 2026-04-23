@@ -22,17 +22,18 @@ jobs:
           - {name: "black", cmd: "black --version && black --check src tests"}
           - {name: "isort", cmd: "isort --version && isort --check --profile=black --float-to-top src tests"}
           - {name: "pylint", cmd: "pylint --version && pylint -E ./src ./tests"}
-          - {name: "pytest", cmd: "pytest --version && pytest tests -m 'not sqlite_integration and not mssql_integration and not postgresql_integration'"}
+          - {name: "ruff-docstrings", cmd: "ruff version && ruff check src"}
+          - {name: "pytest", cmd: "pytest --version && pytest tests -n auto -m 'not sqlite_integration and not mssql_integration and not postgresql_integration'"}
           - {name: "mypy", cmd: "mypy --version && mypy --strict src tests"}
     name: ${{ matrix.check.name }}
     steps:
       - uses: actions/checkout@v6
 
       - name: Install uv
-        uses: astral-sh/setup-uv@v5
+        uses: astral-sh/setup-uv@v7
 
       - name: Set up Python 3.11
-        uses: actions/setup-python@v5
+        uses: actions/setup-python@v6
         with:
           python-version: 3.11
 
@@ -57,10 +58,10 @@ jobs:
       - uses: actions/checkout@v6
 
       - name: Install uv
-        uses: astral-sh/setup-uv@v5
+        uses: astral-sh/setup-uv@v7
 
       - name: Set up Python 3.11
-        uses: actions/setup-python@v5
+        uses: actions/setup-python@v6
         with:
           python-version: 3.11
 
@@ -68,7 +69,10 @@ jobs:
         run: uv pip install --system ".[dev]"
 
       - name: Run SQLite integration tests
-        run: pytest tests -m sqlite_integration -v
+        run: |
+          rc=0; pytest tests -m sqlite_integration -v || rc=$?
+          if [ $rc -eq 5 ]; then echo "No tests collected — skipping"; exit 0; fi
+          exit $rc
 
   # PostgreSQL integration tests
   postgresql-integration:
@@ -92,10 +96,10 @@ jobs:
       - uses: actions/checkout@v6
 
       - name: Install uv
-        uses: astral-sh/setup-uv@v5
+        uses: astral-sh/setup-uv@v7
 
       - name: Set up Python 3.11
-        uses: actions/setup-python@v5
+        uses: actions/setup-python@v6
         with:
           python-version: 3.11
 
@@ -109,7 +113,10 @@ jobs:
           TEST_PG_USER: testuser
           TEST_PG_PASSWORD: testpass
           TEST_PG_DB: testdb
-        run: pytest tests -m postgresql_integration -v
+        run: |
+          rc=0; pytest tests -m postgresql_integration -v || rc=$?
+          if [ $rc -eq 5 ]; then echo "No tests collected — skipping"; exit 0; fi
+          exit $rc
 
   # MSSQL integration tests (best-effort)
   mssql-integration:
@@ -134,10 +141,10 @@ jobs:
       - uses: actions/checkout@v6
 
       - name: Install uv
-        uses: astral-sh/setup-uv@v5
+        uses: astral-sh/setup-uv@v7
 
       - name: Set up Python 3.11
-        uses: actions/setup-python@v5
+        uses: actions/setup-python@v6
         with:
           python-version: 3.11
 
@@ -155,7 +162,10 @@ jobs:
           TEST_MSSQL_PORT: 1433
           TEST_MSSQL_USER: sa
           TEST_MSSQL_PASSWORD: "TestPass123!"
-        run: pytest tests -m mssql_integration -v
+        run: |
+          rc=0; pytest tests -m mssql_integration -v || rc=$?
+          if [ $rc -eq 5 ]; then echo "No tests collected — skipping"; exit 0; fi
+          exit $rc
 
   # Architecture and code quality checks (PR only)
   architecture:
@@ -167,16 +177,16 @@ jobs:
         check:
           - {name: "import-linter", cmd: "lint-imports --help > /dev/null && lint-imports"}
           - {name: "tach", cmd: "tach --version && tach check"}
-          - {name: "vulture", cmd: "vulture --version && vulture src tests --min-confidence 60"}
+          - {name: "vulture", cmd: "vulture --version && vulture src tests vulture_whitelist.py --min-confidence 60"}
     name: ${{ matrix.check.name }}
     steps:
       - uses: actions/checkout@v6
 
       - name: Install uv
-        uses: astral-sh/setup-uv@v5
+        uses: astral-sh/setup-uv@v7
 
       - name: Set up Python 3.11
-        uses: actions/setup-python@v5
+        uses: actions/setup-python@v6
         with:
           python-version: 3.11
 

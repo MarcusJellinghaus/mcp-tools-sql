@@ -11,7 +11,11 @@ logger = logging.getLogger(__name__)
 
 
 def _build_parser() -> argparse.ArgumentParser:
-    """Build the argument parser with subcommands."""
+    """Build the argument parser with subcommands.
+
+    Returns:
+        Configured argument parser.
+    """
     parser = argparse.ArgumentParser(
         prog="mcp-tools-sql",
         description="MCP server for safe, configurable SQL database access.",

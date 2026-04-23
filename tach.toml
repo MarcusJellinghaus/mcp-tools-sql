@@ -17,6 +17,9 @@ name = "tool_implementation"
 name = "infrastructure"
 
 [[layers]]
+name = "config"
+
+[[layers]]
 name = "utilities"
 
 # Define architectural modules
@@ -64,12 +67,14 @@ depends_on = [
 path = "mcp_tools_sql.backends"
 layer = "infrastructure"
 depends_on = [
+    { path = "mcp_tools_sql.config" },
     { path = "mcp_tools_sql.utils" },
 ]
 
+
 [[modules]]
 path = "mcp_tools_sql.config"
-layer = "infrastructure"
+layer = "config"
 depends_on = [
     { path = "mcp_tools_sql.utils" },
 ]

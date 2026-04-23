@@ -117,11 +117,35 @@ ignore_missing_imports = true
 module = ["tabulate", "tabulate.*"]
 ignore_missing_imports = true
 
+[tool.ruff]
+target-version = "py311"
+line-length = 88
+
+[tool.ruff.lint]
+# Only enable docstring rules for now
+# preview needed for DOC rules (pydoclint)
+preview = true
+select = ["D", "DOC"]
+ignore = [
+    "D104",  # missing docstring in __init__.py (low value)
+    "D107",  # missing docstring in __init__ method (redundant with class docstring)
+]
+
+[tool.ruff.lint.per-file-ignores]
+"tests/**/*.py" = ["D", "DOC"]
+
+[tool.ruff.lint.pydocstyle]
+convention = "google"
+
 [tool.pylint.messages_control]
 # W, C, R: disabled by design (warnings, conventions, refactoring)
 # W1203: logging-fstring-interpolation — redundant while W is disabled, but kept
 #        as documentation: f-strings in logging calls are acceptable for readability
 disable = ["W", "C", "R", "W1203"]
+
+[tool.mcp-coder.implement]
+format_code = true
+check_type_hints = true
 
 [tool.mcp-coder.install-from-github]
 # All installed together WITH deps — uv resolves siblings in one pass
