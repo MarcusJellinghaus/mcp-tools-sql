@@ -70,7 +70,9 @@
       "mcp__obsidian-wiki__remove-tags",
       "mcp__obsidian-wiki__rename-tag",
       "mcp__obsidian-wiki__search-vault",
-      "mcp__workspace__check_branch_status"
+      "mcp__workspace__check_branch_status",
+      "Bash(git commit:*)",
+      "Bash(git push:*)"
     ]
   },
   "enableAllProjectMcpServers": true,
