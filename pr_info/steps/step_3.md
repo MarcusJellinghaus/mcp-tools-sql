@@ -9,7 +9,7 @@ Implement `resolve_connection` (dict lookup by connection name) and `discover_qu
 ## WHERE
 
 - **Modify**: `src/mcp_tools_sql/config/loader.py` (replace remaining stubs, add `discover_query_config`)
-- **Modify**: `tests/test_config.py` (add resolution + discovery test classes)
+- **Modify**: `tests/config/test_loader.py` (add resolution + discovery test classes)
 
 ## WHAT
 
@@ -25,6 +25,8 @@ def resolve_connection(
     Raises ValueError if query_config.connection is not found
     in user_config.connections.
     """
+    # Note: Also update the existing stub docstring from
+    # "Merge project and user configs..." to reflect the actual dict-lookup behavior.
 
 def discover_query_config(
     config_flag: Path | None,
@@ -39,7 +41,7 @@ def discover_query_config(
     """
 ```
 
-### `tests/test_config.py` — resolution + discovery tests
+### `tests/config/test_loader.py` — resolution + discovery tests
 
 ```python
 class TestResolveConnection:
@@ -108,6 +110,6 @@ raise ValueError(f"No mcp-tools-sql.toml found in {project_dir}. Use --config or
 ```
 Implement step 3 of the plan in pr_info/steps/step_3.md.
 Read pr_info/steps/summary.md for full context.
-Follow TDD: write tests first in tests/test_config.py, then implement the functions.
+Follow TDD: write tests first in tests/config/test_loader.py, then implement the functions.
 Run all three quality checks (pylint, mypy, pytest) before committing.
 ```

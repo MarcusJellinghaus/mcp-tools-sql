@@ -9,7 +9,8 @@ Add `Field(alias="schema")` to `UpdateConfig.schema_name` so TOML can use `schem
 ## WHERE
 
 - **Modify**: `src/mcp_tools_sql/config/models.py`
-- **Create**: `tests/test_config.py`
+- **Create**: `tests/config/__init__.py`
+- **Create**: `tests/config/test_models.py`
 
 ## WHAT
 
@@ -28,7 +29,7 @@ class UpdateConfig(BaseModel):
     fields: list[UpdateFieldConfig] = []
 ```
 
-### `tests/test_config.py` — model validation tests
+### `tests/config/test_models.py` — model validation tests
 
 ```python
 class TestUpdateConfigAlias:
@@ -79,6 +80,7 @@ No algorithm — this is a declarative model change.
 ```
 Implement step 1 of the plan in pr_info/steps/step_1.md.
 Read pr_info/steps/summary.md for full context.
-Follow TDD: write tests first in tests/test_config.py, then make the model change.
+Follow TDD: write tests first in tests/config/test_models.py, then make the model change.
+Create tests/config/__init__.py as an empty file.
 Run all three quality checks (pylint, mypy, pytest) before committing.
 ```

@@ -39,7 +39,9 @@ Error handling: `TOMLDecodeError` and `OSError` wrapped in `ValueError` with fil
 |---|---|
 | `src/mcp_tools_sql/config/models.py` | Add `Field(alias=...)` + `ConfigDict` to `UpdateConfig` |
 | `src/mcp_tools_sql/config/loader.py` | Replace stubs with full implementations |
-| `tests/test_config.py` | **New** — all config tests (models + loader) |
+| `tests/config/__init__.py` | **New** — test package init |
+| `tests/config/test_models.py` | **New** — model validation tests |
+| `tests/config/test_loader.py` | **New** — loader, resolution, and discovery tests |
 
 ## Implementation Steps
 
