@@ -19,6 +19,16 @@
         "PYTHONPATH": "${MCP_CODER_PROJECT_DIR}/src"
       }
     },
+    "sql-prototype": {
+      "type": "stdio",
+      "command": "${VIRTUAL_ENV}\\Scripts\\python.exe",
+      "args": [
+        "examples/prototype_server.py"
+      ],
+      "env": {
+        "PYTHONPATH": "${MCP_CODER_PROJECT_DIR}/src"
+      }
+    },
     "workspace": {
       "type": "stdio",
       "command": "${MCP_CODER_VENV_PATH}\\mcp-workspace.exe",
