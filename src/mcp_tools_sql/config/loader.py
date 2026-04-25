@@ -13,7 +13,11 @@ _logger = logging.getLogger(__name__)
 
 
 def _has_sensitive_keys(data: dict[str, object]) -> list[str]:
-    """Recursively scan a parsed TOML dict for sensitive keys."""
+    """Recursively scan a parsed TOML dict for sensitive keys.
+
+    Returns:
+        List of sensitive key names found in the data.
+    """
     found: list[str] = []
     for key, value in data.items():
         if key in _SENSITIVE_KEYS:
@@ -24,7 +28,14 @@ def _has_sensitive_keys(data: dict[str, object]) -> list[str]:
 
 
 def _read_toml(path: Path) -> dict[str, object]:
-    """Read and parse a TOML file, wrapping errors in ValueError."""
+    """Read and parse a TOML file, wrapping errors in ValueError.
+
+    Returns:
+        Parsed TOML data as a dictionary.
+
+    Raises:
+        ValueError: If the file cannot be read or contains invalid TOML.
+    """
     try:
         with path.open("rb") as f:
             return tomllib.load(f)
@@ -43,7 +54,14 @@ def _read_toml(path: Path) -> dict[str, object]:
 
 
 def load_query_config(path: Path) -> QueryFileConfig:
-    """Load and validate the project query configuration file."""
+    """Load and validate the project query configuration file.
+
+    Returns:
+        Validated query file configuration.
+
+    Raises:
+        ValueError: If the file does not exist or contains invalid data.
+    """
     if not path.exists():
         msg = f"Cannot read {path}: file does not exist"
         raise ValueError(msg)
@@ -67,6 +85,9 @@ def load_user_config(path: Path | None = None) -> UserConfig:
     """Load user config from path or default location.
 
     Returns defaults if the file does not exist. No side effects.
+
+    Returns:
+        User configuration loaded from file or defaults.
     """
     if path is None:
         path = Path.home() / ".mcp-tools-sql" / "config.toml"
@@ -84,8 +105,12 @@ def resolve_connection(
 ) -> ConnectionConfig:
     """Look up the named connection from user config.
 
-    Raises ValueError if query_config.connection is not found
-    in user_config.connections.
+    Returns:
+        The resolved connection configuration.
+
+    Raises:
+        ValueError: If the connection name is missing or not found
+            in user_config.connections.
     """
     name = query_config.connection
     if not name:
@@ -108,6 +133,12 @@ def discover_query_config(
     1. Explicit --config flag path
     2. mcp-tools-sql.toml in project_dir
     3. Raise ValueError with guidance
+
+    Returns:
+        Path to the discovered query config file.
+
+    Raises:
+        ValueError: If no config file can be found.
     """
     if config_flag is not None:
         if not config_flag.exists():
