@@ -97,6 +97,16 @@ An Obsidian vault (`obsidian-dev-wiki`) is available via the `obsidian-wiki` MCP
 - **Follow processes:** When a task matches a documented process in `Processes/`, follow those steps.
 - **Write back:** Update the vault when you learn something worth preserving for future sessions.
 
+## Testing MCP servers
+
+To verify an MCP server is running and its tools are discoverable, use `mcp-coder prompt`:
+
+```bash
+mcp-coder prompt --output-format json "List all MCP tools you have access to."
+```
+
+This spawns a separate Claude session that connects to all configured MCP servers and reports available tools.
+
 ## MCP server issues
 
 Alert immediately if MCP tools are not accessible — this blocks all work.
