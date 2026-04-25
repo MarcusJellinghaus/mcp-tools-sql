@@ -75,6 +75,9 @@ class TestLoadUserConfig:
 
     def test_invalid_toml_raises_value_error(self, tmp_path: Path) -> None:
         """Malformed user config raises ValueError."""
+
+    def test_unreadable_file_raises_value_error(self, tmp_path: Path) -> None:
+        """Existing but unreadable file raises ValueError (OSError wrapping)."""
 ```
 
 ## HOW
@@ -85,6 +88,7 @@ class TestLoadUserConfig:
 - `load_user_config` default path: `Path.home() / ".mcp-tools-sql" / "config.toml"`
 - Change `load_user_config` signature: add default `= None` to `path` parameter so it can be called without arguments.
 - `TOMLDecodeError` has `lineno`, `colno`, `msg` attributes in Python 3.11+ — use them for error context.
+- Include Windows backslash hint in TOML parse errors — adapts mcp-coder's `_format_toml_error` pattern
 
 ## ALGORITHM
 
@@ -94,6 +98,7 @@ open path as binary, read with tomllib.loads
 scan raw dict recursively for keys in _SENSITIVE_KEYS → log warning
 parse dict into QueryFileConfig(**data)
 catch TOMLDecodeError → ValueError(f"Invalid TOML in {path} (line {e.lineno}, col {e.colno}): {e.msg}")
+  If path contains backslashes, append hint: "(Tip: use forward slashes in TOML file paths)"
 catch OSError → ValueError(f"Cannot read {path}: {e}")
 return config
 ```
