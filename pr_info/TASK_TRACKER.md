@@ -21,6 +21,28 @@ This tracks **Feature Implementation** consisting of multiple **Tasks**.
 
 ## Tasks
 
-<!-- Tasks populated from pr_info/steps/ by prepare_task_tracker -->
+### Step 1: UpdateConfig Schema Alias + Model Tests
+> [step_1.md](./steps/step_1.md) — Add `Field(alias="schema")` to `UpdateConfig.schema_name`, write model validation tests.
+
+- [ ] Implementation: tests in `tests/config/test_models.py` + model change in `config/models.py`
+- [ ] Quality checks: pylint, pytest, mypy — fix all issues
+- [ ] Commit message prepared
+
+### Step 2: TOML Loaders — load_query_config + load_user_config
+> [step_2.md](./steps/step_2.md) — Implement TOML file loading, credential warnings, Pydantic validation.
+
+- [ ] Implementation: tests in `tests/config/test_loader.py` + loaders in `config/loader.py`
+- [ ] Quality checks: pylint, pytest, mypy — fix all issues
+- [ ] Commit message prepared
+
+### Step 3: resolve_connection + discover_query_config
+> [step_3.md](./steps/step_3.md) — Connection dict lookup and config file discovery chain.
+
+- [ ] Implementation: tests in `tests/config/test_loader.py` + functions in `config/loader.py`
+- [ ] Quality checks: pylint, pytest, mypy — fix all issues
+- [ ] Commit message prepared
 
 ## Pull Request
+
+- [ ] PR review: all steps complete, tests pass, no regressions
+- [ ] PR summary prepared
