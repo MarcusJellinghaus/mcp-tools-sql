@@ -24,6 +24,7 @@ Then start a new Claude Code session. You should see three tools:
 from __future__ import annotations
 
 import inspect
+from collections.abc import Callable
 from typing import Annotated, Optional
 
 from mcp.server.fastmcp import FastMCP
@@ -60,11 +61,11 @@ def _make_tool(
     name: str,
     description: str,
     params: list[dict[str, object]],
-    handler: object,
+    handler: Callable[..., str],
 ) -> None:
     """Build a dynamic tool function and register it on the MCP server."""
-    async def _tool_fn(**kwargs: object) -> str:  # type: ignore[misc]
-        return handler(**kwargs)  # type: ignore[operator]
+    async def _tool_fn(**kwargs: object) -> str:
+        return handler(**kwargs)
 
     sig_params: list[inspect.Parameter] = []
     for p in params:
