@@ -38,9 +38,9 @@ This tracks **Feature Implementation** consisting of multiple **Tasks**.
 ### Step 3: resolve_connection + discover_query_config
 > [step_3.md](./steps/step_3.md) — Connection dict lookup and config file discovery chain.
 
-- [ ] Implementation: tests in `tests/config/test_loader.py` + functions in `config/loader.py`
-- [ ] Quality checks: pylint, pytest, mypy — fix all issues
-- [ ] Commit message prepared
+- [x] Implementation: tests in `tests/config/test_loader.py` + functions in `config/loader.py`
+- [x] Quality checks: pylint, pytest, mypy — fix all issues
+- [x] Commit message prepared
 
 ## Pull Request
 

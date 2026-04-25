@@ -10,8 +10,17 @@ from unittest.mock import patch
 
 import pytest
 
-from mcp_tools_sql.config.loader import load_query_config, load_user_config
-from mcp_tools_sql.config.models import QueryFileConfig, UserConfig
+from mcp_tools_sql.config.loader import (
+    discover_query_config,
+    load_query_config,
+    load_user_config,
+    resolve_connection,
+)
+from mcp_tools_sql.config.models import (
+    ConnectionConfig,
+    QueryFileConfig,
+    UserConfig,
+)
 
 
 class TestLoadQueryConfig:
@@ -204,3 +213,78 @@ password = "secret"
                 load_user_config(config_file)
         finally:
             config_file.chmod(stat.S_IRUSR | stat.S_IWUSR)
+
+
+class TestResolveConnection:
+    """Tests for resolve_connection."""
+
+    def test_valid_connection_found(self) -> None:
+        """Returns ConnectionConfig when name matches."""
+        conn = ConnectionConfig(backend="sqlite", path="./test.db")
+        query_config = QueryFileConfig(connection="mydb")
+        user_config = UserConfig(connections={"mydb": conn})
+
+        result = resolve_connection(query_config, user_config)
+
+        assert result is conn
+        assert result.backend == "sqlite"
+        assert result.path == "./test.db"
+
+    def test_missing_connection_raises(self) -> None:
+        """ValueError when connection name not in user config."""
+        conn = ConnectionConfig(backend="sqlite")
+        query_config = QueryFileConfig(connection="missing")
+        user_config = UserConfig(connections={"other": conn})
+
+        with pytest.raises(ValueError, match="missing"):
+            resolve_connection(query_config, user_config)
+
+    def test_empty_connection_name_raises(self) -> None:
+        """ValueError when query_config.connection is empty."""
+        query_config = QueryFileConfig(connection="")
+        user_config = UserConfig(connections={"mydb": ConnectionConfig()})
+
+        with pytest.raises(ValueError, match="No connection name"):
+            resolve_connection(query_config, user_config)
+
+    def test_empty_connections_dict_raises(self) -> None:
+        """ValueError when user_config has no connections."""
+        query_config = QueryFileConfig(connection="mydb")
+        user_config = UserConfig(connections={})
+
+        with pytest.raises(ValueError, match="mydb"):
+            resolve_connection(query_config, user_config)
+
+
+class TestDiscoverQueryConfig:
+    """Tests for discover_query_config."""
+
+    def test_explicit_flag_returned(self, tmp_path: Path) -> None:
+        """--config flag path is returned directly."""
+        config_file = tmp_path / "custom.toml"
+        config_file.write_text("")
+
+        result = discover_query_config(config_flag=config_file, project_dir=tmp_path)
+
+        assert result == config_file
+
+    def test_explicit_flag_missing_raises(self, tmp_path: Path) -> None:
+        """ValueError when --config points to non-existent file."""
+        missing = tmp_path / "nonexistent.toml"
+
+        with pytest.raises(ValueError, match="nonexistent.toml"):
+            discover_query_config(config_flag=missing, project_dir=tmp_path)
+
+    def test_auto_discovery_in_project_dir(self, tmp_path: Path) -> None:
+        """Finds mcp-tools-sql.toml in project_dir."""
+        config_file = tmp_path / "mcp-tools-sql.toml"
+        config_file.write_text("")
+
+        result = discover_query_config(config_flag=None, project_dir=tmp_path)
+
+        assert result == config_file
+
+    def test_no_config_found_raises(self, tmp_path: Path) -> None:
+        """ValueError with guidance when no config exists."""
+        with pytest.raises(ValueError, match="mcp-tools-sql.toml"):
+            discover_query_config(config_flag=None, project_dir=tmp_path)
