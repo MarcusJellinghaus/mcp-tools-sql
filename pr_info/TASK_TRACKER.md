@@ -24,9 +24,9 @@ This tracks **Feature Implementation** consisting of multiple **Tasks**.
 ### Step 1: UpdateConfig Schema Alias + Model Tests
 > [step_1.md](./steps/step_1.md) — Add `Field(alias="schema")` to `UpdateConfig.schema_name`, write model validation tests.
 
-- [ ] Implementation: tests in `tests/config/test_models.py` + model change in `config/models.py`
-- [ ] Quality checks: pylint, pytest, mypy — fix all issues
-- [ ] Commit message prepared
+- [x] Implementation: tests in `tests/config/test_models.py` + model change in `config/models.py`
+- [x] Quality checks: pylint, pytest, mypy — fix all issues
+- [x] Commit message prepared
 
 ### Step 2: TOML Loaders — load_query_config + load_user_config
 > [step_2.md](./steps/step_2.md) — Implement TOML file loading, credential warnings, Pydantic validation.
