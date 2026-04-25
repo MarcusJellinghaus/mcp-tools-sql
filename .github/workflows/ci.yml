@@ -11,6 +11,50 @@ permissions:
   contents: read
 
 jobs:
+  check-forbidden-folders:
+    runs-on: ubuntu-latest
+    if: github.event_name == 'pull_request'
+    steps:
+    - uses: actions/checkout@v6
+
+    - name: Check for forbidden folders in PR
+      run: |
+        echo "Checking for forbidden folders in pull request..."
+
+        # Function to check for folder existence case-insensitively
+        check_forbidden_folder() {
+          local pattern="$1"
+          local description="$2"
+
+          # Use find with case-insensitive matching
+          if find . -type d -ipath "*${pattern}*" -print -quit | grep -q .; then
+            echo "❌ ERROR: Found forbidden folder matching '${pattern}'"
+            echo "Description: ${description}"
+            find . -type d -ipath "*${pattern}*" | sed 's/^/ Found: /'
+            return 1
+          else
+            echo "✅ No forbidden folder found for pattern: ${pattern}"
+            return 0
+          fi
+        }
+
+        # Check for forbidden folders
+        ERROR=0
+
+        check_forbidden_folder "pr_info" "Temporary development folder (planning, tracking, review logs)" || ERROR=1
+
+        if [ $ERROR -eq 1 ]; then
+          echo ""
+          echo "❌ PULL REQUEST BLOCKED: Forbidden folders detected!"
+          echo "These folders should not be included in pull requests."
+          echo "Please remove them and update your .gitignore if necessary."
+          echo "Note: These folders are allowed in regular commits, just not in PRs."
+          exit 1
+        else
+          echo ""
+          echo "✅ All checks passed! No forbidden folders found."
+        fi
+
   # Matrix approach: Each check runs as independent job with individual pass/fail status
   # fail-fast: false ensures all checks complete even if one fails
   test:
