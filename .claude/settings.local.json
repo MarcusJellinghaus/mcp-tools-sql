@@ -1,8 +1,6 @@
 {
   "permissions": {
     "allow": [
-      "Bash(mcp-coder check branch-status:*)",
-      "Bash(mcp-coder check file-size:*)",
       "Bash(mcp-coder gh-tool:*)",
       "mcp__tools-py__find_references",
       "mcp__tools-py__get_library_source",
@@ -24,10 +22,6 @@
       "mcp__workspace__edit_file",
       "mcp__workspace__get_reference_projects",
       "mcp__workspace__git",
-      "mcp__workspace__git_diff",
-      "mcp__workspace__git_log",
-      "mcp__workspace__git_merge_base",
-      "mcp__workspace__git_status",
       "mcp__workspace__github_issue_list",
       "mcp__workspace__github_issue_view",
       "mcp__workspace__github_pr_view",
@@ -71,6 +65,8 @@
       "mcp__obsidian-wiki__rename-tag",
       "mcp__obsidian-wiki__search-vault",
       "mcp__workspace__check_branch_status",
+      "mcp__workspace__check_file_size",
+      "mcp__workspace__get_base_branch",
       "Bash(git commit:*)",
       "Bash(git push:*)"
     ]
