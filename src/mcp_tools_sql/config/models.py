@@ -4,7 +4,7 @@ from __future__ import annotations
 
 from typing import Optional
 
-from pydantic import BaseModel
+from pydantic import BaseModel, ConfigDict, Field
 
 
 class ConnectionConfig(BaseModel):
@@ -59,8 +59,10 @@ class UpdateKeyConfig(BaseModel):
 class UpdateConfig(BaseModel):
     """A configured UPDATE definition that becomes an MCP tool."""
 
+    model_config = ConfigDict(populate_by_name=True)
+
     description: str = ""
-    schema_name: str = ""  # 'schema' is a Pydantic reserved name
+    schema_name: str = Field(default="", alias="schema")
     table: str = ""
     key: Optional[UpdateKeyConfig] = None
     fields: list[UpdateFieldConfig] = []

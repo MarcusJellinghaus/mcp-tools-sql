@@ -150,10 +150,10 @@ check_type_hints = true
 [tool.mcp-coder.install-from-github]
 # All installed together WITH deps — uv resolves siblings in one pass
 packages = [
-    "mcp-coder-utils @ git+https://github.com/MarcusJellinghaus/mcp-coder-utils.git",
-    "mcp-config-tool @ git+https://github.com/MarcusJellinghaus/mcp-config.git",
-    "mcp-workspace @ git+https://github.com/MarcusJellinghaus/mcp-workspace.git",
-    "mcp-coder @ git+https://github.com/MarcusJellinghaus/mcp_coder.git",
+    # "mcp-coder-utils @ git+https://github.com/MarcusJellinghaus/mcp-coder-utils.git",
+    # "mcp-config-tool @ git+https://github.com/MarcusJellinghaus/mcp-config.git",
+    # "mcp-workspace @ git+https://github.com/MarcusJellinghaus/mcp-workspace.git",
+    # "mcp-coder @ git+https://github.com/MarcusJellinghaus/mcp_coder.git",
 ]
 
 # Include tools directory in the distribution
@@ -167,10 +167,10 @@ where = ["src"]
 "*" = ["py.typed"]
 
 [tool.uv.sources]
-mcp-coder-utils = { git = "https://github.com/MarcusJellinghaus/mcp-coder-utils.git" }
-mcp-config-tool = { git = "https://github.com/MarcusJellinghaus/mcp-config.git" }
-mcp-workspace = { git = "https://github.com/MarcusJellinghaus/mcp-workspace.git" }
-mcp-coder = { git = "https://github.com/MarcusJellinghaus/mcp_coder.git" }
+# mcp-coder-utils = { git = "https://github.com/MarcusJellinghaus/mcp-coder-utils.git" }
+# mcp-config-tool = { git = "https://github.com/MarcusJellinghaus/mcp-config.git" }
+# mcp-workspace = { git = "https://github.com/MarcusJellinghaus/mcp-workspace.git" }
+# mcp-coder = { git = "https://github.com/MarcusJellinghaus/mcp_coder.git" }
 
 [build-system]
 requires = ["setuptools>=61.0", "setuptools-scm>=8.0"]

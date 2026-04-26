@@ -61,6 +61,7 @@ _.field
 _.schema_name
 _.key
 _.connection
+_.model_config
 
 # =============================================================================
 # Tool/Server classes - registered dynamically
