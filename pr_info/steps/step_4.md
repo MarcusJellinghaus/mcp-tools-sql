@@ -62,6 +62,10 @@ sql_params = _extract_sql_params(resolved_sql)
 # Create async function that:
 #   1. Receives **kwargs from MCP call
 #   2. Extracts max_rows from kwargs (default from config.max_rows)
+#      For the `max_rows` parameter, use `config.max_rows` as the default
+#      value in the generated function signature. `QueryConfig.max_rows`
+#      provides the default; `params.max_rows` makes it a user-overridable
+#      tool parameter.
 #   3. Extracts filter from kwargs (if present)
 #   4. Strips kwargs to only params referenced in resolved SQL
 #   5. Calls backend.execute_query(resolved_sql, stripped_params)
@@ -134,10 +138,10 @@ The `backend_name` needed for `resolve_sql()` should match the keys in `default_
 
 Update `ToolServer.__init__` to also accept `backend_name: str`:
 ```python
-def __init__(self, config: QueryFileConfig, backend: DatabaseBackend, backend_name: str = "sqlite") -> None:
+def __init__(self, config: QueryFileConfig, backend: DatabaseBackend, backend_name: str) -> None:
 ```
 
-Update `create_server()` accordingly.
+Update `create_server()` accordingly. Note: `create_server()` passes `ConnectionConfig.backend` as `backend_name` — no default needed.
 
 ## Part C: Unit tests for helpers
 

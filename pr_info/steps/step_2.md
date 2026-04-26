@@ -76,13 +76,22 @@ sql = "SELECT name, type, NOT \"notnull\" AS nullable, dflt_value AS \"default\"
 ```toml
 [queries.read_relations]
 description = "List foreign key relationships for a table"
-sql = """SELECT \
-  CONSTRAINT_NAME AS constraint_name, \
-  COLUMN_NAME AS \"column\", \
-  REFERENCED_TABLE_NAME AS referenced_table, \
-  REFERENCED_COLUMN_NAME AS referenced_column \
-FROM INFORMATION_SCHEMA.KEY_COLUMN_USAGE \
-WHERE TABLE_SCHEMA = :schema AND TABLE_NAME = :table AND REFERENCED_TABLE_NAME IS NOT NULL"""
+sql = """\
+SELECT
+    rc.CONSTRAINT_NAME AS constraint_name,
+    kcu1.COLUMN_NAME AS "column",
+    kcu2.TABLE_NAME AS referenced_table,
+    kcu2.COLUMN_NAME AS referenced_column
+FROM INFORMATION_SCHEMA.REFERENTIAL_CONSTRAINTS rc
+JOIN INFORMATION_SCHEMA.KEY_COLUMN_USAGE kcu1
+    ON kcu1.CONSTRAINT_NAME = rc.CONSTRAINT_NAME
+    AND kcu1.TABLE_SCHEMA = rc.CONSTRAINT_SCHEMA
+JOIN INFORMATION_SCHEMA.KEY_COLUMN_USAGE kcu2
+    ON kcu2.CONSTRAINT_NAME = rc.UNIQUE_CONSTRAINT_NAME
+    AND kcu2.TABLE_SCHEMA = rc.UNIQUE_CONSTRAINT_SCHEMA
+    AND kcu2.ORDINAL_POSITION = kcu1.ORDINAL_POSITION
+WHERE kcu1.TABLE_SCHEMA = :schema AND kcu1.TABLE_NAME = :table
+"""
 
 [queries.read_relations.params.schema]
 name = "schema"
@@ -99,7 +108,7 @@ sql = "SELECT id AS constraint_name, \"from\" AS \"column\", \"table\" AS refere
 ```
 
 ### DATA — Note on SQLite pragma function-form
-The issue flags `pragma_table_info(:table)` as needing verification. SQLite supports function-form PRAGMAs with named params when using `sqlite3.Row` row factory. This must be verified in the test (Part B). If it fails, fallback: use `PRAGMA table_info(?)` with positional binding or a subquery.
+The issue flags `pragma_table_info(:table)` as needing verification. SQLite supports function-form PRAGMAs with named params when using `sqlite3.Row` row factory. This must be verified in the test (Part B). If it fails, fallback: use `SELECT ... FROM pragma_table_info(:table)` (table-valued function syntax) since `execute_query` uses dict params. Same approach for `pragma_foreign_key_list(:table)`.
 
 ## Part B: Loader helper + test
 
@@ -143,7 +152,12 @@ class TestDefaultQueriesLoading:
         """read_columns has an optional 'filter' param."""
 
     def test_read_columns_has_max_rows_param(self) -> None:
-        """read_columns has an optional 'max_rows' param with default 100."""
+        """read_columns has an optional 'max_rows' param and config.max_rows == 100.
+
+        Checks: (a) the param exists and is optional (required=false),
+        and (b) config.max_rows == 100 (separate assertion on the QueryConfig
+        field, not on QueryParamConfig).
+        """
 ```
 
 ### WHAT — SQLite pragma verification test
