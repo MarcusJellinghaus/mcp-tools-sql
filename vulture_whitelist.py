@@ -29,7 +29,6 @@ _.read_schemas
 _.read_tables
 _.read_columns
 _.read_relations
-_.search_columns
 _.run
 
 # =============================================================================
