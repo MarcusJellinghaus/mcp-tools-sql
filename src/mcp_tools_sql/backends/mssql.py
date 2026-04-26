@@ -53,15 +53,6 @@ class MSSQLBackend(DatabaseBackend):
         """Return column metadata for a table."""
         raise NotImplementedError
 
-    def search_columns(
-        self,
-        schema: str,
-        table: str,
-        pattern: str,
-    ) -> list[dict[str, Any]]:
-        """Search columns by name pattern."""
-        raise NotImplementedError
-
     def read_relations(self, schema: str, table: str) -> list[dict[str, Any]]:
         """Return foreign-key relationships."""
         raise NotImplementedError

@@ -29,12 +29,12 @@ _.read_schemas
 _.read_tables
 _.read_columns
 _.read_relations
-_.search_columns
 _.run
 
 # =============================================================================
-# Backend implementations - stored config and method params
+# Backend implementations - stored config, method params, and implicit attrs
 # =============================================================================
+_.row_factory
 _._config
 _._backend
 _._mcp

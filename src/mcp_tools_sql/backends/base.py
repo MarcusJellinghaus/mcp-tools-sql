@@ -3,7 +3,8 @@
 from __future__ import annotations
 
 from abc import ABC, abstractmethod
-from typing import Any
+from types import TracebackType
+from typing import Any, Self
 
 from mcp_tools_sql.config.models import ConnectionConfig
 
@@ -51,17 +52,26 @@ class DatabaseBackend(ABC):
         """Return column metadata for a table, optionally filtered."""
 
     @abstractmethod
-    def search_columns(
-        self,
-        schema: str,
-        table: str,
-        pattern: str,
-    ) -> list[dict[str, Any]]:
-        """Search columns by name pattern across a table."""
-
-    @abstractmethod
     def read_relations(self, schema: str, table: str) -> list[dict[str, Any]]:
         """Return foreign-key relationships for a table."""
+
+    def __enter__(self) -> Self:
+        """Connect and return self for use as context manager.
+
+        Returns:
+            Self for use in a ``with`` statement.
+        """
+        self.connect()
+        return self
+
+    def __exit__(
+        self,
+        _exc_type: type[BaseException] | None,
+        _exc_val: BaseException | None,
+        _exc_tb: TracebackType | None,
+    ) -> None:
+        """Close connection on context exit."""
+        self.close()
 
 
 def create_backend(config: ConnectionConfig) -> DatabaseBackend:
