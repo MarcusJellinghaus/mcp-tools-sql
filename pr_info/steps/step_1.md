@@ -13,6 +13,7 @@ Refine the `DatabaseBackend` ABC: remove the redundant `search_columns` method a
 | `src/mcp_tools_sql/backends/base.py` | Modify |
 | `src/mcp_tools_sql/backends/sqlite.py` | Modify |
 | `src/mcp_tools_sql/backends/mssql.py` | Modify |
+| `vulture_whitelist.py` | Modify — Remove `_.search_columns` entry |
 
 ## WHAT
 
@@ -45,6 +46,10 @@ def __exit__(
 
 ### `mssql.py` — Remove `search_columns` stub method
 
+### `vulture_whitelist.py` — Remove `_.search_columns` entry
+
+Remove the `_.search_columns` line from the vulture whitelist since the method no longer exists.
+
 ## HOW
 
 - `from typing import Self` (available in 3.11+, which is the project minimum)
@@ -70,6 +75,7 @@ Update the DatabaseBackend ABC in backends/base.py:
 3. `__enter__` returns `Self`, `__exit__` accepts standard exception args
 
 Remove `search_columns` from both backend stubs (sqlite.py and mssql.py).
+Remove `_.search_columns` from `vulture_whitelist.py`.
 
 Run all quality checks (pylint, mypy, pytest) and fix any issues.
 ```

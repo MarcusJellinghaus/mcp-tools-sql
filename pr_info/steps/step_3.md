@@ -43,8 +43,8 @@ All tests use the `sqlite_integration` marker. Use the existing `sqlite_db` fixt
 
 **Error handling:**
 - `test_connect_empty_path` — raises `ValueError`
-- `test_operations_before_connect` — raises error (each method)
-- `test_operations_after_close` — raises error
+- `test_operations_before_connect` — raises error for each data-access method (`execute_query`, `execute_update`, `explain`, `read_schemas`, `read_tables`, `read_columns`, `read_relations`). Use `@pytest.mark.parametrize`.
+- `test_operations_after_close` — raises error for each data-access method. Use `@pytest.mark.parametrize`.
 - `test_read_columns_nonexistent_table` — raises error
 - `test_read_tables_nonexistent_schema` — behavior is defined (SQLite ignores schema)
 - `test_connect_invalid_path` — path in non-existent directory
@@ -79,7 +79,7 @@ Write comprehensive tests for SQLiteBackend covering:
 1. Connection lifecycle: connect, close, idempotent behavior, context manager
 2. Schema introspection: read_schemas, read_tables, read_columns (with/without filter), read_relations (normalized keys)
 3. Query execution: execute_query with/without params, execute_update, explain
-4. Error handling: empty path (ValueError), operations before connect, operations after close, nonexistent table, invalid path, read-only file, corrupt DB
+4. Error handling: empty path (ValueError), operations before connect (parametrized over all 7 data methods), operations after close (parametrized), nonexistent table, invalid path, read-only file, corrupt DB
 
 Use existing sqlite_db fixture from conftest.py. Mark all tests with @pytest.mark.sqlite_integration.
 Helper: _make_backend(path) creates SQLiteBackend from ConnectionConfig.
