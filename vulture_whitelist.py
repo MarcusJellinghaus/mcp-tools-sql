@@ -32,8 +32,9 @@ _.read_relations
 _.run
 
 # =============================================================================
-# Backend implementations - stored config and method params
+# Backend implementations - stored config, method params, and implicit attrs
 # =============================================================================
+_.row_factory
 _._config
 _._backend
 _._mcp
