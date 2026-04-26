@@ -43,7 +43,26 @@ sql = "SELECT name FROM sqlite_master WHERE type='table' AND name NOT LIKE 'sqli
 ```toml
 [queries.read_columns]
 description = "List column metadata for a table"
-sql = "SELECT COLUMN_NAME AS name, DATA_TYPE AS type, IS_NULLABLE AS nullable, COLUMN_DEFAULT AS \"default\", CASE WHEN COLUMN_KEY = 'PRI' THEN 1 ELSE 0 END AS is_primary_key FROM INFORMATION_SCHEMA.COLUMNS WHERE TABLE_SCHEMA = :schema AND TABLE_NAME = :table ORDER BY ORDINAL_POSITION"
+sql = """\
+SELECT
+    c.COLUMN_NAME AS name,
+    c.DATA_TYPE AS type,
+    c.IS_NULLABLE AS nullable,
+    c.COLUMN_DEFAULT AS "default",
+    CASE WHEN kcu.COLUMN_NAME IS NOT NULL THEN 1 ELSE 0 END AS is_primary_key
+FROM INFORMATION_SCHEMA.COLUMNS c
+LEFT JOIN INFORMATION_SCHEMA.TABLE_CONSTRAINTS tc
+    ON tc.TABLE_SCHEMA = c.TABLE_SCHEMA
+    AND tc.TABLE_NAME = c.TABLE_NAME
+    AND tc.CONSTRAINT_TYPE = 'PRIMARY KEY'
+LEFT JOIN INFORMATION_SCHEMA.KEY_COLUMN_USAGE kcu
+    ON kcu.CONSTRAINT_NAME = tc.CONSTRAINT_NAME
+    AND kcu.TABLE_SCHEMA = tc.TABLE_SCHEMA
+    AND kcu.TABLE_NAME = tc.TABLE_NAME
+    AND kcu.COLUMN_NAME = c.COLUMN_NAME
+WHERE c.TABLE_SCHEMA = :schema AND c.TABLE_NAME = :table
+ORDER BY c.ORDINAL_POSITION
+"""
 max_rows = 100
 
 [queries.read_columns.params.schema]

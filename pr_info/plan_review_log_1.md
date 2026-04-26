@@ -33,3 +33,23 @@
 
 **Status:** committed
 
+## Round 2 — 2026-04-26
+
+**Findings:**
+- F1 (Critical): `read_columns` default SQL still used MySQL `COLUMN_KEY` — round 1 fix was applied to `read_relations` but missed `read_columns`
+- F2 (Accept): `read_relations` SQL confirmed correct after round 1 fix
+- F3 (Accept): `backend_name` text slightly confusing but final resolution is clear
+- F4 (Skip): Pragma note slightly stale but SQL itself is correct
+
+**Decisions:**
+- F1: Accept — apply the MSSQL-compatible JOIN for `read_columns`
+- F2, F3: No changes needed
+- F4: Skip
+
+**User decisions:** None needed
+
+**Changes:**
+- `step_2.md`: Replaced `read_columns` default SQL with MSSQL-compatible JOIN to `TABLE_CONSTRAINTS` + `KEY_COLUMN_USAGE` for PK detection
+
+**Status:** committed
+
