@@ -53,3 +53,22 @@
 
 **Status:** committed
 
+## Round 3 — 2026-04-26
+
+**Findings:** None — all round 2 fixes verified correct.
+**Decisions:** N/A
+**User decisions:** N/A
+**Changes:** None
+**Status:** no changes needed
+
+## Final Status
+
+- **Rounds run:** 3
+- **Commits produced:** 2 (`c0b3e4e`, `f935699`)
+- **Plan status:** Ready for approval
+- **Key changes made:**
+  - Default SQL for `read_columns` and `read_relations` rewritten to target MSSQL INFORMATION_SCHEMA (JOINs for PK and FK detection)
+  - Pragma fallback strategy updated to table-valued function syntax
+  - `max_rows` parameter interaction clarified in step 4
+  - `backend_name` default removed from `ToolServer.__init__`
+  - Test description clarified for `test_read_columns_has_max_rows_param`
