@@ -22,7 +22,7 @@ This tracks **Feature Implementation** consisting of multiple **Tasks**.
 ## Tasks
 
 - [x] [Step 1: ABC updates + stub cleanup](./steps/step_1.md) — Remove `search_columns`, add context manager to `DatabaseBackend`
-- [ ] [Step 2: SQLite backend implementation](./steps/step_2.md) — Implement all backend methods in `SQLiteBackend`
+- [x] [Step 2: SQLite backend implementation](./steps/step_2.md) — Implement all backend methods in `SQLiteBackend`
 - [ ] [Step 3: SQLite backend tests](./steps/step_3.md) — Comprehensive tests for introspection, queries, and error handling
 
 ## Pull Request
