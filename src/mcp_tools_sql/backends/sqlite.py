@@ -18,14 +18,25 @@ class SQLiteBackend(DatabaseBackend):
         self._connection: sqlite3.Connection | None = None
 
     def _require_connection(self) -> sqlite3.Connection:
-        """Return the active connection or raise."""
+        """Return the active connection or raise.
+
+        Returns:
+            The active SQLite connection.
+
+        Raises:
+            RuntimeError: If not connected.
+        """
         if self._connection is None:
             msg = "Not connected. Call connect() first."
             raise RuntimeError(msg)
         return self._connection
 
     def connect(self) -> None:
-        """Open a connection to the SQLite database."""
+        """Open a connection to the SQLite database.
+
+        Raises:
+            ValueError: If the connection path is empty.
+        """
         if self._connection is not None:
             return
         path = self._config.connection_string
@@ -45,13 +56,21 @@ class SQLiteBackend(DatabaseBackend):
     def execute_query(
         self, sql: str, params: dict[str, Any] | None = None
     ) -> list[dict[str, Any]]:
-        """Execute a SELECT query."""
+        """Execute a SELECT query.
+
+        Returns:
+            Rows as a list of dicts.
+        """
         conn = self._require_connection()
         cursor = conn.execute(sql, params or {})
         return [dict(row) for row in cursor.fetchall()]
 
     def execute_update(self, sql: str, params: dict[str, Any] | None = None) -> int:
-        """Execute an UPDATE/INSERT."""
+        """Execute an UPDATE/INSERT.
+
+        Returns:
+            Number of affected rows.
+        """
         conn = self._require_connection()
         cursor = conn.execute(sql, params or {})
         conn.commit()
@@ -65,11 +84,19 @@ class SQLiteBackend(DatabaseBackend):
         return "\n".join(row["detail"] for row in rows)
 
     def read_schemas(self) -> list[str]:
-        """List schemas (SQLite has only 'main')."""
+        """List schemas (SQLite has only 'main').
+
+        Returns:
+            A list containing only ``'main'``.
+        """
         return ["main"]
 
     def read_tables(self, schema: str) -> list[str]:
-        """List tables in the database."""
+        """List tables in the database.
+
+        Returns:
+            Table names sorted alphabetically.
+        """
         conn = self._require_connection()
         cursor = conn.execute(
             "SELECT name FROM sqlite_master WHERE type='table' "

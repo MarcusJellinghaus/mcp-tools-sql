@@ -56,7 +56,11 @@ class DatabaseBackend(ABC):
         """Return foreign-key relationships for a table."""
 
     def __enter__(self) -> Self:
-        """Connect and return self for use as context manager."""
+        """Connect and return self for use as context manager.
+
+        Returns:
+            Self for use in a ``with`` statement.
+        """
         self.connect()
         return self
 
