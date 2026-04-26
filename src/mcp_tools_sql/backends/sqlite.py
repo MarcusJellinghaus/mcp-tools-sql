@@ -89,6 +89,7 @@ class SQLiteBackend(DatabaseBackend):
         Returns:
             A list containing only ``'main'``.
         """
+        self._require_connection()
         return ["main"]
 
     def read_tables(self, schema: str) -> list[str]:

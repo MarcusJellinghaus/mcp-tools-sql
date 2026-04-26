@@ -192,6 +192,7 @@ _DATA_METHODS: list[tuple[str, tuple[Any, ...]]] = [
     ("execute_query", ("SELECT 1",)),
     ("execute_update", ("SELECT 1",)),
     ("explain", ("SELECT 1",)),
+    ("read_schemas", ()),
     ("read_tables", ("main",)),
     ("read_columns", ("main", "customers")),
     ("read_relations", ("main", "customers")),
