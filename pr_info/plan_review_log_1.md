@@ -36,5 +36,22 @@
 - `pr_info/steps/step_1.md`: Added vulture_whitelist.py to WHERE table, added WHAT subsection for removal, updated LLM prompt
 - `pr_info/steps/step_3.md`: Updated test descriptions to specify parametrization over all 7 methods, updated LLM prompt
 
+**Status**: Committed (2ab36b2)
+
+## Round 2 — 2026-04-26
+
+**Findings**:
+- Round 1 changes verified: vulture_whitelist.py correctly added to Step 1, parametrization correctly added to Step 3
+- F5 (Accept): `summary.md` Files Modified table missing `vulture_whitelist.py` — inconsistency from round 1 edit
+- All other aspects confirmed correct and consistent
+
+**Decisions**:
+- F5: Accept — add missing row to summary.md
+
+**User decisions**: None needed.
+
+**Changes**:
+- `pr_info/steps/summary.md`: Added `vulture_whitelist.py` row to Files Modified table
+
 **Status**: Committing...
 

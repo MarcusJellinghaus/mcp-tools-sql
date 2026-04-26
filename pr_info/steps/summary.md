@@ -34,6 +34,7 @@ Implement the SQLite database backend and refine the `DatabaseBackend` ABC. SQLi
 | `src/mcp_tools_sql/backends/base.py` | Modify | Remove `search_columns`, add `__enter__`/`__exit__` |
 | `src/mcp_tools_sql/backends/sqlite.py` | Modify | Implement all backend methods |
 | `src/mcp_tools_sql/backends/mssql.py` | Modify | Remove `search_columns` stub |
+| `vulture_whitelist.py` | Modify | Remove stale `_.search_columns` entry |
 | `tests/backends/__init__.py` | Create | Test package init |
 | `tests/backends/test_sqlite.py` | Create | Comprehensive SQLite tests |
 
