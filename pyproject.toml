@@ -106,14 +106,6 @@ module = ["mcp_coder_utils", "mcp_coder_utils.*"]
 ignore_missing_imports = true
 
 [[tool.mypy.overrides]]
-module = ["pyodbc", "pyodbc.*"]
-ignore_missing_imports = true
-
-[[tool.mypy.overrides]]
-module = ["psycopg", "psycopg.*"]
-ignore_missing_imports = true
-
-[[tool.mypy.overrides]]
 module = ["tabulate", "tabulate.*"]
 ignore_missing_imports = true
 

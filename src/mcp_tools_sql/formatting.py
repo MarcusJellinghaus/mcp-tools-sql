@@ -25,7 +25,7 @@ def format_rows(
         return "No results found."
     total = len(rows)
     display_rows = rows[:max_rows]
-    table = tabulate(display_rows, headers="keys", tablefmt="simple")
+    table: str = tabulate(display_rows, headers="keys", tablefmt="simple")
     if total > max_rows:
         table += f"\n\nShowing {max_rows} of {total} rows. Use filter to narrow."
     return table
