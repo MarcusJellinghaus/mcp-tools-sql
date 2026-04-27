@@ -49,7 +49,11 @@ def register_builtin_tools(
 
 
 def _extract_sql_params(sql: str) -> set[str]:
-    """Scan SQL for :param_name references, return set of param names."""
+    """Scan SQL for :param_name references.
+
+    Returns:
+        Set of parameter names found in the SQL string.
+    """
     return set(re.findall(r":(\w+)", sql))
 
 
@@ -57,7 +61,11 @@ def _apply_filter(
     rows: list[dict[str, Any]],
     filter_pattern: str | None,
 ) -> list[dict[str, Any]]:
-    """Apply fnmatch glob filter on the 'name' column. Returns filtered rows."""
+    """Apply fnmatch glob filter on the 'name' column.
+
+    Returns:
+        Filtered rows matching the glob pattern.
+    """
     if not filter_pattern:
         return rows
     return [
@@ -75,8 +83,9 @@ def _build_tool_fn(
 ) -> Callable[..., Any]:
     """Build a dynamic async function for one query config entry.
 
-    Returns an async function with __signature__ set from config params,
-    ready for mcp.add_tool().
+    Returns:
+        Async function with ``__signature__`` set from config params,
+            ready for ``mcp.add_tool()``.
     """
     resolved_sql = config.resolve_sql(backend_name)
     sql_params = _extract_sql_params(resolved_sql)
