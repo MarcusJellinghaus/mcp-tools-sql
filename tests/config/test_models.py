@@ -6,6 +6,7 @@ import pytest
 from pydantic import ValidationError
 
 from mcp_tools_sql.config.models import (
+    BackendQueryConfig,
     ConnectionConfig,
     QueryConfig,
     QueryFileConfig,
@@ -86,3 +87,57 @@ class TestModelValidation:
         param = query.params["id"]
         assert isinstance(param, QueryParamConfig)
         assert param.type == "int"
+
+
+class TestBackendQueryConfig:
+    """Tests for BackendQueryConfig model."""
+
+    def test_basic_creation(self) -> None:
+        """BackendQueryConfig stores a SQL override string."""
+        config = BackendQueryConfig(sql="SELECT 1")
+        assert config.sql == "SELECT 1"
+
+
+class TestQueryConfigResolveSQL:
+    """Tests for QueryConfig.resolve_sql() method."""
+
+    def test_override_present(self) -> None:
+        """resolve_sql returns backend-specific SQL when override exists."""
+        config = QueryConfig(
+            sql="DEFAULT",
+            backends={"sqlite": BackendQueryConfig(sql="SQLITE")},
+        )
+        assert config.resolve_sql("sqlite") == "SQLITE"
+
+    def test_override_absent_fallback(self) -> None:
+        """resolve_sql returns default SQL when backend has no override."""
+        config = QueryConfig(
+            sql="DEFAULT",
+            backends={"sqlite": BackendQueryConfig(sql="SQLITE")},
+        )
+        assert config.resolve_sql("mssql") == "DEFAULT"
+
+    def test_no_backends_fallback(self) -> None:
+        """resolve_sql returns default SQL when no backends configured."""
+        config = QueryConfig(sql="DEFAULT")
+        assert config.resolve_sql("sqlite") == "DEFAULT"
+
+
+class TestQueryConfigBackendsParsing:
+    """Tests for parsing backends from nested dict (TOML structure)."""
+
+    def test_nested_dict_parsing(self) -> None:
+        """QueryConfig parses nested backends dict like TOML would produce."""
+        data = {
+            "sql": "SELECT * FROM information_schema.tables",
+            "backends": {
+                "sqlite": {"sql": "SELECT name FROM sqlite_master WHERE type='table'"}
+            },
+        }
+        config = QueryConfig.model_validate(data)
+        assert config.resolve_sql("sqlite") == (
+            "SELECT name FROM sqlite_master WHERE type='table'"
+        )
+        assert config.resolve_sql("mssql") == (
+            "SELECT * FROM information_schema.tables"
+        )

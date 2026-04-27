@@ -34,27 +34,6 @@ class DatabaseBackend(ABC):
     def explain(self, sql: str) -> str:
         """Return the query execution plan as text."""
 
-    @abstractmethod
-    def read_schemas(self) -> list[str]:
-        """List available schemas in the database."""
-
-    @abstractmethod
-    def read_tables(self, schema: str) -> list[str]:
-        """List tables in the given schema."""
-
-    @abstractmethod
-    def read_columns(
-        self,
-        schema: str,
-        table: str,
-        filter_pattern: str | None = None,
-    ) -> list[dict[str, Any]]:
-        """Return column metadata for a table, optionally filtered."""
-
-    @abstractmethod
-    def read_relations(self, schema: str, table: str) -> list[dict[str, Any]]:
-        """Return foreign-key relationships for a table."""
-
     def __enter__(self) -> Self:
         """Connect and return self for use as context manager.
 

@@ -35,24 +35,3 @@ class MSSQLBackend(DatabaseBackend):
     def explain(self, sql: str) -> str:
         """Return the query execution plan."""
         raise NotImplementedError
-
-    def read_schemas(self) -> list[str]:
-        """List schemas in the database."""
-        raise NotImplementedError
-
-    def read_tables(self, schema: str) -> list[str]:
-        """List tables in the given schema."""
-        raise NotImplementedError
-
-    def read_columns(
-        self,
-        schema: str,
-        table: str,
-        filter_pattern: str | None = None,
-    ) -> list[dict[str, Any]]:
-        """Return column metadata for a table."""
-        raise NotImplementedError
-
-    def read_relations(self, schema: str, table: str) -> list[dict[str, Any]]:
-        """Return foreign-key relationships."""
-        raise NotImplementedError
