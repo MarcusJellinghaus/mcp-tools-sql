@@ -149,7 +149,7 @@ class TestSchemaToolsMcpProtocol:
             )
             text = result.content[0].text  # type: ignore[union-attr]
             assert "name" in text
-            assert "country" not in text.split("name")[-1] or "country" not in text
+            assert "country" not in text
 
     async def test_read_columns_filter_no_match(self, sqlite_db: Path) -> None:
         """Filter with no matches returns 'No results found.'."""
