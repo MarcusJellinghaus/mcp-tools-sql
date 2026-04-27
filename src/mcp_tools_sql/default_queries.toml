@@ -1,0 +1,99 @@
+[queries.read_schemas]
+description = "List database schema names"
+sql = "SELECT SCHEMA_NAME AS name FROM INFORMATION_SCHEMA.SCHEMATA ORDER BY name"
+
+[queries.read_schemas.backends.sqlite]
+sql = "SELECT 'main' AS name"
+
+[queries.read_tables]
+description = "List tables in a schema"
+sql = "SELECT TABLE_NAME AS name FROM INFORMATION_SCHEMA.TABLES WHERE TABLE_SCHEMA = :schema ORDER BY name"
+
+[queries.read_tables.params.schema]
+name = "schema"
+type = "str"
+description = "Schema name"
+
+[queries.read_tables.backends.sqlite]
+sql = "SELECT name FROM sqlite_master WHERE type='table' AND name NOT LIKE 'sqlite_%' ORDER BY name"
+
+[queries.read_columns]
+description = "List column metadata for a table"
+sql = """\
+SELECT
+    c.COLUMN_NAME AS name,
+    c.DATA_TYPE AS type,
+    c.IS_NULLABLE AS nullable,
+    c.COLUMN_DEFAULT AS "default",
+    CASE WHEN kcu.COLUMN_NAME IS NOT NULL THEN 1 ELSE 0 END AS is_primary_key
+FROM INFORMATION_SCHEMA.COLUMNS c
+LEFT JOIN INFORMATION_SCHEMA.TABLE_CONSTRAINTS tc
+    ON tc.TABLE_SCHEMA = c.TABLE_SCHEMA
+    AND tc.TABLE_NAME = c.TABLE_NAME
+    AND tc.CONSTRAINT_TYPE = 'PRIMARY KEY'
+LEFT JOIN INFORMATION_SCHEMA.KEY_COLUMN_USAGE kcu
+    ON kcu.CONSTRAINT_NAME = tc.CONSTRAINT_NAME
+    AND kcu.TABLE_SCHEMA = tc.TABLE_SCHEMA
+    AND kcu.TABLE_NAME = tc.TABLE_NAME
+    AND kcu.COLUMN_NAME = c.COLUMN_NAME
+WHERE c.TABLE_SCHEMA = :schema AND c.TABLE_NAME = :table
+ORDER BY c.ORDINAL_POSITION
+"""
+max_rows = 100
+
+[queries.read_columns.params.schema]
+name = "schema"
+type = "str"
+description = "Schema name"
+
+[queries.read_columns.params.table]
+name = "table"
+type = "str"
+description = "Table name"
+
+[queries.read_columns.params.filter]
+name = "filter"
+type = "str"
+description = "Glob pattern to filter column names (e.g. 'user_*')"
+required = false
+
+[queries.read_columns.params.max_rows]
+name = "max_rows"
+type = "int"
+description = "Maximum rows to return (default 100)"
+required = false
+
+[queries.read_columns.backends.sqlite]
+sql = "SELECT name, type, NOT \"notnull\" AS nullable, dflt_value AS \"default\", pk > 0 AS is_primary_key FROM pragma_table_info(:table)"
+
+[queries.read_relations]
+description = "List foreign key relationships for a table"
+sql = """\
+SELECT
+    rc.CONSTRAINT_NAME AS constraint_name,
+    kcu1.COLUMN_NAME AS "column",
+    kcu2.TABLE_NAME AS referenced_table,
+    kcu2.COLUMN_NAME AS referenced_column
+FROM INFORMATION_SCHEMA.REFERENTIAL_CONSTRAINTS rc
+JOIN INFORMATION_SCHEMA.KEY_COLUMN_USAGE kcu1
+    ON kcu1.CONSTRAINT_NAME = rc.CONSTRAINT_NAME
+    AND kcu1.TABLE_SCHEMA = rc.CONSTRAINT_SCHEMA
+JOIN INFORMATION_SCHEMA.KEY_COLUMN_USAGE kcu2
+    ON kcu2.CONSTRAINT_NAME = rc.UNIQUE_CONSTRAINT_NAME
+    AND kcu2.TABLE_SCHEMA = rc.UNIQUE_CONSTRAINT_SCHEMA
+    AND kcu2.ORDINAL_POSITION = kcu1.ORDINAL_POSITION
+WHERE kcu1.TABLE_SCHEMA = :schema AND kcu1.TABLE_NAME = :table
+"""
+
+[queries.read_relations.params.schema]
+name = "schema"
+type = "str"
+description = "Schema name"
+
+[queries.read_relations.params.table]
+name = "table"
+type = "str"
+description = "Table name"
+
+[queries.read_relations.backends.sqlite]
+sql = "SELECT id AS constraint_name, \"from\" AS \"column\", \"table\" AS referenced_table, \"to\" AS referenced_column FROM pragma_foreign_key_list(:table)"

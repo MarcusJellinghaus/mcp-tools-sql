@@ -2,20 +2,21 @@
 
 from __future__ import annotations
 
-from typing import TYPE_CHECKING, Any
+import tomllib
+from pathlib import Path
 
-if TYPE_CHECKING:
-    from mcp_tools_sql.backends.base import DatabaseBackend
+from mcp_tools_sql.config.models import QueryConfig
 
 
-class SchemaTools:
-    """Registers schema-browsing tools on an MCP server."""
+def load_default_queries() -> dict[str, QueryConfig]:
+    """Load built-in schema queries from default_queries.toml.
 
-    def __init__(self, backend: DatabaseBackend) -> None:
-        self._backend = backend
-
-    def register(self, mcp: Any) -> None:
-        """Register schema tools (read_schemas, read_tables, read_columns, etc.)."""
-        # TODO: register individual tool handlers
-        _ = mcp
-        raise NotImplementedError
+    Returns:
+        Dict mapping query name to QueryConfig.
+    """
+    toml_path = Path(__file__).parent / "default_queries.toml"
+    with open(toml_path, "rb") as f:
+        data = tomllib.load(f)
+    return {
+        name: QueryConfig.model_validate(cfg) for name, cfg in data["queries"].items()
+    }
