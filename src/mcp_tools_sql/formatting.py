@@ -4,16 +4,31 @@ from __future__ import annotations
 
 from typing import Any
 
+from tabulate import tabulate
+
 
 def format_rows(
     rows: list[dict[str, Any]],
-    max_rows: int,
-    total_count: int,
+    max_rows: int = 100,
 ) -> str:
-    """Format query result rows as a human-readable table string."""
-    # TODO: render rows as aligned text or markdown table
-    _ = rows, max_rows, total_count
-    raise NotImplementedError
+    """Format query result rows as LLM-friendly tabular text.
+
+    Args:
+        rows: Query result rows as list of dicts.
+        max_rows: Maximum rows to display. If len(rows) > max_rows,
+                  output is truncated with a warning message.
+
+    Returns:
+        Formatted table string with column headers.
+    """
+    if not rows:
+        return "No results found."
+    total = len(rows)
+    display_rows = rows[:max_rows]
+    table: str = tabulate(display_rows, headers="keys", tablefmt="simple")
+    if total > max_rows:
+        table += f"\n\nShowing {max_rows} of {total} rows. Use filter to narrow."
+    return table
 
 
 def format_columns(

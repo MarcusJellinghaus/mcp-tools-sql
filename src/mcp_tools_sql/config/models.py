@@ -31,6 +31,12 @@ class QueryParamConfig(BaseModel):
     required: bool = True
 
 
+class BackendQueryConfig(BaseModel):
+    """Per-backend SQL override for a query."""
+
+    sql: str
+
+
 class QueryConfig(BaseModel):
     """A configured SELECT query that becomes an MCP tool."""
 
@@ -38,6 +44,13 @@ class QueryConfig(BaseModel):
     sql: str
     params: dict[str, QueryParamConfig] = {}
     max_rows: int = 100
+    backends: dict[str, BackendQueryConfig] = {}
+
+    def resolve_sql(self, backend_name: str) -> str:
+        """Return backend-specific SQL if override exists, else default sql."""
+        if backend_name in self.backends:
+            return self.backends[backend_name].sql
+        return self.sql
 
 
 class UpdateFieldConfig(BaseModel):

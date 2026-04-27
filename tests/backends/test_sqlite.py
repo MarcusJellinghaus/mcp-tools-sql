@@ -32,19 +32,24 @@ class TestConnection:
         backend = _make_backend(str(sqlite_db))
         backend.connect()
         # Verify operational
-        tables = backend.read_tables("main")
-        assert len(tables) > 0
+        rows = backend.execute_query(
+            "SELECT name FROM sqlite_master WHERE type='table'"
+        )
+        assert len(rows) > 0
         backend.close()
         # Verify closed
         with pytest.raises(RuntimeError):
-            backend.read_tables("main")
+            backend.execute_query("SELECT 1")
 
     def test_connect_idempotent(self, sqlite_db: Path) -> None:
         backend = _make_backend(str(sqlite_db))
         backend.connect()
         backend.connect()  # second call is a no-op
-        tables = backend.read_tables("main")
-        assert "customers" in tables
+        rows = backend.execute_query(
+            "SELECT name FROM sqlite_master WHERE type='table'"
+        )
+        names = [r["name"] for r in rows]
+        assert "customers" in names
         backend.close()
 
     def test_close_idempotent(self, sqlite_db: Path) -> None:
@@ -56,87 +61,19 @@ class TestConnection:
     def test_context_manager(self, sqlite_db: Path) -> None:
         backend = _make_backend(str(sqlite_db))
         with backend:
-            tables = backend.read_tables("main")
-            assert "customers" in tables
+            rows = backend.execute_query(
+                "SELECT name FROM sqlite_master WHERE type='table'"
+            )
+            names = [r["name"] for r in rows]
+            assert "customers" in names
         # After exit, connection is closed
         with pytest.raises(RuntimeError):
-            backend.read_tables("main")
+            backend.execute_query("SELECT 1")
 
     def test_context_manager_returns_backend(self, sqlite_db: Path) -> None:
         backend = _make_backend(str(sqlite_db))
         with backend as b:
             assert b is backend
-
-
-# ---------------------------------------------------------------------------
-# Schema introspection
-# ---------------------------------------------------------------------------
-
-
-@pytest.mark.sqlite_integration
-class TestSchemaIntrospection:
-    """Schema introspection tests."""
-
-    def test_read_schemas(self, sqlite_db: Path) -> None:
-        with _make_backend(str(sqlite_db)) as backend:
-            schemas = backend.read_schemas()
-            assert schemas == ["main"]
-
-    def test_read_tables(self, sqlite_db: Path) -> None:
-        with _make_backend(str(sqlite_db)) as backend:
-            tables = backend.read_tables("main")
-            assert "customers" in tables
-            assert "orders" in tables
-            # sqlite internal tables should be excluded
-            for t in tables:
-                assert not t.startswith("sqlite_")
-
-    def test_read_columns(self, sqlite_db: Path) -> None:
-        with _make_backend(str(sqlite_db)) as backend:
-            columns = backend.read_columns("main", "customers")
-            assert len(columns) == 3
-            expected_keys = {"name", "type", "nullable", "default", "is_primary_key"}
-            for col in columns:
-                assert set(col.keys()) == expected_keys
-            names = [c["name"] for c in columns]
-            assert names == ["id", "name", "country"]
-
-    def test_read_columns_with_filter(self, sqlite_db: Path) -> None:
-        with _make_backend(str(sqlite_db)) as backend:
-            columns = backend.read_columns("main", "customers", filter_pattern="na*")
-            names = [c["name"] for c in columns]
-            assert "name" in names
-            assert "id" not in names
-
-    def test_read_columns_filter_no_match(self, sqlite_db: Path) -> None:
-        with _make_backend(str(sqlite_db)) as backend:
-            columns = backend.read_columns(
-                "main", "customers", filter_pattern="zzz_no_match*"
-            )
-            assert columns == []
-
-    def test_read_relations(self, sqlite_db: Path) -> None:
-        with _make_backend(str(sqlite_db)) as backend:
-            relations = backend.read_relations("main", "orders")
-            assert len(relations) >= 1
-            expected_keys = {
-                "constraint_name",
-                "column",
-                "referenced_table",
-                "referenced_column",
-                "on_update",
-                "on_delete",
-            }
-            rel = relations[0]
-            assert set(rel.keys()) == expected_keys
-            assert rel["column"] == "customer_id"
-            assert rel["referenced_table"] == "customers"
-            assert rel["referenced_column"] == "id"
-
-    def test_read_relations_no_fks(self, sqlite_db: Path) -> None:
-        with _make_backend(str(sqlite_db)) as backend:
-            relations = backend.read_relations("main", "customers")
-            assert relations == []
 
 
 # ---------------------------------------------------------------------------
@@ -192,10 +129,6 @@ _DATA_METHODS: list[tuple[str, tuple[Any, ...]]] = [
     ("execute_query", ("SELECT 1",)),
     ("execute_update", ("SELECT 1",)),
     ("explain", ("SELECT 1",)),
-    ("read_schemas", ()),
-    ("read_tables", ("main",)),
-    ("read_columns", ("main", "customers")),
-    ("read_relations", ("main", "customers")),
 ]
 
 
@@ -236,18 +169,6 @@ class TestErrorHandling:
         with pytest.raises(RuntimeError, match="Not connected"):
             getattr(backend, method)(*args)
 
-    def test_read_columns_nonexistent_table(self, sqlite_db: Path) -> None:
-        with _make_backend(str(sqlite_db)) as backend:
-            # SQLite PRAGMA table_info returns empty for non-existent tables
-            columns = backend.read_columns("main", "nonexistent_table")
-            assert columns == []
-
-    def test_read_tables_nonexistent_schema(self, sqlite_db: Path) -> None:
-        with _make_backend(str(sqlite_db)) as backend:
-            # SQLite ignores schema parameter — returns tables regardless
-            tables = backend.read_tables("nonexistent_schema")
-            assert "customers" in tables
-
     def test_connect_invalid_path(self, tmp_path: Path) -> None:
         invalid_path = str(tmp_path / "nonexistent_dir" / "sub" / "test.db")
         backend = _make_backend(invalid_path)
@@ -273,4 +194,4 @@ class TestErrorHandling:
         backend = _make_backend(str(corrupt_path))
         backend.connect()
         with pytest.raises(Exception):
-            backend.read_tables("main")
+            backend.execute_query("SELECT name FROM sqlite_master WHERE type='table'")

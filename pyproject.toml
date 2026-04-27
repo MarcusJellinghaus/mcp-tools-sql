@@ -106,14 +106,6 @@ module = ["mcp_coder_utils", "mcp_coder_utils.*"]
 ignore_missing_imports = true
 
 [[tool.mypy.overrides]]
-module = ["pyodbc", "pyodbc.*"]
-ignore_missing_imports = true
-
-[[tool.mypy.overrides]]
-module = ["psycopg", "psycopg.*"]
-ignore_missing_imports = true
-
-[[tool.mypy.overrides]]
 module = ["tabulate", "tabulate.*"]
 ignore_missing_imports = true
 
@@ -164,7 +156,7 @@ include-package-data = true
 where = ["src"]
 
 [tool.setuptools.package-data]
-"*" = ["py.typed"]
+"*" = ["py.typed", "*.toml"]
 
 [tool.uv.sources]
 # mcp-coder-utils = { git = "https://github.com/MarcusJellinghaus/mcp-coder-utils.git" }
