@@ -33,5 +33,27 @@ Started: 2026-05-01
 - `pr_info/steps/step_9.md` — schema-fallback caveat clarified as intended behavior.
 - `pr_info/steps/Decisions.md` — appended Round 2 decisions section.
 
+**Status**: committed (`5df09a6`) and pushed.
+
+## Round 2 — 2026-05-01
+
+**Findings**:
+- All round-1 fixes verified applied correctly to step files and `Decisions.md`. No regressions or stale references.
+- Step 8: `_check_sql_explain` HOW section still contains old `SET SHOWPLAN_TEXT ON/OFF` example with `backend._connection` reach-in — dead narrative now that the final algorithm uses `backend.explain(sql, params)`.
+- Step 8: WHERE list could be misread as if a third backend file (mssql) is being modified.
+- Step 3a: no explicit note that the `args.command == "server"` branch stays `NotImplementedError` (out of scope for #9).
+- Coverage matrix (i)–(xiv) intact. Final compliance matrix retained at end of step 9.
+- Verdict: plan ready for approval; only nice-to-have polish.
+
+**Decisions**:
+- Accept (auto) all three polish items: trim SHOWPLAN narrative in step 8, add "mssql.py not modified" line, clarify `server` branch out of scope in step 3a.
+- No design/requirements questions raised.
+
+**User decisions**: none required.
+
+**Changes**:
+- `pr_info/steps/step_8.md` — collapsed `_check_sql_explain` HOW to final algorithm only; added "mssql.py — not modified" line under WHERE.
+- `pr_info/steps/step_3a.md` — note that `server` branch keeps raising `NotImplementedError` for #9.
+
 **Status**: changes pending commit.
 

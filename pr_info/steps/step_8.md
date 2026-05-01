@@ -19,6 +19,9 @@ Modify:
 - `src/mcp_tools_sql/backends/sqlite.py` — widen `SQLiteBackend.explain` signature; bind `params or {}` to the cursor
 - `tests/cli/test_verify.py` — extend
 
+Not touched:
+- `src/mcp_tools_sql/backends/mssql.py` — **not modified** in this step; the existing `NotImplementedError` from `MssqlBackend.explain` is the intended `[ERR]` path until the MSSQL backend lands in issues #5/#6.
+
 ---
 
 ## WHAT — Backend signature widening
@@ -94,40 +97,7 @@ def _check_params_well_formed(
 
 ## HOW — `_check_sql_explain` per backend
 
-### sqlite
-```python
-backend.execute_query(f"EXPLAIN QUERY PLAN {sql}")
-```
-On `sqlite3.OperationalError` etc. → ok=False with `str(exc)`.
-
-### postgresql
-```python
-backend.execute_query(f"EXPLAIN {sql}")
-```
-
-### mssql
-SQL Server's `SET SHOWPLAN_TEXT ON` is a session-level toggle: subsequent statements return their plan instead of executing. Use a separate execution path:
-```python
-# Best-effort; if SHOWPLAN_TEXT isn't reachable, fall back to wrapping in a NOEXEC pattern.
-try:
-    backend._connection.execute("SET SHOWPLAN_TEXT ON")
-    backend.execute_query(sql)
-finally:
-    backend._connection.execute("SET SHOWPLAN_TEXT OFF")
-```
-
-(Reaching into `_connection` is acceptable here because verify is a backend-aware diagnostic; alternative is a small `backend.explain(sql)` call which already exists — `DatabaseBackend.explain` is on the ABC. Re-use that instead, falling back to the per-backend logic only if `explain()` raises `NotImplementedError`.) **Prefer `backend.explain(sql)` first**, then fall back if needed.
-
-Actually since `DatabaseBackend.explain(sql)` already exists as the ABC method, `_check_sql_explain` can collapse to:
-```python
-try:
-    plan = backend.explain(sql)
-    return True, ""
-except Exception as exc:
-    return False, str(exc)
-```
-
-For MSSQL, the existing `explain()` is `NotImplementedError`. Until MSSQL backend is built (out of scope per #5/#6), MSSQL queries report `[ERR]` with a clear message. That's the issue's mandate ("unimplemented backend = regular `[ERR]`"). So this collapses neatly.
+`_check_sql_explain` delegates to `DatabaseBackend.explain(sql, params)` — the ABC method already exists. Build a dummy params dict from the declared types (so SQLite's `EXPLAIN QUERY PLAN` can compile parameterized SQL), call `backend.explain(sql, dummy_params)`, and on any exception return `[ERR]` with the exception message. For MSSQL, `explain()` currently raises `NotImplementedError`; that surfaces as `[ERR]` with a clear message until the MSSQL backend lands (issues #5/#6) — the issue's mandate ("unimplemented backend = regular `[ERR]`").
 
 ### Final algorithm
 ```python
@@ -141,14 +111,8 @@ _DUMMY_BY_TYPE = {
 
 def _check_sql_explain(sql, params, backend_name, backend) -> tuple[bool, str]:
     try:
-        if backend_name == "sqlite":
-            dummy = {name: _DUMMY_BY_TYPE.get(p.type, "") for name, p in params.items()}
-            backend.explain(sql, dummy)
-        else:
-            # mssql / postgresql / others — explain() either supports it or raises
-            # NotImplementedError; in either case the surface is the same: we report
-            # the outcome straight from the backend.
-            backend.explain(sql)
+        dummy = {name: _DUMMY_BY_TYPE.get(p.type, "") for name, p in params.items()}
+        backend.explain(sql, dummy)
         return True, ""
     except Exception as exc:
         return False, str(exc)

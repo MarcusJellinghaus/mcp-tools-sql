@@ -172,6 +172,8 @@ dispatch on args.command:
 return exit code
 ```
 
+The `args.command == "server"` branch continues to raise `NotImplementedError` for the duration of issue #9 — server-mode wiring is out of scope here. Step 3a does not change the dispatch logic for that branch; it only adds the `init` / `verify` arms alongside the existing `server` placeholder.
+
 ---
 
 ## DATA
