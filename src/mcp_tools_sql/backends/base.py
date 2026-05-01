@@ -31,7 +31,7 @@ class DatabaseBackend(ABC):
         """Execute an UPDATE/INSERT and return affected row count."""
 
     @abstractmethod
-    def explain(self, sql: str) -> str:
+    def explain(self, sql: str, params: dict[str, Any] | None = None) -> str:
         """Return the query execution plan as text."""
 
     def __enter__(self) -> Self:

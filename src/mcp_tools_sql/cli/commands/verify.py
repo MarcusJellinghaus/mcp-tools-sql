@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import argparse
+import datetime
 import importlib.metadata
 import logging
 import os
@@ -20,8 +21,13 @@ from mcp_tools_sql.config.loader import (
     load_query_config,
     resolve_connection,
 )
-from mcp_tools_sql.config.models import ConnectionConfig
-from mcp_tools_sql.schema_tools import load_default_queries
+from mcp_tools_sql.config.models import (
+    ConnectionConfig,
+    QueryConfig,
+    QueryFileConfig,
+    QueryParamConfig,
+)
+from mcp_tools_sql.schema_tools import extract_sql_params, load_default_queries
 
 logger = logging.getLogger(__name__)
 
@@ -428,6 +434,109 @@ def verify_connection(
     return result, open_backend
 
 
+_VALID_PARAM_TYPES = {"str", "int", "float", "datetime"}
+_LEGITIMATE_NON_SQL_PARAMS = {"filter", "max_rows"}
+_DUMMY_BY_TYPE: dict[str, Any] = {
+    "str": "",
+    "int": 0,
+    "float": 0.0,
+    "datetime": datetime.datetime(2000, 1, 1),
+}
+
+
+def _check_sql_explain(
+    sql: str,
+    params: dict[str, QueryParamConfig],
+    backend_name: str,
+    backend: DatabaseBackend,
+) -> tuple[bool, str]:
+    """Return ``(ok, error_message)`` for a single query's SQL.
+
+    For SQLite, builds a dummy params dict (keys from ``params``, values
+    placeholders chosen per declared type: ``""`` / ``0`` / ``0.0`` /
+    ``datetime(2000, 1, 1)``) and passes it to
+    ``backend.explain(sql, dummy_params)`` so ``EXPLAIN QUERY PLAN`` can
+    compile the parameterized SQL. For MSSQL, calls ``backend.explain(sql)``
+    — currently raises :class:`NotImplementedError`, so this reports
+    ``[ERR]`` with the exception message; that's the intended behaviour
+    until the MSSQL backend lands (issues #5/#6).
+    """
+    del backend_name  # Currently no per-backend branching is required.
+    try:
+        dummy = {name: _DUMMY_BY_TYPE.get(p.type, "") for name, p in params.items()}
+        backend.explain(sql, dummy)
+        return True, ""
+    except Exception as exc:  # pylint: disable=broad-except
+        return False, str(exc)
+
+
+def _check_params_well_formed(
+    sql: str, params: dict[str, QueryParamConfig]
+) -> tuple[bool, str]:
+    """Verify ``:name`` placeholders in SQL match config params + types."""
+    sql_names = extract_sql_params(sql)
+    config_names = set(params.keys())
+
+    missing_in_config = sql_names - config_names
+    extra_in_config = (config_names - sql_names) - _LEGITIMATE_NON_SQL_PARAMS
+    bad_types = [
+        (n, p.type) for n, p in params.items() if p.type not in _VALID_PARAM_TYPES
+    ]
+
+    errors: list[str] = []
+    if missing_in_config:
+        errors.append(
+            f"SQL :{','.join(sorted(missing_in_config))} not in config params"
+        )
+    if extra_in_config:
+        errors.append(f"Config params {sorted(extra_in_config)} not used in SQL")
+    if bad_types:
+        errors.append("Invalid types: " + ", ".join(f"{n}={t!r}" for n, t in bad_types))
+    return (not errors, "; ".join(errors))
+
+
+def verify_queries(
+    queries: dict[str, QueryConfig],
+    backend_name: str,
+    backend: DatabaseBackend,
+) -> dict[str, Any]:
+    """Per-query validation: SQL EXPLAIN, params well-formed, max_rows > 0.
+
+    Returns:
+        Standard verifier result dict with three rows per query
+        (``<name>.sql``, ``<name>.params``, ``<name>.max_rows``) and an
+        ``overall_ok`` flag.
+    """
+    result: dict[str, Any] = {}
+    for name, qcfg in queries.items():
+        sql = qcfg.resolve_sql(backend_name)
+
+        ok, err = _check_sql_explain(sql, qcfg.params, backend_name, backend)
+        result[f"{name}.sql"] = _entry(
+            ok=ok,
+            value="EXPLAIN ok" if ok else "failed",
+            error=err,
+        )
+
+        ok, err = _check_params_well_formed(sql, qcfg.params)
+        result[f"{name}.params"] = _entry(
+            ok=ok,
+            value="well-formed" if ok else "issue",
+            error=err,
+        )
+
+        ok = qcfg.max_rows > 0
+        result[f"{name}.max_rows"] = _entry(
+            ok=ok,
+            value=str(qcfg.max_rows),
+            error="" if ok else "max_rows must be > 0",
+        )
+    result["overall_ok"] = all(
+        entry["ok"] for key, entry in result.items() if key != "overall_ok"
+    )
+    return result
+
+
 def collect_install_instructions(
     sections: list[tuple[str, dict[str, Any]]],
 ) -> dict[str, Any]:
@@ -536,6 +645,18 @@ def _load_query_config_for_counts(
         return 0, 0
 
 
+def _load_query_config_for_m2(
+    config_path: Path | None,
+) -> QueryFileConfig | None:
+    """Return the parsed :class:`QueryFileConfig` or ``None`` on failure."""
+    try:
+        resolved_query = discover_query_config(config_path, project_dir=Path.cwd())
+        return load_query_config(resolved_query)
+    except (ValueError, OSError) as exc:
+        logger.debug("Could not load query config for M2: %s", exc)
+        return None
+
+
 def run(args: argparse.Namespace) -> int:
     """Entry point. Returns process exit code."""
     sections: list[tuple[str, dict[str, Any]]] = []
@@ -555,14 +676,21 @@ def run(args: argparse.Namespace) -> int:
     if connection is not None:
         connection_result, open_backend = verify_connection(connection)
         sections.append(("CONNECTION", connection_result))
-        if connection_result.get("overall_ok", False):
+        if connection_result.get("overall_ok", False) and open_backend is not None:
             try:
-                # TODO(step 8): sections.append(("QUERIES", verify_queries(...)))
+                query_config = _load_query_config_for_m2(args.config)
+                if query_config is not None:
+                    sections.append(
+                        (
+                            "QUERIES",
+                            verify_queries(
+                                query_config.queries, connection.backend, open_backend
+                            ),
+                        )
+                    )
                 # TODO(step 9): sections.append(("UPDATES", verify_updates(...)))
-                pass
             finally:
-                if open_backend is not None:
-                    open_backend.close()
+                open_backend.close()
         else:
             n_queries, n_updates = _load_query_config_for_counts(args.config)
             skip_summary = render_skip_m2_summary(n_queries, n_updates)

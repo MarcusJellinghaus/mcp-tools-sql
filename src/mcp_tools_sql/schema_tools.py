@@ -48,7 +48,7 @@ def register_builtin_tools(
         mcp.add_tool(fn)
 
 
-def _extract_sql_params(sql: str) -> set[str]:
+def extract_sql_params(sql: str) -> set[str]:
     """Scan SQL for :param_name references.
 
     Returns:
@@ -88,7 +88,7 @@ def _build_tool_fn(
             ready for ``mcp.add_tool()``.
     """
     resolved_sql = config.resolve_sql(backend_name)
-    sql_params = _extract_sql_params(resolved_sql)
+    sql_params = extract_sql_params(resolved_sql)
 
     async def _tool_fn(**kwargs: Any) -> str:
         max_rows: int = kwargs.pop("max_rows", config.max_rows)

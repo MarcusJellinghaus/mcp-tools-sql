@@ -75,9 +75,14 @@ class SQLiteBackend(DatabaseBackend):
         conn.commit()
         return cursor.rowcount
 
-    def explain(self, sql: str) -> str:
-        """Return the query execution plan."""
+    def explain(self, sql: str, params: dict[str, Any] | None = None) -> str:
+        """Return the query execution plan.
+
+        SQLite's ``EXPLAIN QUERY PLAN`` requires bound values to compile
+        parameterized SQL, so callers must pass ``params`` whenever the SQL
+        references ``:name`` placeholders.
+        """
         conn = self._require_connection()
-        cursor = conn.execute(f"EXPLAIN QUERY PLAN {sql}")
+        cursor = conn.execute(f"EXPLAIN QUERY PLAN {sql}", params or {})
         rows = cursor.fetchall()
         return "\n".join(row["detail"] for row in rows)
