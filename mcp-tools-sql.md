@@ -396,7 +396,6 @@ TOML for all three. Considered YAML but TOML is:
 | **Trusted connection** (Windows Auth) | `trusted_connection = true` | Production / corporate. No password — uses Windows SSPI. Preferred for SQL Server. |
 | **Password in config.toml** | `password = "..."` | Dev machines. Acceptable because file is in `~/`, never committed. |
 | **Environment variable** | `credential_env_var = "DB_PASSWORD"` | CI/CD, Docker, shared machines. |
-| **Connection string** | `connection_string = "..."` | Escape hatch for Azure AD, certificates, etc. Supports `${ENV_VAR}` substitution. |
 
 ### Security Rules
 
@@ -414,7 +413,7 @@ TOML for all three. Considered YAML but TOML is:
 3. `[tool.mcp-tools-sql]` in `pyproject.toml` of user's project (fallback, not the mcp-tools-sql dev pyproject)
 
 **User config** (connections + security):
-1. `--user-config <path>` CLI flag
+1. `--database-config <path>` CLI flag
 2. `~/.mcp-tools-sql/config.toml`
 
 ---

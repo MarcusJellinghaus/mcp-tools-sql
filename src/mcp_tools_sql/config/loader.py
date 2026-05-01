@@ -12,7 +12,7 @@ from mcp_tools_sql.config.models import (
     QueryFileConfig,
 )
 
-_SENSITIVE_KEYS = {"password", "connection_string", "credential_env_var"}
+_SENSITIVE_KEYS = {"password", "credential_env_var"}
 _logger = logging.getLogger(__name__)
 
 

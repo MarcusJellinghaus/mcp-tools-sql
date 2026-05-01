@@ -16,7 +16,7 @@ from mcp_tools_sql.config.models import ConnectionConfig
 
 def _make_backend(path: str) -> SQLiteBackend:
     """Create a SQLiteBackend from a file path."""
-    return SQLiteBackend(ConnectionConfig(backend="sqlite", connection_string=path))
+    return SQLiteBackend(ConnectionConfig(backend="sqlite", path=path))
 
 
 # ---------------------------------------------------------------------------
@@ -137,9 +137,7 @@ class TestErrorHandling:
     """Error handling tests."""
 
     def test_connect_empty_path(self) -> None:
-        backend = SQLiteBackend(
-            ConnectionConfig(backend="sqlite", connection_string="")
-        )
+        backend = SQLiteBackend(ConnectionConfig(backend="sqlite", path=""))
         with pytest.raises(ValueError, match="must not be empty"):
             backend.connect()
 

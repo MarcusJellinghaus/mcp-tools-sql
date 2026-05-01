@@ -38,9 +38,9 @@ class SQLiteBackend(DatabaseBackend):
         """
         if self._connection is not None:
             return
-        path = self._config.connection_string
+        path = self._config.path
         if not path:
-            msg = "SQLite connection path must not be empty."
+            msg = "SQLite path must not be empty."
             raise ValueError(msg)
         conn = sqlite3.connect(path, check_same_thread=False)
         conn.row_factory = sqlite3.Row

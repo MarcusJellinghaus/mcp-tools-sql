@@ -62,6 +62,15 @@ class TestModelValidation:
         config = ConnectionConfig()
         assert config.backend == "sqlite"
 
+    def test_connection_config_driver_default(self) -> None:
+        """ConnectionConfig.driver defaults to the standard MSSQL ODBC driver."""
+        config = ConnectionConfig()
+        assert config.driver == "ODBC Driver 18 for SQL Server"
+
+    def test_connection_config_no_connection_string_field(self) -> None:
+        """ConnectionConfig no longer exposes a connection_string field."""
+        assert not hasattr(ConnectionConfig(), "connection_string")
+
     def test_query_file_config_nested_parsing(self) -> None:
         """QueryFileConfig parses nested queries with params from dict."""
         data = {

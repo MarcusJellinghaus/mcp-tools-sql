@@ -70,7 +70,7 @@ class TestApplyFilter:
 
 def _make_mcp_with_tools(db_path: str) -> FastMCP:
     """Create a FastMCP instance with builtin tools registered against a SQLite DB."""
-    config = ConnectionConfig(backend="sqlite", connection_string=db_path)
+    config = ConnectionConfig(backend="sqlite", path=db_path)
     backend = SQLiteBackend(config)
     backend.connect()
     mcp = FastMCP("test-schema-tools")
