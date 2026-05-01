@@ -89,13 +89,6 @@ def test_init_subparser_rejects_unknown_backend() -> None:
         parser.parse_args(["init", "--backend", "bogus"])
 
 
-def test_init_run_raises_not_implemented() -> None:
-    """init.run is a stub for now."""
-    args = argparse.Namespace()
-    with pytest.raises(NotImplementedError, match="step 4"):
-        init_cmd.run(args)
-
-
 def test_verify_run_raises_not_implemented() -> None:
     """verify.run is a stub for now."""
     args = argparse.Namespace()
