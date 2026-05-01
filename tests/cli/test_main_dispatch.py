@@ -65,10 +65,14 @@ def test_no_command_defaults_to_server() -> None:
     assert args.command is None
 
 
-def test_no_command_dispatches_to_server() -> None:
-    """`mcp-tools-sql` (no args) falls into the server branch (NotImplementedError)."""
-    with pytest.raises(NotImplementedError, match="server"):
-        main([])
+def test_no_command_prints_help_and_exits_0(
+    capsys: pytest.CaptureFixture[str],
+) -> None:
+    """`mcp-tools-sql` (no args) prints help and returns 0."""
+    rc = main([])
+    captured = capsys.readouterr()
+    assert rc == 0
+    assert "usage: mcp-tools-sql" in captured.out
 
 
 def test_init_subparser_requires_backend() -> None:

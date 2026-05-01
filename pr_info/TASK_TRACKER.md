@@ -32,9 +32,9 @@ See [steps/step_3a.md](steps/step_3a.md).
 
 See [steps/step_3b.md](steps/step_3b.md).
 
-- [ ] Implementation (tests + production code)
-- [ ] Quality checks: pylint, pytest, mypy — fix all issues
-- [ ] Commit message prepared
+- [x] Implementation (tests + production code)
+- [x] Quality checks: pylint, pytest, mypy — fix all issues
+- [x] Commit message prepared
 
 ### Step 4: Implement `init` command
 

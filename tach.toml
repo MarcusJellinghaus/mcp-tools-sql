@@ -121,6 +121,7 @@ depends_on = [
 path = "mcp_tools_sql.cli.commands"
 layer = "entry_point"
 depends_on = [
+    { path = "mcp_tools_sql.cli" },
     { path = "mcp_tools_sql.backends" },
     { path = "mcp_tools_sql.config" },
     { path = "mcp_tools_sql.schema_tools" },
