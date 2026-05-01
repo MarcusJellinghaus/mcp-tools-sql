@@ -1,4 +1,4 @@
-"""Tests for the `verify` CLI subcommand (skeleton + first two sections)."""
+"""Tests for the `verify` CLI subcommand."""
 
 from __future__ import annotations
 
@@ -10,7 +10,9 @@ from unittest.mock import MagicMock, patch
 
 import pytest
 
+from mcp_tools_sql.backends.base import DatabaseBackend
 from mcp_tools_sql.cli.commands import verify as verify_cmd
+from mcp_tools_sql.config.models import ConnectionConfig
 
 
 def _make_args(
@@ -32,10 +34,14 @@ def valid_query_config(tmp_path: Path) -> Path:
 
 @pytest.fixture
 def valid_database_config(tmp_path: Path) -> Path:
-    """Write a minimal valid database config file and return its path."""
+    """Write a valid database config pointing at a real sqlite db in tmp_path."""
+    sqlite_db = tmp_path / "real.sqlite"
+    sqlite_db.write_bytes(b"")
     path = tmp_path / "db-config.toml"
     path.write_text(
-        '[connections.default]\nbackend = "sqlite"\npath = "/tmp/db.sqlite"\n',
+        "[connections.default]\n"
+        'backend = "sqlite"\n'
+        f'path = "{sqlite_db.as_posix()}"\n',
         encoding="utf-8",
     )
     return path
@@ -338,9 +344,9 @@ def test_verify_detects_missing_connection(
 ) -> None:
     """Issue test (ix): query config refers to a name not in db config.
 
-    In step 6 the mismatch surfaces via backend resolution failing, so
-    DEPENDENCIES renders as the `unknown` backend ERR row. Step 7 will
-    add a dedicated CONNECTION section that improves this signal.
+    The mismatch surfaces via backend resolution failing, so DEPENDENCIES
+    renders as the `unknown` backend ERR row. The CONNECTION section is
+    omitted because the connection cannot be resolved at all. Exit code 1.
     """
     query_cfg = tmp_path / "mcp-tools-sql.toml"
     query_cfg.write_text('connection = "missing_name"\n', encoding="utf-8")
@@ -352,7 +358,282 @@ def test_verify_detects_missing_connection(
     )
 
     args = _make_args(config=query_cfg, database_config=db_cfg)
-    verify_cmd.run(args)
+    rc = verify_cmd.run(args)
     captured = capsys.readouterr()
 
     assert "cannot determine backend without valid config" in captured.out
+    assert rc == 1
+
+
+# ---------------------------------------------------------------------------
+# verify_connection
+# ---------------------------------------------------------------------------
+
+
+def _sqlite_connection(path: Path) -> ConnectionConfig:
+    """Build a ConnectionConfig pointing at the given sqlite file."""
+    return ConnectionConfig(backend="sqlite", path=str(path))
+
+
+def test_verify_connection_sqlite_select_1_ok(tmp_path: Path) -> None:
+    """Real sqlite tmp file → all rows ok=True, select_1 value 'ok'."""
+    db_path = tmp_path / "real.sqlite"
+    db_path.write_bytes(b"")
+    result, open_backend = verify_cmd.verify_connection(_sqlite_connection(db_path))
+    try:
+        assert result["backend"]["ok"] is True
+        assert result["path"]["ok"] is True
+        assert result["select_1"]["ok"] is True
+        assert result["select_1"]["value"] == "ok"
+        assert result["overall_ok"] is True
+    finally:
+        if open_backend is not None:
+            open_backend.close()
+
+
+def test_verify_connection_sqlite_missing_path() -> None:
+    """Empty path → ok=False with helpful error and select_1 fails."""
+    conn = ConnectionConfig(backend="sqlite", path="")
+    result, open_backend = verify_cmd.verify_connection(conn)
+    try:
+        assert result["path"]["ok"] is False
+        assert "must be set" in result["path"]["error"]
+        assert result["select_1"]["ok"] is False
+        assert result["overall_ok"] is False
+    finally:
+        if open_backend is not None:
+            open_backend.close()
+
+
+def test_verify_connection_unimplemented_backend_is_err() -> None:
+    """`postgresql` (no impl) → select_1 fails via create_backend ValueError."""
+    conn = ConnectionConfig(
+        backend="postgresql",
+        host="localhost",
+        port=5432,
+        database="db",
+        password="pw",
+    )
+    result, open_backend = verify_cmd.verify_connection(conn)
+    try:
+        assert result["select_1"]["ok"] is False
+        assert "Unsupported backend" in result["select_1"]["error"]
+    finally:
+        if open_backend is not None:
+            open_backend.close()
+
+
+def test_verify_connection_credential_env_var_missing(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """Env var unset → credentials row ok=False."""
+    monkeypatch.delenv("MY_VERIFY_TEST_VAR", raising=False)
+    conn = ConnectionConfig(
+        backend="mssql",
+        host="localhost",
+        port=1433,
+        database="db",
+        credential_env_var="MY_VERIFY_TEST_VAR",
+    )
+    result, open_backend = verify_cmd.verify_connection(conn)
+    try:
+        assert result["credentials"]["ok"] is False
+        assert "MY_VERIFY_TEST_VAR" in result["credentials"]["value"]
+        assert "<missing>" in result["credentials"]["value"]
+    finally:
+        if open_backend is not None:
+            open_backend.close()
+
+
+def test_verify_connection_credential_env_var_set(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """Env var set → credentials row ok=True."""
+    monkeypatch.setenv("MY_VERIFY_TEST_VAR", "secret")
+    conn = ConnectionConfig(
+        backend="mssql",
+        host="localhost",
+        port=1433,
+        database="db",
+        credential_env_var="MY_VERIFY_TEST_VAR",
+    )
+    result, open_backend = verify_cmd.verify_connection(conn)
+    try:
+        assert result["credentials"]["ok"] is True
+        assert "<set>" in result["credentials"]["value"]
+    finally:
+        if open_backend is not None:
+            open_backend.close()
+
+
+def test_verify_connection_returns_open_backend_on_success(tmp_path: Path) -> None:
+    """On success the second element is a connected DatabaseBackend instance."""
+    db_path = tmp_path / "real.sqlite"
+    db_path.write_bytes(b"")
+    result, open_backend = verify_cmd.verify_connection(_sqlite_connection(db_path))
+    try:
+        assert result["overall_ok"] is True
+        assert open_backend is not None
+        assert isinstance(open_backend, DatabaseBackend)
+        # The backend is connected — a second SELECT should work without re-connect.
+        rows = open_backend.execute_query("SELECT 1 AS one")
+        assert rows == [{"one": 1}]
+    finally:
+        if open_backend is not None:
+            open_backend.close()
+
+
+def test_verify_connection_returns_none_backend_on_failure() -> None:
+    """On select_1 failure the second tuple element is None."""
+    conn = ConnectionConfig(backend="sqlite", path="")
+    result, open_backend = verify_cmd.verify_connection(conn)
+    assert result["select_1"]["ok"] is False
+    assert open_backend is None
+
+
+# ---------------------------------------------------------------------------
+# collect_install_instructions
+# ---------------------------------------------------------------------------
+
+
+def test_collect_install_instructions_aggregates_unique() -> None:
+    """Failed entries with identical hints dedupe; ok entries' hints are ignored."""
+    sections: list[tuple[str, dict[str, object]]] = [
+        (
+            "DEPENDENCIES",
+            {
+                "pyodbc": {
+                    "ok": False,
+                    "value": "(not installed)",
+                    "error": "no module",
+                    "install_hint": "pip install mcp-tools-sql[mssql]",
+                },
+                "psycopg": {
+                    "ok": False,
+                    "value": "(not installed)",
+                    "error": "no module",
+                    "install_hint": "pip install mcp-tools-sql[mssql]",
+                },
+                "ok_one": {
+                    "ok": True,
+                    "value": "x",
+                    "error": "",
+                    "install_hint": "pip install ignored-because-ok",
+                },
+                "overall_ok": False,
+            },
+        ),
+        (
+            "OTHER",
+            {
+                "blah": {
+                    "ok": False,
+                    "value": "x",
+                    "error": "fail",
+                    "install_hint": "pip install other",
+                },
+                "overall_ok": False,
+            },
+        ),
+    ]
+    result = verify_cmd.collect_install_instructions(sections)
+
+    hints = [entry["value"] for key, entry in result.items() if key != "overall_ok"]
+    assert hints == ["pip install mcp-tools-sql[mssql]", "pip install other"]
+    assert result["overall_ok"] is True
+
+
+# ---------------------------------------------------------------------------
+# Orchestrator: run() with M1 complete (CONNECTION + INSTALL + skip-M2)
+# ---------------------------------------------------------------------------
+
+
+def test_verify_run_skips_m2_on_connection_failure(
+    tmp_path: Path,
+    capsys: pytest.CaptureFixture[str],
+) -> None:
+    """Issue test (xi): connection fails → skip-M2 summary appears in stdout."""
+    query_cfg = tmp_path / "mcp-tools-sql.toml"
+    query_cfg.write_text('connection = "default"\n', encoding="utf-8")
+
+    db_cfg = tmp_path / "db-config.toml"
+    db_cfg.write_text(
+        '[connections.default]\nbackend = "sqlite"\npath = ""\n',
+        encoding="utf-8",
+    )
+
+    args = _make_args(config=query_cfg, database_config=db_cfg)
+    rc = verify_cmd.run(args)
+    captured = capsys.readouterr()
+
+    assert "connection failed; skipped 0 query checks, 0 update checks" in captured.out
+    assert rc == 1
+
+
+def test_verify_warn_for_sensitive_keys_in_query_config(
+    tmp_path: Path,
+    capsys: pytest.CaptureFixture[str],
+) -> None:
+    """Query config with `password = ...` → [WARN] row in output, no extra ERR."""
+    sqlite_db = tmp_path / "real.sqlite"
+    sqlite_db.write_bytes(b"")
+
+    query_cfg = tmp_path / "mcp-tools-sql.toml"
+    query_cfg.write_text(
+        'connection = "default"\npassword = "leaked"\n',
+        encoding="utf-8",
+    )
+
+    db_cfg = tmp_path / "db-config.toml"
+    db_cfg.write_text(
+        "[connections.default]\n"
+        'backend = "sqlite"\n'
+        f'path = "{sqlite_db.as_posix()}"\n',
+        encoding="utf-8",
+    )
+
+    args = _make_args(config=query_cfg, database_config=db_cfg)
+    rc = verify_cmd.run(args)
+    captured = capsys.readouterr()
+
+    assert "[WARN]" in captured.out
+    assert "query_config_sensitive_keys" in captured.out
+    # Warn alone does not flip the exit code to 1.
+    assert rc == 0
+
+
+def test_verify_full_sqlite_run_returns_0(
+    tmp_path: Path,
+    capsys: pytest.CaptureFixture[str],
+) -> None:
+    """Issue tests (vii)+(viii): valid sqlite config + connectable db → exit 0."""
+    sqlite_db = tmp_path / "real.sqlite"
+    sqlite_db.write_bytes(b"")
+
+    query_cfg = tmp_path / "mcp-tools-sql.toml"
+    query_cfg.write_text('connection = "default"\n', encoding="utf-8")
+
+    db_cfg = tmp_path / "db-config.toml"
+    db_cfg.write_text(
+        "[connections.default]\n"
+        'backend = "sqlite"\n'
+        f'path = "{sqlite_db.as_posix()}"\n',
+        encoding="utf-8",
+    )
+
+    args = _make_args(config=query_cfg, database_config=db_cfg)
+    rc = verify_cmd.run(args)
+    captured = capsys.readouterr()
+
+    assert rc == 0
+    assert "=== CONNECTION ===" in captured.out
+    assert "[ERR]" not in captured.out
+
+
+def test_verify_full_run_returns_1_on_error(tmp_path: Path) -> None:
+    """Issue test (vii): missing query config → exit 1."""
+    args = _make_args(
+        config=tmp_path / "missing.toml",
+        database_config=tmp_path / "missing-db.toml",
+    )
+    assert verify_cmd.run(args) == 1
