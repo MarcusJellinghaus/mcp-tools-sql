@@ -8,9 +8,9 @@ See [pr_info/steps/summary.md](steps/summary.md) for the full implementation pla
 
 See [steps/step_1.md](steps/step_1.md).
 
-- [ ] Implementation (tests + production code)
-- [ ] Quality checks: pylint, pytest, mypy — fix all issues
-- [ ] Commit message prepared
+- [x] Implementation (tests + production code)
+- [x] Quality checks: pylint, pytest, mypy — fix all issues
+- [x] Commit message prepared
 
 ### Step 2: Drop `connection_string`, add `driver`, fix `SQLiteBackend`
 

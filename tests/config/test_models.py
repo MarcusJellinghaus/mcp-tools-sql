@@ -8,11 +8,11 @@ from pydantic import ValidationError
 from mcp_tools_sql.config.models import (
     BackendQueryConfig,
     ConnectionConfig,
+    DatabaseConfig,
     QueryConfig,
     QueryFileConfig,
     QueryParamConfig,
     UpdateConfig,
-    UserConfig,
 )
 
 
@@ -51,9 +51,9 @@ class TestModelValidation:
         assert config.queries == {}
         assert config.updates == {}
 
-    def test_user_config_defaults(self) -> None:
-        """UserConfig defaults: empty connections, security.allow_updates=True."""
-        config = UserConfig()
+    def test_database_config_defaults(self) -> None:
+        """DatabaseConfig defaults: empty connections, security.allow_updates=True."""
+        config = DatabaseConfig()
         assert config.connections == {}
         assert config.security.allow_updates is True
 

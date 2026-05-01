@@ -6,7 +6,11 @@ import logging
 import tomllib
 from pathlib import Path
 
-from mcp_tools_sql.config.models import ConnectionConfig, QueryFileConfig, UserConfig
+from mcp_tools_sql.config.models import (
+    ConnectionConfig,
+    DatabaseConfig,
+    QueryFileConfig,
+)
 
 _SENSITIVE_KEYS = {"password", "connection_string", "credential_env_var"}
 _logger = logging.getLogger(__name__)
@@ -73,7 +77,7 @@ def load_query_config(path: Path) -> QueryFileConfig:
         keys_str = ", ".join(sorted(sensitive))
         _logger.warning(
             "Query config %s contains sensitive key(s): %s. "
-            "Move credentials to user config (~/.mcp-tools-sql/config.toml).",
+            "Move credentials to database config (~/.mcp-tools-sql/config.toml).",
             path,
             keys_str,
         )
@@ -81,46 +85,46 @@ def load_query_config(path: Path) -> QueryFileConfig:
     return QueryFileConfig.model_validate(data)
 
 
-def load_user_config(path: Path | None = None) -> UserConfig:
-    """Load user config from path or default location.
+def load_database_config(path: Path | None = None) -> DatabaseConfig:
+    """Load database config from path or default location.
 
     Returns defaults if the file does not exist. No side effects.
 
     Returns:
-        User configuration loaded from file or defaults.
+        Database configuration loaded from file or defaults.
     """
     if path is None:
         path = Path.home() / ".mcp-tools-sql" / "config.toml"
 
     if not path.exists():
-        return UserConfig()
+        return DatabaseConfig()
 
     data = _read_toml(path)
-    return UserConfig.model_validate(data)
+    return DatabaseConfig.model_validate(data)
 
 
 def resolve_connection(
     query_config: QueryFileConfig,
-    user_config: UserConfig,
+    db_config: DatabaseConfig,
 ) -> ConnectionConfig:
-    """Look up the named connection from user config.
+    """Look up the named connection from database config.
 
     Returns:
         The resolved connection configuration.
 
     Raises:
         ValueError: If the connection name is missing or not found
-            in user_config.connections.
+            in db_config.connections.
     """
     name = query_config.connection
     if not name:
         msg = "No connection name specified in query config"
         raise ValueError(msg)
-    if name not in user_config.connections:
-        available = list(user_config.connections.keys())
+    if name not in db_config.connections:
+        available = list(db_config.connections.keys())
         msg = f"Connection '{name}' not found. Available: {available}"
         raise ValueError(msg)
-    return user_config.connections[name]
+    return db_config.connections[name]
 
 
 def discover_query_config(

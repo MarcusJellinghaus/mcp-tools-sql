@@ -27,10 +27,10 @@ def _build_parser() -> argparse.ArgumentParser:
         help="Path to project query configuration file.",
     )
     parser.add_argument(
-        "--user-config",
+        "--database-config",
         type=Path,
         default=None,
-        help="Path to user configuration file (connection strings, credentials).",
+        help="Path to database configuration file (connections, credentials).",
     )
     parser.add_argument(
         "--log-level",

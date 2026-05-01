@@ -8,7 +8,7 @@ from pydantic import BaseModel, ConfigDict, Field
 
 
 class ConnectionConfig(BaseModel):
-    """Database connection parameters (stored in user config)."""
+    """Database connection parameters (stored in database config)."""
 
     backend: str = "sqlite"  # sqlite | mssql | postgresql
     host: str = ""
@@ -95,8 +95,8 @@ class QueryFileConfig(BaseModel):
     updates: dict[str, UpdateConfig] = {}
 
 
-class UserConfig(BaseModel):
-    """Root model for user config (~/.mcp-tools-sql/config.toml)."""
+class DatabaseConfig(BaseModel):
+    """Root model for database config (~/.mcp-tools-sql/config.toml)."""
 
     connections: dict[str, ConnectionConfig] = {}
     security: SecurityConfig = SecurityConfig()
