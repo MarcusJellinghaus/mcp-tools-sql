@@ -1,7 +1,7 @@
 # Step 2 — Drop `connection_string`, add `driver`, fix `SQLiteBackend`
 
 **Reference**: [summary.md](./summary.md) — section "Config-model cleanup"
-**Commit**: 2 of 9
+**Commit**: 2 of 10
 **Goal**: Remove the `connection_string` ingredient; introduce `driver` for MSSQL; make `SQLiteBackend` read `config.path`.
 
 ---
@@ -13,7 +13,7 @@ Modify:
 - `src/mcp_tools_sql/config/loader.py`
 - `src/mcp_tools_sql/backends/sqlite.py`
 - `tests/backends/test_sqlite.py` — migrate ~10 fixture usages
-- `tests/config/test_loader.py` — remove `connection_string` from sensitive-key test if present
+- `tests/config/test_loader.py::test_credential_warning` — currently asserts that `password` (and previously `connection_string`) trigger the loader's sensitive-key WARN log. After this step `_SENSITIVE_KEYS` no longer contains `connection_string`, so the test stays (still asserts on `password`); just confirm no leftover `connection_string` reference remains in this test or surrounding fixtures
 - `mcp-tools-sql.md` — § 6 auth-methods table; § 6 config discovery flag rename
 
 ---
@@ -109,7 +109,7 @@ verify with grep that "connection_string" no longer appears in src/ or tests/
 
 **Update**:
 - All `tests/backends/test_sqlite.py` fixtures (~10 usages) → `path=` kwarg.
-- `tests/config/test_loader.py::test_credential_warning` (or equivalent) — if it tested `connection_string` as sensitive, remove that assertion. The `password` case stays.
+- `tests/config/test_loader.py::test_credential_warning` — confirm the test still passes after `connection_string` is removed from `_SENSITIVE_KEYS`. The test currently only asserts on the `password` case, so no edit is required, but verify no leftover `connection_string` references remain in this test or its fixtures.
 
 **Add (small)**:
 - One test in `tests/config/test_models.py`: `ConnectionConfig().driver == "ODBC Driver 18 for SQL Server"` (default).

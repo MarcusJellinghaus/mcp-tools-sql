@@ -1,8 +1,12 @@
 # Step 5 — `verify` skeleton + formatter + ENVIRONMENT + CONFIG sections
 
 **Reference**: [summary.md](./summary.md) — section "`verify` command pattern"
-**Commit**: 5 of 9
+**Commit**: 5 of 10
 **Goal**: Land the formatter primitives, the orchestrator skeleton, and the first two domain functions. Other sections still TODO; orchestrator prints what it has and exits.
+
+> **Decisions for this step**:
+> - The formatter scaffold includes `"warn" → "[WARN]"` in `STATUS_SYMBOLS` from the **start** (step 5). The actual `[WARN]` row is wired in step 7, but the symbol entry lives in the map immediately so later steps don't have to touch the constant.
+> - **Do NOT suppress the loader's own logger output.** Loader warnings (e.g. sensitive-key WARN from `load_query_config`) may interleave with verify CLI output on stderr/stdout. This is accepted as-is. No `logging.disable(...)` or logger-level adjustments inside `verify.run()`.
 
 ---
 

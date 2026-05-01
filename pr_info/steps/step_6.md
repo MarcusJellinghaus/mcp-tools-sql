@@ -1,8 +1,10 @@
 # Step 6 — `verify`: DEPENDENCIES + BUILTIN sections
 
 **Reference**: [summary.md](./summary.md) — section "`verify` M1 / M2 sections"
-**Commit**: 6 of 9
+**Commit**: 6 of 10
 **Goal**: Add backend-conditional optional-dependency check and builtin tools count.
+
+> **Decision — `tools_registered_count` semantic (Round 2 update)**: keep scope minimal. `tools_registered_count = len(load_default_queries())` — the total entries in `default_queries.toml`. **No** helper extracted from `server.py`, **no** filtering on disabled queries or per-backend overrides in this PR. Real filtering (when disabled / per-backend filtering actually exists in `server.py`) is deferred to a follow-up PR; until then, `verify_builtin` and `server.py` mount logic don't need to share a helper because there's nothing to filter. See Decisions.md Round 2 / Q1.
 
 ---
 
@@ -30,11 +32,11 @@ def verify_builtin() -> dict[str, Any]:
     """
     Loads default_queries.toml; reports:
       default_queries_loaded: ok if dict non-empty
-      tools_registered_count: numeric (always ok=True)
+      tools_registered_count: len(load_default_queries()) — always ok=True
     """
 ```
 
-The orchestrator now needs to know which backend is requested. Read it from the resolved query config (`query_config.connection` → look up in db config → `connection.backend`). If config-loading failed in the previous section, `verify_dependencies` is called with the backend `"unknown"` → emits a single `[ERR]` row "cannot determine backend without valid config" and the rest of the section is skipped. Builtin section can still run.
+The orchestrator now needs to know which backend is requested for the DEPENDENCIES section. Read it from the resolved query config (`query_config.connection` → look up in db config → `connection.backend`). If config-loading failed in the previous section, `verify_dependencies` is called with the backend `"unknown"` → emits a single `[ERR]` row "cannot determine backend without valid config" and the rest of the section is skipped. `verify_builtin` does **not** need the backend name — it just counts entries in `default_queries.toml`.
 
 ---
 
@@ -92,14 +94,18 @@ except ImportError as exc:
 from mcp_tools_sql.schema_tools import load_default_queries
 
 queries = load_default_queries()
+tools_registered_count = len(queries)
+
 return {
     "default_queries_loaded": {"ok": bool(queries),
                                "value": f"{len(queries)} queries", ...},
+    "tools_registered_count": {"ok": True,
+                               "value": f"{tools_registered_count} tools", ...},
     "overall_ok": bool(queries),
 }
 ```
 
-The "count of schema tools registered" line is the same `len(queries)` — the queries map 1:1 to MCP tools at server startup. No need for a second key.
+Minimal scope: `tools_registered_count = len(load_default_queries())`. No helper extracted from `server.py`, no per-backend or disabled-query filtering. When real filtering is introduced into `server.py` (follow-up PR), `verify_builtin` and the server mount path can be aligned then. See Decisions.md Round 2 / Q1.
 
 ---
 
@@ -150,6 +156,7 @@ Same as step 5:
 |---|---|
 | `test_verify_dependencies_sqlite_shows_info_line` | sqlite branch returns `{"info": ...}` with the expected message |
 | `test_verify_dependencies_unknown_backend_returns_err` | backend `"unknown"` → ok=False |
+| `test_verify_run_uses_unknown_backend_when_config_invalid` | Pass an invalid (or absent) query/db config so config-loading raises in the orchestrator; assert `DEPENDENCIES` section is rendered with `backend == "unknown"` (e.g. its single `[ERR]` row "cannot determine backend without valid config" is present in the output, and `verify_builtin` still runs) |
 | `test_verify_dependencies_postgresql_when_psycopg_missing` | monkeypatch `sys.modules["psycopg"]` to raise on import → ok=False, install_hint set |
 | `test_verify_builtin_returns_query_count` | Result has key with non-zero count |
 | `test_verify_run_includes_dependencies_and_builtin_sections` | capsys: stdout contains `=== DEPENDENCIES ===` and `=== BUILTIN ===` |
@@ -171,4 +178,4 @@ All five checks green.
 
 ## LLM Prompt for this step
 
-> Read `pr_info/steps/summary.md` and `pr_info/steps/step_6.md`. Extend `src/mcp_tools_sql/cli/commands/verify.py` with two new domain verifiers: `verify_dependencies(backend: str)` (sqlite shows a single "no optional dependencies for sqlite" info row; mssql checks `pyodbc` import and `pyodbc.drivers()` substring `"SQL Server"`; postgresql checks `psycopg` import; unknown backend returns a single `[ERR]` row) and `verify_builtin()` (loads `default_queries.toml` via existing `load_default_queries()` and reports the query count). Wire both into the `run(args)` orchestrator. The orchestrator should resolve the backend name from the config files (best-effort; on failure pass `"unknown"`). Add the listed tests to `tests/cli/test_verify.py` covering issue tests (viii), (ix) partial, and (x). Run all quality checks and ensure they pass.
+> Read `pr_info/steps/summary.md` and `pr_info/steps/step_6.md`. Extend `src/mcp_tools_sql/cli/commands/verify.py` with two new domain verifiers: `verify_dependencies(backend: str)` (sqlite shows a single "no optional dependencies for sqlite" info row; mssql checks `pyodbc` import and `pyodbc.drivers()` substring `"SQL Server"`; postgresql checks `psycopg` import; unknown backend returns a single `[ERR]` row) and `verify_builtin()` — no arguments — which reports `default_queries_loaded` and `tools_registered_count = len(load_default_queries())` (no helper extracted from `server.py`, no filtering on disabled / per-backend queries; that's deferred to a follow-up PR). Wire both into the `run(args)` orchestrator. The orchestrator should resolve the backend name from the config files (best-effort; on failure pass `"unknown"`) and pass it to `verify_dependencies` only. Add the listed tests to `tests/cli/test_verify.py` covering issue tests (viii), (ix) partial, and (x). Run all quality checks and ensure they pass.

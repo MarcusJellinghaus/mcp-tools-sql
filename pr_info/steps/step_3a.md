@@ -1,8 +1,10 @@
-# Step 3 — `cli/` package skeleton + `tomlkit` dep + `main.py` dispatch refactor
+# Step 3a — `cli/` package skeleton + `main.py` dispatch refactor
 
 **Reference**: [summary.md](./summary.md) — section "New `cli/` package"
-**Commit**: 3 of 9
-**Goal**: Stand up the dispatch infrastructure. Both subcommands raise `NotImplementedError` for now; steps 4–9 fill them in.
+**Commit**: 3a of 10
+**Goal**: Stand up the dispatch infrastructure. Both subcommands raise `NotImplementedError` for now; steps 3b–9 fill them in. `--help` polish (mcp_coder-parity) lands in step 3b.
+
+> **Note about `tomlkit`**: `tomlkit>=0.13.0` has **already** been added to `pyproject.toml` runtime dependencies (uncommitted change in the worktree). This step does **not** include "add tomlkit"; it is a prerequisite already in place.
 
 ---
 
@@ -17,8 +19,7 @@ Create:
 - `tests/cli/test_main_dispatch.py`
 
 Modify:
-- `src/mcp_tools_sql/main.py` — argparse + dispatch only
-- `pyproject.toml` — add `tomlkit` to `dependencies`
+- `src/mcp_tools_sql/main.py` — argparse + dispatch only; remove the placeholder `_setup_logging` (currently a no-op) and import the real `setup_logging` from `mcp_tools_sql.utils.log_utils` instead. Call it once in `main()` before dispatching to a subcommand.
 - `tach.toml` — add `mcp_tools_sql.cli` and `mcp_tools_sql.cli.commands` modules
 - `.importlinter` — add `cli` to layered-architecture contract
 
@@ -31,6 +32,7 @@ Modify:
 """init subcommand."""
 from __future__ import annotations
 import argparse
+from pathlib import Path
 
 
 def add_subparser(subparsers: argparse._SubParsersAction) -> None:
@@ -97,29 +99,19 @@ def main(argv: list[str] | None = None) -> int:
     return 1
 ```
 
-`setup_logging` comes from `mcp_tools_sql.utils.log_utils` (existing shim over mcp-coder-utils).
+`setup_logging` is imported from `mcp_tools_sql.utils.log_utils` (the existing shim over `mcp-coder-utils`). The current `main.py` has a placeholder local `_setup_logging` that does nothing — **delete it** and replace the call with the real `setup_logging(...)`. Call it exactly once at the top of `main()`, before dispatching to any subcommand, using the parsed `--log-level`, `--log-file`, and `--console-only` flags.
 
 `__main__.py` should call `sys.exit(main())` to honor exit codes.
+
+`help=` strings on `add_parser()` / `add_argument()` may stay terse here — step 3b finalizes all help text.
 
 ---
 
 ## HOW — Integration points
 
-### `pyproject.toml`
-```toml
-dependencies = [
-    "mcp>=1.3.0",
-    "mcp[cli]>=1.3.0",
-    "structlog>=24.5.0",
-    "python-json-logger>=3.2.1",
-    "mcp-coder-utils",
-    "tabulate>=0.9.0",
-    "pydantic>=2.0",
-    "tomlkit>=0.13.0",  # NEW
-]
-```
-
 ### `tach.toml` — append two module entries
+
+Declare **all** import edges upfront — even those only used in steps 5/6/7 (`backends`, `schema_tools`, `formatting`, `utils`). This avoids touching `tach.toml` again in later steps. (Decision: declare-all-upfront — supervisor confirmed.)
 
 ```toml
 [[modules]]
@@ -146,6 +138,8 @@ Update existing `mcp_tools_sql.main` entry to also depend on `mcp_tools_sql.cli`
 
 ### `.importlinter` — extend layers contract
 
+Insert `cli` between `main` and `server` in the layered contract:
+
 ```ini
 [importlinter:contract:layers]
 name = Layered Architecture
@@ -168,7 +162,8 @@ Note: `cli` sits between `main` and `server` so it can call into server-layer co
 
 ```
 parse args via _build_parser
-call setup_logging once
+call setup_logging(args.log_level, args.log_file, args.console_only) once
+  # imported from mcp_tools_sql.utils.log_utils — replaces the existing no-op _setup_logging placeholder
 dispatch on args.command:
     "server" → existing NotImplementedError
     "init"   → return init.run(args)
@@ -211,4 +206,4 @@ All five checks green. The new dispatch shim should not break existing tests.
 
 ## LLM Prompt for this step
 
-> Read `pr_info/steps/summary.md` and `pr_info/steps/step_3.md`. Implement step 3: create the `src/mcp_tools_sql/cli/` package with `commands/init.py` and `commands/verify.py` skeletons (each exposing `add_subparser(subparsers)` and `run(args)` — both `run` raise `NotImplementedError` for now). Refactor `main.py` so it only parses arguments and dispatches to `init.run(args)` or `verify.run(args)` and returns an exit code; rename the existing `_setup_logging` stub to actually call `setup_logging` from `mcp_tools_sql.utils.log_utils`. Update `__main__.py` to `sys.exit(main())`. Add `tomlkit>=0.13.0` to runtime dependencies in `pyproject.toml`. Add `mcp_tools_sql.cli` and `mcp_tools_sql.cli.commands` modules to `tach.toml` and extend `.importlinter` so `cli` sits between `main` and `server` in the layered contract. Write `tests/cli/test_main_dispatch.py` covering: dispatch of init/verify, `--database-config`/`--config` flag parsing, default to `server`, and argparse rejection of missing/unknown `--backend`. Run all quality checks and ensure they pass.
+> Read `pr_info/steps/summary.md` and `pr_info/steps/step_3a.md`. Implement step 3a: create the `src/mcp_tools_sql/cli/` package with `commands/init.py` and `commands/verify.py` skeletons (each exposing `add_subparser(subparsers)` and `run(args)` — both `run` raise `NotImplementedError`). Refactor `main.py` so it only parses arguments and dispatches to `init.run(args)` or `verify.run(args)` and returns an exit code. **Remove** the existing no-op `_setup_logging` placeholder in `main.py` and replace it with a call to the real `setup_logging` imported from `mcp_tools_sql.utils.log_utils`; invoke it exactly once in `main()` before dispatching, passing the parsed `--log-level`, `--log-file`, `--console-only` flags. Update `__main__.py` to `sys.exit(main())`. Add `mcp_tools_sql.cli` and `mcp_tools_sql.cli.commands` modules to `tach.toml` declaring **all** import edges upfront (config, utils, backends, schema_tools, formatting). Extend `.importlinter` to insert `cli` between `main` and `server` in the layered contract. Note: `tomlkit>=0.13.0` is already present in `pyproject.toml` — do not add it again. Write `tests/cli/test_main_dispatch.py` covering: dispatch of init/verify, `--database-config`/`--config` flag parsing, default to `server`, and argparse rejection of missing/unknown `--backend`. Run all quality checks and ensure they pass.

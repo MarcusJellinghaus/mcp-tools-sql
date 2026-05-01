@@ -1,7 +1,7 @@
 # Step 1 — Rename `UserConfig` / `--user-config` → `DatabaseConfig` / `--database-config`
 
 **Reference**: [summary.md](./summary.md) — section "Config-model cleanup"
-**Commit**: 1 of 9
+**Commit**: 1 of 10
 **Goal**: Pure rename. No behavior change.
 
 ---
@@ -26,6 +26,7 @@ Modify only:
 | `def load_user_config(path)` (loader.py) | `def load_database_config(path)` |
 | `--user-config` (main.py argparse) | `--database-config` |
 | `args.user_config` | `args.database_config` |
+| `loader.py::resolve_connection(query_config, user_config: UserConfig)` | `resolve_connection(query_config, db_config: DatabaseConfig)` — **rename the parameter** from `user_config` to `db_config` and retype it. Update the docstring opening line *"Look up the named connection from user config."* → *"Look up the named connection from database config."* |
 
 Default file path `~/.mcp-tools-sql/config.toml` is **unchanged**.
 
@@ -36,7 +37,7 @@ The docstring/`help=` text for the flag should change to: *"Path to database con
 ## HOW — Integration points
 
 - `loader.py`: function rename + update its return-type hint to `DatabaseConfig`. Update its imports.
-- `loader.py::resolve_connection`: rename parameter `user_config: UserConfig` → `db_config: DatabaseConfig` (or keep param name and just retype — pick whichever causes fewer test edits; tests currently pass `user_config=` as positional, so signature can stay positional).
+- `loader.py::resolve_connection`: rename parameter `user_config: UserConfig` → `db_config: DatabaseConfig` (renamed per WHAT-table; update docstring accordingly).
 - `config/__init__.py`: re-export `DatabaseConfig` (not `UserConfig`). Verify nothing else imports `UserConfig`.
 - `main.py`: update `add_argument("--database-config", ...)`. The attribute name auto-becomes `args.database_config`.
 

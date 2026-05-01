@@ -1,10 +1,12 @@
 # Step 4 — Implement `init` command
 
 **Reference**: [summary.md](./summary.md) — section "`init` design"
-**Commit**: 4 of 9
+**Commit**: 4 of 10
 **Goal**: `init` writes a starter `mcp-tools-sql.toml`, optionally appends to `pyproject.toml`, and writes a database config file at `~/.mcp-tools-sql/config.toml` if absent.
 
 Covers tests (i)–(vi) from the issue.
+
+> **Decision**: keep **two separate template builders** — `_build_project_template_standalone(backend)` and `_build_project_template_pyproject(backend)`. Do **not** factor into a shared `_build_project_template(comments=...)`. The two outputs have intentionally different content (full commented examples standalone vs. minimal active-keys-only inside pyproject) and a shared helper would obscure that.
 
 ---
 
@@ -37,8 +39,9 @@ def run(args: argparse.Namespace) -> int:
 def _run_standalone(backend: str, output: Path) -> int: ...
 def _run_pyproject(backend: str) -> int: ...
 
-def _build_project_template(backend: str) -> str: ...        # mcp-tools-sql.toml content
-def _build_database_config_template(backend: str) -> str: ... # ~/.mcp-tools-sql/config.toml content
+def _build_project_template_standalone(backend: str) -> str: ...  # mcp-tools-sql.toml content (full, with commented examples)
+def _build_project_template_pyproject(backend: str) -> str: ...    # minimal block content for [tool.mcp-tools-sql] (active keys + comment pointer to standalone template)
+def _build_database_config_template(backend: str) -> str: ...      # ~/.mcp-tools-sql/config.toml content
 
 def _write_database_config_if_absent() -> None:              # writes if missing, prints "left untouched" if present
     """Use Path.home() / ".mcp-tools-sql" / "config.toml"."""
@@ -141,6 +144,8 @@ return 0
 
 ## ALGORITHM — `_run_pyproject`
 
+> When `--pyproject` is set, `--output` is ignored — the project block is written into `pyproject.toml`'s `[tool.mcp-tools-sql]` table, not to a separate file. If `--output` was supplied with a non-default value, log a `logger.debug(...)` line acknowledging it was ignored. No error, no warning to stdout.
+
 ```
 pyproject = Path("pyproject.toml")
 if not pyproject.exists():
@@ -157,7 +162,14 @@ _write_database_config_if_absent(backend)   # also writes the db config when --p
 return 0
 ```
 
-For simplicity in the `--pyproject` path, the inserted block can be the **active** keys only (`connection = "default"`) plus a single comment pointing the user at the standalone template — full commented examples in `pyproject.toml` are noisy. Acceptable per KISS.
+The `--pyproject` inserted block contains the **active** keys only (`connection = "default"`) plus a single comment line pointing the user at the standalone template, e.g.:
+
+```
+# For commented examples of [queries.*] / [updates.*] blocks,
+# see the standalone mcp-tools-sql.toml template (run `mcp-tools-sql init` without --pyproject).
+```
+
+This is produced by `_build_project_template_pyproject(backend)`.
 
 ## ALGORITHM — `_write_database_config_if_absent`
 
@@ -189,6 +201,7 @@ Use `tmp_path` and `monkeypatch.setenv("HOME", str(tmp_path))` (or monkeypatch `
 | (i) | `test_init_generates_valid_toml` | Output parses with `tomllib` and has `connection = "default"` |
 | (ii) | `test_init_sqlite_uses_path` (parametrize: sqlite, mssql, postgresql) | Database config file uses `path` for sqlite, `host`/`port` for mssql/postgresql |
 | (iii) | `test_init_pyproject_happy_path` | Existing `pyproject.toml` gains `[tool.mcp-tools-sql]` |
+| (iii.b) | `test_init_pyproject_block_contains_pointer_comment` | The inserted `[tool.mcp-tools-sql]` block contains the comment-pointer text referencing the standalone `mcp-tools-sql.toml` template (assert on substring like `"standalone mcp-tools-sql.toml template"`) |
 | (iv) | `test_init_pyproject_refuses_when_section_exists` | Returns 1, pyproject content unchanged |
 | (v) | `test_init_does_not_overwrite_existing_database_config` | When file exists, prints "left untouched", file unchanged |
 | (vi) | `test_init_writes_default_in_both_files` | `mcp-tools-sql.toml` has `connection = "default"` AND `~/.mcp-tools-sql/config.toml` has `[connections.default]` |

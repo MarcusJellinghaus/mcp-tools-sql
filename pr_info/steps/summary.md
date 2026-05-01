@@ -83,7 +83,7 @@ No temporary compat shim — fixtures and code change atomically in the same ste
 
 ### 4. New mandatory runtime dep
 
-`tomlkit` — required for `init --pyproject` to round-trip `pyproject.toml` with formatting/comments preserved. Stdlib `tomllib` is read-only.
+`tomlkit>=0.13.0` — required for `init --pyproject` to round-trip `pyproject.toml` with formatting/comments preserved. Stdlib `tomllib` is read-only. **Already present** in `pyproject.toml` runtime dependencies (added in advance in the worktree); step 3a does not re-add it.
 
 ### 5. `init` design
 
@@ -120,10 +120,13 @@ Unimplemented backend → regular `[ERR]` (no `[SKIP]`), via existing `create_ba
 | `src/mcp_tools_sql/cli/commands/__init__.py` | Package marker |
 | `src/mcp_tools_sql/cli/commands/init.py` | `init` subcommand |
 | `src/mcp_tools_sql/cli/commands/verify.py` | `verify` subcommand + formatter |
+| `src/mcp_tools_sql/cli/parsers.py` | `HelpHintArgumentParser` + `WideHelpFormatter` (copied verbatim from `mcp_coder`) |
 | `tests/cli/__init__.py` | Package marker |
+| `tests/cli/test_main_dispatch.py` | Dispatch + `--help` / `--version` tests |
 | `tests/cli/test_init.py` | Tests (i)–(vi) |
 | `tests/cli/test_verify.py` | Tests (vii)–(xiv) |
-| `pr_info/steps/step_1.md` … `step_9.md` | This implementation plan |
+| `docs/cli.md` | CLI reference (step 10) |
+| `pr_info/steps/step_1.md` … `step_3a.md`, `step_3b.md`, `step_4.md` … `step_10.md`, `Decisions.md` | This implementation plan + decisions log |
 
 ## Files to Modify
 
@@ -137,26 +140,36 @@ Unimplemented backend → regular `[ERR]` (no `[SKIP]`), via existing `create_ba
 | `tests/backends/test_sqlite.py` | Migrate `connection_string=` → `path=` (~10 usages) |
 | `tests/config/test_loader.py` | Update for renames + remove `connection_string` from sensitive-key tests |
 | `tests/config/test_models.py` | Update for `UserConfig` → `DatabaseConfig` rename |
-| `pyproject.toml` | Add `tomlkit` to runtime dependencies |
-| `tach.toml` | Add `mcp_tools_sql.cli` and `mcp_tools_sql.cli.commands` modules under `entry_point` |
-| `.importlinter` | Add `cli` to layered architecture contract (same level as `main`) |
-| `mcp-tools-sql.md` | § 6 auth-methods table: remove "Connection string" row; § 6 config discovery: rename `--user-config` |
+| `pyproject.toml` | (Already done in worktree) `tomlkit>=0.13.0` in runtime dependencies |
+| `tach.toml` | Add `mcp_tools_sql.cli` and `mcp_tools_sql.cli.commands` modules under `entry_point` (all import edges declared upfront in step 3a) |
+| `.importlinter` | Insert `cli` between `main` and `server` in the layered architecture contract |
+| `mcp-tools-sql.md` | § 6 auth-methods table: remove "Connection string" row; § 6 config discovery: rename `--user-config`. Step 10: line ~859 code block update from `connection_string=` to `path=`. |
+| `README.md` | Step 10: align Quick Start with delivered `init` / `verify` UX |
+| `docs/architecture/architecture.md` | Step 10: note new `cli/` layer |
+| `vulture_whitelist.py` | Step 10: drop `_.connection_string` and `_.load_user_config` lines |
+| `src/mcp_tools_sql/schema_tools.py` | Step 8: rename `_extract_sql_params` → `extract_sql_params` and update internal callers |
 
 ---
 
 ## Step Sequence
 
-1. **Step 1** — Rename `UserConfig` → `DatabaseConfig`, `load_user_config` → `load_database_config`, `--user-config` → `--database-config`.
-2. **Step 2** — Drop `connection_string`, add `driver`, fix `SQLiteBackend.connect()`, migrate test fixtures, planning doc § 6.
-3. **Step 3** — Add `tomlkit` dep, create `cli/` package, refactor `main.py` to dispatch, update tach/importlinter.
-4. **Step 4** — Implement `init` command (standalone TOML + `~/.mcp-tools-sql/config.toml` + `--pyproject`).
-5. **Step 5** — `verify` skeleton: formatter helpers + `verify_environment` + `verify_config_files`.
-6. **Step 6** — `verify`: `verify_dependencies` + `verify_builtin`.
-7. **Step 7** — `verify`: `verify_connection` + `=== INSTALL INSTRUCTIONS ===` + skip-M2-on-failure summary.
-8. **Step 8** — `verify` M2: `verify_queries`.
-9. **Step 9** — `verify` M2: `verify_updates`.
+10 steps total. Step 3 split into 3a + 3b (Round 1 plan review). Documentation work added as new step 10.
 
-Each step = one commit, all checks (pylint, pytest, mypy) passing.
+1. **Step 1** — Rename `UserConfig` → `DatabaseConfig`, `load_user_config` → `load_database_config`, `--user-config` → `--database-config`. Includes `loader.py::resolve_connection` parameter rename `user_config` → `db_config` and docstring update.
+2. **Step 2** — Drop `connection_string`, add `driver`, fix `SQLiteBackend.connect()`, migrate test fixtures, planning doc § 6. Confirms `tests/config/test_loader.py::test_credential_warning` still passes (it only asserts on `password`).
+3. **Step 3a** — Create `cli/` package skeleton (NotImplementedError stubs), refactor `main.py` to dispatch, declare all `cli`/`cli.commands` import edges upfront in `tach.toml`, insert `cli` between `main` and `server` in `.importlinter`. (`tomlkit` is already present in `pyproject.toml`; no dep changes here.)
+4. **Step 3b** — Copy `mcp_coder`'s `--help` infrastructure verbatim: `HelpHintArgumentParser`, `WideHelpFormatter`, `--version`, unified `help` subcommand. Finalize all `help="..."` strings on `init`, `verify`, and shared top-level flags.
+5. **Step 4** — Implement `init` command (standalone TOML + `~/.mcp-tools-sql/config.toml` + `--pyproject`). Two separate template builders (no shared helper). Pyproject-inserted block contains a comment pointer to the standalone template.
+6. **Step 5** — `verify` skeleton: formatter helpers (with `"warn" → "[WARN]"` in `STATUS_SYMBOLS` from the start) + `verify_environment` + `verify_config_files`. No suppression of loader's own log output.
+7. **Step 6** — `verify`: `verify_dependencies` + `verify_builtin`. `tools_registered_count` reflects tools actually mounted in `server.py` for the active backend (not total queries in TOML).
+8. **Step 7** — `verify`: `verify_connection` (returns `(result_dict, open_backend_or_None)` from the start) + `=== INSTALL INSTRUCTIONS ===` + skip-M2-on-failure summary + sensitive-key `[WARN]` promotion.
+9. **Step 8** — `verify` M2: `verify_queries`. Promotes `schema_tools._extract_sql_params` → public `extract_sql_params`. SQLite EXPLAIN builds dummy params from declared types; MSSQL EXPLAIN reports `[ERR]` cleanly until the MSSQL backend lands.
+10. **Step 9** — `verify` M2: `verify_updates`. Keeps the "final compliance check" matrix mapping issue tests (i)–(xiv) to test files.
+11. **Step 10** — Documentation: fix `mcp-tools-sql.md` line ~859 (`connection_string=` → `path=`), update `README.md` Quick Start, add `cli/` layer note to `docs/architecture/architecture.md`, drop `_.connection_string` and `_.load_user_config` from `vulture_whitelist.py`, add new `docs/cli.md` CLI reference.
+
+Each step = one commit, all checks (pylint, pytest, mypy, tach, lint-imports) passing.
+
+See [Decisions.md](./Decisions.md) for the round-1 review decision log.
 
 ---
 

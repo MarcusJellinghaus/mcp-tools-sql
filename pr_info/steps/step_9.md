@@ -1,8 +1,10 @@
 # Step 9 — `verify` M2: UPDATES section
 
 **Reference**: [summary.md](./summary.md) — section "`verify` M1 / M2 sections"
-**Commit**: 9 of 9 — final
+**Commit**: 9 of 10
 **Goal**: Per-update validation: table exists, key column exists, field columns exist.
+
+> **Note**: documentation work (existing-doc fixes + new `docs/cli.md`) lands in step 10. This step keeps the **final compliance check** section as a visible reminder mapping issue tests (i)–(xiv) to test files.
 
 ---
 
@@ -69,7 +71,9 @@ def _list_table_columns(backend, backend_name, schema, table):
     return None  # unknown backend
 ```
 
-For SQLite, schema is ignored (single-database file). For MSSQL/PG, an empty `schema` defaults to backend's default schema (`dbo` for MSSQL, `public` for PG) — but per the issue this is just used for column lookup, so we use whatever the user configured. Empty `schema` will simply fail to find the table, which is the desired behavior.
+For SQLite, schema is ignored (single-database file).
+
+For MSSQL/PG, `_list_table_columns` does **not** fall back to `dbo` / `public` automatically. Users must set `schema = "..."` in their `[updates.<name>]` config block when the table lives outside the connection's default schema. If `schema` is empty, the column lookup will simply fail to find the table and verify will report `<name>.table` as `[ERR] Table not found` — that is the **intended behavior**: verify reflects what the user configured, it does not silently substitute defaults that may differ between environments.
 
 ---
 

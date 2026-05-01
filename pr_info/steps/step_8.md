@@ -1,8 +1,13 @@
 # Step 8 — `verify` M2: QUERIES section
 
 **Reference**: [summary.md](./summary.md) — section "`verify` M1 / M2 sections"
-**Commit**: 8 of 9
+**Commit**: 8 of 10
 **Goal**: Per-query validation: SQL valid via EXPLAIN, params well-formed, max_rows set.
+
+> **Decisions for this step**:
+> - **Promote `schema_tools._extract_sql_params` → public `extract_sql_params`** (drop the leading underscore). Update all internal call sites in `schema_tools` accordingly. `verify_queries` imports the public name. (Rationale: a second module — verify — now needs this helper; promoting it formalizes the API surface instead of reaching into a private name.)
+> - **SQLite EXPLAIN with parameters**: `_check_sql_explain` builds a dummy params dict from `params.keys()`, mapping each name to a type-appropriate placeholder value (`""` for `str`, `0` for `int`, `0.0` for `float`, `datetime.datetime(2000, 1, 1)` for `datetime`). It then calls `backend.explain(sql, dummy_params)`. SQLite's `EXPLAIN QUERY PLAN` requires bound values to compile parameterized SQL. Document this clearly in `_check_sql_explain`'s docstring.
+> - **MSSQL EXPLAIN scope kept as-is**: `backend.explain(sql)` is the only call. The MSSQL backend's `explain()` currently raises `NotImplementedError`; verify reports `[ERR]` with the exception message — clean and readable. No `SET SHOWPLAN_TEXT ON` / SHOWPLAN code lands in this PR; that ships with the MSSQL backend itself (issues #5/#6).
 
 ---
 
@@ -10,7 +15,31 @@
 
 Modify:
 - `src/mcp_tools_sql/cli/commands/verify.py`
+- `src/mcp_tools_sql/backends/base.py` — widen `DatabaseBackend.explain` signature
+- `src/mcp_tools_sql/backends/sqlite.py` — widen `SQLiteBackend.explain` signature; bind `params or {}` to the cursor
 - `tests/cli/test_verify.py` — extend
+
+---
+
+## WHAT — Backend signature widening
+
+`DatabaseBackend.explain` and `SQLiteBackend.explain` currently accept only `sql`. `_check_sql_explain` (below) needs to pass a dummy params dict when calling `backend.explain(sql, dummy_params)` for SQLite — the current signature won't compile. Widen both:
+
+```python
+# src/mcp_tools_sql/backends/base.py
+class DatabaseBackend(ABC):
+    @abstractmethod
+    def explain(self, sql: str, params: dict[str, Any] | None = None) -> str: ...
+
+# src/mcp_tools_sql/backends/sqlite.py
+class SQLiteBackend(DatabaseBackend):
+    def explain(self, sql: str, params: dict[str, Any] | None = None) -> str:
+        # Pass params or {} to the cursor — SQLite's EXPLAIN QUERY PLAN requires bound
+        # values to compile parameterized SQL (see Decisions.md: SQLite EXPLAIN with parameters).
+        ...
+```
+
+This widening is **backwards-compatible** — the new `params` argument defaults to `None`, so existing callers of `backend.explain(sql)` continue to work unchanged. Only `_check_sql_explain` for SQLite passes the second arg.
 
 ---
 
@@ -38,8 +67,21 @@ _EXPLAIN_PREFIX = {
 }
 
 
-def _check_sql_explain(sql: str, backend_name: str, backend: DatabaseBackend) -> tuple[bool, str]:
-    """Return (ok, error_message)."""
+def _check_sql_explain(
+    sql: str,
+    params: dict[str, QueryParamConfig],
+    backend_name: str,
+    backend: DatabaseBackend,
+) -> tuple[bool, str]:
+    """Return (ok, error_message).
+
+    For SQLite, builds a dummy params dict (keys from `params`, values placeholders
+    chosen per declared type: '' / 0 / 0.0 / datetime(2000,1,1)) and passes it to
+    backend.explain(sql, dummy_params) so EXPLAIN QUERY PLAN can compile the
+    parameterized SQL. For MSSQL, calls backend.explain(sql) — currently raises
+    NotImplementedError, so we report [ERR] with the exception message; that's the
+    intended behavior until the MSSQL backend lands (issues #5/#6).
+    """
 
 
 def _check_params_well_formed(
@@ -89,9 +131,24 @@ For MSSQL, the existing `explain()` is `NotImplementedError`. Until MSSQL backen
 
 ### Final algorithm
 ```python
-def _check_sql_explain(sql, backend) -> tuple[bool, str]:
+_DUMMY_BY_TYPE = {
+    "str": "",
+    "int": 0,
+    "float": 0.0,
+    "datetime": datetime.datetime(2000, 1, 1),
+}
+
+
+def _check_sql_explain(sql, params, backend_name, backend) -> tuple[bool, str]:
     try:
-        backend.explain(sql)
+        if backend_name == "sqlite":
+            dummy = {name: _DUMMY_BY_TYPE.get(p.type, "") for name, p in params.items()}
+            backend.explain(sql, dummy)
+        else:
+            # mssql / postgresql / others — explain() either supports it or raises
+            # NotImplementedError; in either case the surface is the same: we report
+            # the outcome straight from the backend.
+            backend.explain(sql)
         return True, ""
     except Exception as exc:
         return False, str(exc)
@@ -101,17 +158,13 @@ def _check_sql_explain(sql, backend) -> tuple[bool, str]:
 
 ## HOW — `_check_params_well_formed`
 
-Re-use the existing `_extract_sql_params` regex (currently in `schema_tools.py`). Either:
-- Import it (ok per layered architecture: cli → schema_tools is allowed via tach config from step 3), OR
-- Duplicate the small regex (3 lines).
-
-Pick **import** to avoid duplication.
+Re-use `extract_sql_params` from `schema_tools` (promoted from the previously private `_extract_sql_params` in this step — drop the leading underscore and update internal call sites). Verify is the second consumer, so the public API rename is the right call.
 
 ```python
-from mcp_tools_sql.schema_tools import _extract_sql_params
+from mcp_tools_sql.schema_tools import extract_sql_params
 
 def _check_params_well_formed(sql, params):
-    sql_names = _extract_sql_params(sql)
+    sql_names = extract_sql_params(sql)
     config_names = set(params.keys())
 
     missing_in_config = sql_names - config_names
@@ -142,7 +195,7 @@ def verify_queries(queries, backend_name, backend):
     for name, qcfg in queries.items():
         sql = qcfg.resolve_sql(backend_name)
 
-        ok, err = _check_sql_explain(sql, backend)
+        ok, err = _check_sql_explain(sql, qcfg.params, backend_name, backend)
         result[f"{name}.sql"] = {"ok": ok, "value": "EXPLAIN ok" if ok else "failed",
                                  "error": err, "install_hint": ""}
 
@@ -171,7 +224,7 @@ In step 7, the orchestrator already had a placeholder `if connection_ok: section
 sections.append(("QUERIES", verify_queries(query_config.queries, backend_name, backend)))
 ```
 
-(`backend` here is the live, connected backend instance from `verify_connection`. To avoid double-connection, restructure step 7's connection check to keep the backend open and pass it to step 8/9. Wrap in a `try/finally` to ensure close.)
+`backend` here is the **already-open** backend returned as the second element of `verify_connection`'s 2-tuple (which has been the contract since step 7). The `try/finally` that closes the backend after the M2 sections run was wired into the orchestrator in **step 7** (where the open-backend path first appears); step 8 inherits that lifecycle and just plugs in the QUERIES section.
 
 ---
 
@@ -180,13 +233,13 @@ sections.append(("QUERIES", verify_queries(query_config.queries, backend_name, b
 ```
 ... M1 sections ...
 if connection ok:
-    open backend (already connected from verify_connection)
+    # backend is already connected (returned from verify_connection in step 7);
+    # the surrounding try/finally that closes it lives in step 7's orchestrator.
     sections += QUERIES(queries, backend_name, backend)
     sections += UPDATES(...)         # step 9
-    close backend
 ```
 
-Restructuring step 7's `verify_connection` to either (a) return the open backend, or (b) connect twice (once for SELECT 1, again for EXPLAINs) is a small choice. Prefer (a): change `verify_connection`'s contract to return `(result_dict, open_backend_or_None)`. Caller closes.
+The decision to have `verify_connection` return `(result_dict, open_backend_or_None)` and the try/finally that closes the backend both already landed in step 7. Step 8 only fills in the QUERIES section.
 
 ---
 
@@ -222,4 +275,4 @@ All five checks green.
 
 ## LLM Prompt for this step
 
-> Read `pr_info/steps/summary.md` and `pr_info/steps/step_8.md`. Implement `verify_queries(queries, backend_name, backend)` in `src/mcp_tools_sql/cli/commands/verify.py`. For each query, emit three rows: `<name>.sql` (calls `backend.explain(sql)` — failures become `[ERR]` with the exception text; this also covers the "unimplemented backend" case automatically), `<name>.params` (`:name` in SQL ↔ config params with allow-list `{"filter", "max_rows"}` as legitimate config-only params; each `type` must be in `{"str","int","float","datetime"}`), `<name>.max_rows` (must be > 0). Wire into the orchestrator after `verify_connection` succeeds; restructure `verify_connection` to return `(result_dict, open_backend_or_None)` so the live backend can be reused for EXPLAINs without reconnecting. Caller closes the backend in a `try/finally`. Add the listed tests covering issue tests (xii) and (xiii). Run all quality checks and ensure they pass.
+> Read `pr_info/steps/summary.md` and `pr_info/steps/step_8.md`. First, widen the `explain` signature on both `DatabaseBackend` (ABC) in `src/mcp_tools_sql/backends/base.py` and `SQLiteBackend` in `src/mcp_tools_sql/backends/sqlite.py` to `explain(self, sql: str, params: dict[str, Any] | None = None) -> str`; for SQLite, bind `params or {}` to the cursor (backwards-compatible — existing callers still pass only `sql`). Then implement `verify_queries(queries, backend_name, backend)` in `src/mcp_tools_sql/cli/commands/verify.py`. For each query, emit three rows: `<name>.sql` (for SQLite, build a dummy params dict per declared type and call `backend.explain(sql, dummy)`; otherwise call `backend.explain(sql)` — failures become `[ERR]` with the exception text; this also covers the "unimplemented backend" case automatically), `<name>.params` (`:name` in SQL ↔ config params with allow-list `{"filter", "max_rows"}` as legitimate config-only params; each `type` must be in `{"str","int","float","datetime"}`), `<name>.max_rows` (must be > 0). Wire into the orchestrator after `verify_connection` succeeds; the open-backend lifecycle (return-tuple + try/finally) is already in place from step 7. Add the listed tests covering issue tests (xii) and (xiii). Run all quality checks and ensure they pass.

@@ -1,8 +1,10 @@
 # Step 7 — `verify`: CONNECTION + INSTALL INSTRUCTIONS + skip-M2-on-failure
 
 **Reference**: [summary.md](./summary.md) — section "`verify` M1 / M2 sections"
-**Commit**: 7 of 9
+**Commit**: 7 of 10
 **Goal**: Complete M1 by adding CONNECTION verification, the aggregated INSTALL INSTRUCTIONS section, and the skip-M2-on-failure summary stub. Promote sensitive-key warning from step 5 into a real `[WARN]` row.
+
+> **Decision — `verify_connection` return shape**: `verify_connection` returns `(result_dict, open_backend_or_None)` from the **start** (this step). M1 callers ignore the second element. Step 8 then uses the open backend for EXPLAINs without reconnecting. This avoids restructuring `verify_connection`'s contract mid-stream.
 
 ---
 
@@ -17,11 +19,17 @@ Modify:
 ## WHAT — Function signatures
 
 ```python
-def verify_connection(connection: ConnectionConfig) -> dict[str, Any]:
+def verify_connection(
+    connection: ConnectionConfig,
+) -> tuple[dict[str, Any], DatabaseBackend | None]:
     """
-    Build backend via create_backend(connection); on failure → [ERR].
-    On success: connect, run SELECT 1, close.
+    Build backend via create_backend(connection); on failure → [ERR] and return (result, None).
+    On success: connect, run SELECT 1, leave the backend open and return it as the second tuple element.
+    The caller is responsible for closing the open backend (try/finally in the orchestrator).
     Reports rows for: backend, driver (mssql only), host_or_path, database, credentials_resolved, select_1.
+
+    Step 7 (M1) callers ignore the second element. Step 8/9 (M2) use it for EXPLAIN /
+    INFORMATION_SCHEMA queries without reconnecting.
     """
 
 
@@ -76,18 +84,22 @@ else:
     result["credentials"] = {"ok": False, "value": "(none)",
                              "error": "No credentials configured", ...}
 
-# Actually try to connect and SELECT 1
+# Actually try to connect and SELECT 1.
+# Leave backend OPEN on success (caller closes); on failure, return None.
+open_backend: DatabaseBackend | None = None
 try:
     backend = create_backend(connection)
-    with backend:
-        backend.execute_query("SELECT 1")
+    backend.connect()
+    backend.execute_query("SELECT 1")
     result["select_1"] = {"ok": True, "value": "ok", ...}
+    open_backend = backend
 except Exception as exc:
     result["select_1"] = {"ok": False, "value": "failed",
                           "error": str(exc), "install_hint": ""}
+    open_backend = None
 
 result["overall_ok"] = all(e["ok"] for k, e in result.items() if k != "overall_ok")
-return result
+return result, open_backend
 ```
 
 ---
@@ -146,23 +158,31 @@ A `warn` does **not** set the exit code to 1 — only `err` does.
 
 ---
 
-## HOW — Skip-M2-on-failure summary
+## HOW — Skip-M2-on-failure summary + open-backend lifecycle
 
-Add a placeholder in the orchestrator. M2 sections are added in steps 8–9, but the wiring lands here:
+Add the M2 wiring in the orchestrator. M2 sections are added in steps 8–9, but the **lifecycle** (open-backend `try/finally`) is set up here, since step 7 is where the open-backend path first appears. Steps 8 and 9 just plug their section calls in — they do not need to touch the lifecycle wiring.
 
 ```python
+connection_section_result, open_backend = verify_connection(connection)
+sections.append(("CONNECTION", connection_section_result))
 connection_ok = connection_section_result.get("overall_ok", False)
 
 if connection_ok:
-    sections.append(("QUERIES", verify_queries(...)))   # added in step 8
-    sections.append(("UPDATES", verify_updates(...)))   # added in step 9
+    # open_backend is non-None on success; close it after M2 finishes (or any error in M2).
+    try:
+        sections.append(("QUERIES", verify_queries(...)))   # added in step 8
+        sections.append(("UPDATES", verify_updates(...)))   # added in step 9
+    finally:
+        if open_backend is not None:
+            open_backend.close()
 else:
+    # M2-skip branch — no open backend to close (open_backend is None on failure).
     n_queries = len(query_config.queries)
     n_updates = len(query_config.updates)
     print(render_skip_m2_summary(n_queries, n_updates))
 ```
 
-For step 7, `verify_queries` / `verify_updates` are not yet implemented; just leave a TODO comment for steps 8/9 to plug in. The skip-summary path can already be tested.
+For step 7, `verify_queries` / `verify_updates` are not yet implemented; leave a TODO comment for steps 8/9 to plug in. The `try/finally` block and the skip-summary path can both already be exercised by tests.
 
 ---
 
@@ -176,10 +196,13 @@ backend = resolve backend or "unknown"
 sections += DEPENDENCIES(backend)
 sections += BUILTIN
 if connection resolved:
-    sections += CONNECTION
+    sections += CONNECTION  # verify_connection returns (result, open_backend_or_None)
     if connection ok:
-        sections += QUERIES (TODO step 8)
-        sections += UPDATES (TODO step 9)
+        try:
+            sections += QUERIES (TODO step 8)
+            sections += UPDATES (TODO step 9)
+        finally:
+            close open_backend if non-None
     else:
         print render_skip_m2_summary(...)
 hints = collect_install_instructions(sections)
@@ -208,6 +231,9 @@ return exit code
 | `test_verify_connection_unimplemented_backend_is_err` | `backend="postgresql"` (no impl) → `select_1.ok=False` from create_backend ValueError |
 | `test_verify_connection_credential_env_var_missing` | env var unset → credentials row ok=False |
 | `test_verify_connection_credential_env_var_set` | env var set → credentials row ok=True |
+| `test_verify_detects_missing_connection` | Issue test (ix): query config references a connection name that does **not** exist in the database config → orchestrator surfaces the mismatch as an `[ERR]` (either in CONFIG via `resolve_connection` or as a CONNECTION-section failure with a clear message). Exit code 1. |
+| `test_verify_connection_returns_open_backend_on_success` | `verify_connection` returns a 2-tuple; second element is non-None and is a connected `DatabaseBackend` instance (caller responsible for closing) |
+| `test_verify_connection_returns_none_backend_on_failure` | On `select_1` failure, second tuple element is `None` |
 | `test_collect_install_instructions_aggregates_unique` | Failed entries with same hint dedupe |
 | `test_verify_run_skips_m2_on_connection_failure` | Issue test (xi): unreachable backend → stdout contains `connection failed; skipped 0 query checks, 0 update checks` |
 | `test_verify_warn_for_sensitive_keys_in_query_config` | Query config with `password = "..."` → `[WARN]` row, exit code still 0 (or 1 if other err) — exit code 1 only if a true error exists |
@@ -224,4 +250,4 @@ All five checks green.
 
 ## LLM Prompt for this step
 
-> Read `pr_info/steps/summary.md` and `pr_info/steps/step_7.md`. Extend `src/mcp_tools_sql/cli/commands/verify.py` with: (1) `verify_connection(connection)` that reports backend, driver (mssql only), host:port or sqlite path, database, credentials resolution, and a `SELECT 1` round-trip via `create_backend()`; (2) `collect_install_instructions(sections)` that dedupes `install_hint` strings from failed entries; (3) `render_skip_m2_summary(n_queries, n_updates)` returning the issue's exact summary string; (4) promote sensitive-key detection in `verify_config_files` from a deferred row to a real `[WARN]` row using a `warn=True` flag on the entry dict; update the formatter and the summary counters to recognize the warn path (warn does NOT raise the exit code). Wire all of these into `run(args)` so the M1 orchestrator is complete; QUERIES / UPDATES are still placeholders for steps 8/9 but the skip-on-failure branch should already be exercised. Add the listed tests covering issue tests (vii), (xi), plus connection variants. Run all quality checks and ensure they pass.
+> Read `pr_info/steps/summary.md` and `pr_info/steps/step_7.md`. Extend `src/mcp_tools_sql/cli/commands/verify.py` with: (1) `verify_connection(connection)` returning `(result_dict, open_backend_or_None)` — reports backend, driver (mssql only), host:port or sqlite path, database, credentials resolution, and a `SELECT 1` round-trip via `create_backend()`; on success the backend is **left open** and returned as the second tuple element; on failure the second element is `None`; (2) `collect_install_instructions(sections)` that dedupes `install_hint` strings from failed entries; (3) `render_skip_m2_summary(n_queries, n_updates)` returning the issue's exact summary string; (4) promote sensitive-key detection in `verify_config_files` from a deferred row to a real `[WARN]` row using a `warn=True` flag on the entry dict; update the formatter and the summary counters to recognize the warn path (warn does NOT raise the exit code). Wire all of these into `run(args)` so the M1 orchestrator is complete, including the **open-backend `try/finally` lifecycle** that closes the backend after the M2 sections finish (QUERIES / UPDATES are placeholders for steps 8/9 but the surrounding `try/finally` and the skip-on-failure branch should already be in place and exercised by tests). Add the listed tests covering issue tests (vii), (xi), plus connection variants. Run all quality checks and ensure they pass.
