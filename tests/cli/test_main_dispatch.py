@@ -87,10 +87,3 @@ def test_init_subparser_rejects_unknown_backend() -> None:
     parser = _build_parser()
     with pytest.raises(SystemExit):
         parser.parse_args(["init", "--backend", "bogus"])
-
-
-def test_verify_run_raises_not_implemented() -> None:
-    """verify.run is a stub for now."""
-    args = argparse.Namespace()
-    with pytest.raises(NotImplementedError, match="steps 5-9"):
-        verify_cmd.run(args)
