@@ -7,6 +7,9 @@ import logging
 import sys
 from pathlib import Path
 
+from mcp_tools_sql.cli.commands import init, verify
+from mcp_tools_sql.utils.log_utils import setup_logging
+
 logger = logging.getLogger(__name__)
 
 
@@ -52,42 +55,33 @@ def _build_parser() -> argparse.ArgumentParser:
 
     subparsers = parser.add_subparsers(dest="command")
 
-    # Default: run the MCP server
     subparsers.add_parser("server", help="Start the MCP server (default).")
-
-    # Init: scaffold a new query config
-    subparsers.add_parser("init", help="Create a starter query configuration file.")
-
-    # Verify: validate config without starting the server
-    subparsers.add_parser("verify", help="Validate configuration and exit.")
+    init.add_subparser(subparsers)
+    verify.add_subparser(subparsers)
 
     return parser
 
 
-def _setup_logging(level: str, log_file: Path | None, console_only: bool) -> None:
-    """Configure logging based on CLI arguments."""
-    # TODO: integrate with mcp-coder-utils logging setup
-    _ = level, log_file, console_only
+def main(argv: list[str] | None = None) -> int:
+    """Parse arguments and dispatch to the appropriate command.
 
-
-def main(argv: list[str] | None = None) -> None:
-    """Parse arguments and dispatch to the appropriate command."""
+    Returns:
+        Process exit code.
+    """
     parser = _build_parser()
-    args = parser.parse_args(argv or sys.argv[1:])
+    args = parser.parse_args(argv if argv is not None else sys.argv[1:])
 
-    _setup_logging(args.log_level, args.log_file, args.console_only)
+    log_file = None if args.console_only else args.log_file
+    setup_logging(args.log_level, log_file)
 
     command = args.command or "server"
 
     if command == "server":
-        # TODO: load config, create backend, start server
         raise NotImplementedError("server command not yet implemented")
-    elif command == "init":
-        # TODO: scaffold starter config
-        raise NotImplementedError("init command not yet implemented")
-    elif command == "verify":
-        # TODO: validate config
-        raise NotImplementedError("verify command not yet implemented")
-    else:
-        parser.print_help()
-        sys.exit(1)
+    if command == "init":
+        return init.run(args)
+    if command == "verify":
+        return verify.run(args)
+
+    parser.print_help()
+    return 1

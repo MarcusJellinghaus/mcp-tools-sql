@@ -104,7 +104,28 @@ depends_on = [
 path = "mcp_tools_sql.main"
 layer = "entry_point"
 depends_on = [
+    { path = "mcp_tools_sql.cli" },
     { path = "mcp_tools_sql.server" },
+    { path = "mcp_tools_sql.utils" },
+]
+
+[[modules]]
+path = "mcp_tools_sql.cli"
+layer = "entry_point"
+depends_on = [
+    { path = "mcp_tools_sql.config" },
+    { path = "mcp_tools_sql.utils" },
+]
+
+[[modules]]
+path = "mcp_tools_sql.cli.commands"
+layer = "entry_point"
+depends_on = [
+    { path = "mcp_tools_sql.backends" },
+    { path = "mcp_tools_sql.config" },
+    { path = "mcp_tools_sql.schema_tools" },
+    { path = "mcp_tools_sql.formatting" },
+    { path = "mcp_tools_sql.utils" },
 ]
 
 [[modules]]
