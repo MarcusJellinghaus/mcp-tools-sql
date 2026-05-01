@@ -855,7 +855,7 @@ def sqlite_backend(tmp_path):
     conn.execute("INSERT INTO orders VALUES (1, 100, 'pending')")
     conn.commit()
     conn.close()
-    return SQLiteBackend(connection_string=str(db_path))
+    return SQLiteBackend(ConnectionConfig(backend="sqlite", path=str(db_path)))
 ```
 
 **Markers**: `@pytest.mark.sqlite_integration` — always runs in CI.

@@ -52,7 +52,6 @@ _.username
 _.password
 _.trusted_connection
 _.credential_env_var
-_.connection_string
 _.name
 _.description
 _.required
@@ -82,7 +81,6 @@ _.__doc__
 # Stub functions - will be used when implemented
 # =============================================================================
 _.load_query_config
-_.load_user_config
 _.resolve_connection
 _.create_server
 _.format_rows

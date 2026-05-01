@@ -40,15 +40,24 @@ pip install mcp-tools-sql[postgresql]  # + PostgreSQL support
 ## Quick Start
 
 ```bash
-# Generate starter config
-mcp-tools-sql init --backend sqlite --output mcp-tools-sql.toml
+# Generate starter project query config (mcp-tools-sql.toml) and a
+# database config skeleton at ~/.mcp-tools-sql/config.toml
+mcp-tools-sql init --backend sqlite
 
-# Validate setup
-mcp-tools-sql verify --config mcp-tools-sql.toml
+# Edit ~/.mcp-tools-sql/config.toml and set the SQLite path, e.g.:
+#     [connections.default]
+#     backend = "sqlite"
+#     path = "./mydb.db"
+
+# Validate environment, configs, dependencies, and connectivity
+mcp-tools-sql verify
 
 # Start MCP server
 mcp-tools-sql --config mcp-tools-sql.toml
 ```
+
+See [docs/cli.md](docs/cli.md) for the full CLI reference (all flags,
+example output, exit codes).
 
 ## Configuration
 
@@ -58,6 +67,9 @@ Two config files:
 |------|---------|----------|
 | `mcp-tools-sql.toml` | Query/update definitions | Project dir (committed) |
 | `~/.mcp-tools-sql/config.toml` | Database connections + credentials | User home (never committed) |
+
+The `--config` flag overrides the project query config path; the
+`--database-config` flag overrides the database config path.
 
 See the [planning document](mcp-tools-sql.md) for full details.
 

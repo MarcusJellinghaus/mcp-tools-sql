@@ -66,6 +66,9 @@ MCP server providing safe, configurable SQL database access for LLM-assisted wor
 │  Entry Point Layer                                  │
 │  └── mcp_tools_sql.main                             │
 ├─────────────────────────────────────────────────────┤
+│  CLI Layer                                          │
+│  └── mcp_tools_sql.cli (init, verify subcommands)   │
+├─────────────────────────────────────────────────────┤
 │  Server Layer                                       │
 │  └── mcp_tools_sql.server                           │
 ├─────────────────────────────────────────────────────┤
@@ -91,6 +94,16 @@ MCP server providing safe, configurable SQL database access for LLM-assisted wor
 - Each layer may only depend on layers below it
 - Backend modules may NOT depend on each other
 - `utils` has no upward dependencies
+
+### CLI Layer (`mcp_tools_sql.cli`)
+
+The `cli` package sits between `main` and `server` in the layered import contract.
+It hosts the non-server subcommands (`init`, `verify`) under `cli/commands/`,
+plus shared argparse helpers (`HelpHintArgumentParser`, `WideHelpFormatter`) in
+`cli/parsers.py`. `cli` may import from `config`, `utils`, `backends`,
+`schema_tools`, and `formatting`. It is the **only** layer between `main` and
+`server` — `main` dispatches to either `cli` (for `init`/`verify`) or `server`
+(for the default MCP-server command).
 
 ### Key Modules
 
