@@ -37,7 +37,11 @@ _LABEL_WIDTH = 28
 
 
 def _pad(text: str, width: int) -> str:
-    """Left-justify ``text`` to ``width`` (truncate if longer)."""
+    """Left-justify ``text`` to ``width`` (truncate if longer).
+
+    Returns:
+        The padded (or truncated) text, exactly ``width`` characters long.
+    """
     if len(text) >= width:
         return text[:width]
     return text.ljust(width)
@@ -71,7 +75,11 @@ def _entry(
     error: str = "",
     install_hint: str = "",
 ) -> dict[str, Any]:
-    """Build a single verifier result entry with the standard shape."""
+    """Build a single verifier result entry with the standard shape.
+
+    Returns:
+        Dict containing ``ok``, ``value``, ``error`` and ``install_hint`` keys.
+    """
     return {"ok": ok, "value": value, "error": error, "install_hint": install_hint}
 
 
@@ -474,7 +482,13 @@ def _check_sql_explain(
 def _check_params_well_formed(
     sql: str, params: dict[str, QueryParamConfig]
 ) -> tuple[bool, str]:
-    """Verify ``:name`` placeholders in SQL match config params + types."""
+    """Verify ``:name`` placeholders in SQL match config params + types.
+
+    Returns:
+        Tuple ``(ok, message)`` where ``ok`` is ``True`` when placeholders
+        and config params line up with valid types, and ``message`` is a
+        ``"; "``-joined description of any problems (empty when ``ok``).
+    """
     sql_names = extract_sql_params(sql)
     config_names = set(params.keys())
 
@@ -757,7 +771,11 @@ def _load_query_config_for_m2(
 
 
 def run(args: argparse.Namespace) -> int:
-    """Entry point. Returns process exit code."""
+    """Entry point for the ``verify`` subcommand.
+
+    Returns:
+        Process exit code (``0`` if every section passed, ``1`` otherwise).
+    """
     sections: list[tuple[str, dict[str, Any]]] = []
     sections.append(("ENVIRONMENT", verify_environment()))
     sections.append(

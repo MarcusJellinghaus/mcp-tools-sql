@@ -117,7 +117,11 @@ def add_subparser(subparsers: argparse._SubParsersAction) -> None:  # type: igno
 
 
 def run(args: argparse.Namespace) -> int:
-    """Dispatch to standalone or pyproject mode."""
+    """Dispatch to standalone or pyproject mode.
+
+    Returns:
+        Process exit code (``0`` on success, non-zero on failure).
+    """
     backend: str = args.backend
     if args.pyproject:
         if args.output != Path("mcp-tools-sql.toml"):
@@ -147,7 +151,12 @@ def _build_project_template_pyproject(backend: str) -> str:
 
 
 def _build_pyproject_inserted_table() -> tomlkit.items.Table:
-    """Build the tomlkit Table to insert under `[tool.mcp-tools-sql]`."""
+    """Build the tomlkit Table to insert under `[tool.mcp-tools-sql]`.
+
+    Returns:
+        The constructed :class:`tomlkit.items.Table` with default values
+        and explanatory comments.
+    """
     table = tomlkit.table()
     table["connection"] = "default"
     table.add(tomlkit.nl())
@@ -160,7 +169,14 @@ def _build_pyproject_inserted_table() -> tomlkit.items.Table:
 
 
 def _build_database_config_template(backend: str) -> str:
-    """Return per-backend `~/.mcp-tools-sql/config.toml` content."""
+    """Return per-backend `~/.mcp-tools-sql/config.toml` content.
+
+    Returns:
+        TOML content string for the requested backend.
+
+    Raises:
+        ValueError: If ``backend`` is not one of the supported values.
+    """
     if backend == "sqlite":
         return _DATABASE_CONFIG_SQLITE
     if backend == "mssql":
@@ -187,7 +203,11 @@ def _write_database_config_if_absent(backend: str) -> None:
 
 
 def _run_standalone(backend: str, output: Path) -> int:
-    """Write standalone `mcp-tools-sql.toml` and the database config."""
+    """Write standalone `mcp-tools-sql.toml` and the database config.
+
+    Returns:
+        Process exit code (``0`` on success, ``1`` if ``output`` already exists).
+    """
     if output.exists():
         print(f"{output} already exists - refusing to overwrite.")
         return 1
@@ -198,7 +218,12 @@ def _run_standalone(backend: str, output: Path) -> int:
 
 
 def _run_pyproject(backend: str) -> int:
-    """Append `[tool.mcp-tools-sql]` to `pyproject.toml` and write db config."""
+    """Append `[tool.mcp-tools-sql]` to `pyproject.toml` and write db config.
+
+    Returns:
+        Process exit code (``0`` on success, ``1`` if ``pyproject.toml`` is
+        missing or already contains a ``[tool.mcp-tools-sql]`` section).
+    """
     pyproject = Path("pyproject.toml")
     if not pyproject.exists():
         print("pyproject.toml not found in current directory - refusing.")
