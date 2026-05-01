@@ -80,9 +80,9 @@ See [steps/step_8.md](steps/step_8.md).
 
 See [steps/step_9.md](steps/step_9.md).
 
-- [ ] Implementation (tests + production code)
-- [ ] Quality checks: pylint, pytest, mypy — fix all issues
-- [ ] Commit message prepared
+- [x] Implementation (tests + production code)
+- [x] Quality checks: pylint, pytest, mypy — fix all issues
+- [x] Commit message prepared
 
 ### Step 10: Documentation
 

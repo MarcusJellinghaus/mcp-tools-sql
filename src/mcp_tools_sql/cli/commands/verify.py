@@ -26,6 +26,7 @@ from mcp_tools_sql.config.models import (
     QueryConfig,
     QueryFileConfig,
     QueryParamConfig,
+    UpdateConfig,
 )
 from mcp_tools_sql.schema_tools import extract_sql_params, load_default_queries
 
@@ -537,6 +538,104 @@ def verify_queries(
     return result
 
 
+def _list_table_columns(
+    backend: DatabaseBackend,
+    backend_name: str,
+    schema: str,
+    table: str,
+) -> list[str] | None:
+    """Return column names for ``table`` in ``schema``, or ``None`` if missing.
+
+    SQLite ignores ``schema`` (single-database file). MSSQL/PostgreSQL look up
+    via ``INFORMATION_SCHEMA.COLUMNS`` filtered by both schema and table; the
+    user must set ``schema`` in their config when the table lives outside the
+    connection's default schema — verify never silently substitutes ``dbo`` or
+    ``public``.
+    """
+    if backend_name == "sqlite":
+        rows = backend.execute_query(
+            "SELECT name FROM pragma_table_info(:table)",
+            {"table": table},
+        )
+        cols = [r["name"] for r in rows]
+        return cols if cols else None
+
+    if backend_name in ("mssql", "postgresql"):
+        rows = backend.execute_query(
+            "SELECT COLUMN_NAME FROM INFORMATION_SCHEMA.COLUMNS "
+            "WHERE TABLE_SCHEMA = :schema AND TABLE_NAME = :table",
+            {"schema": schema, "table": table},
+        )
+        cols = [r["COLUMN_NAME"] for r in rows]
+        return cols if cols else None
+
+    return None
+
+
+def verify_updates(
+    updates: dict[str, UpdateConfig],
+    backend_name: str,
+    backend: DatabaseBackend,
+) -> dict[str, Any]:
+    """Per-update validation: table exists, key column exists, fields exist.
+
+    Returns:
+        Standard verifier result dict with three rows per update
+        (``<name>.table``, ``<name>.key_column``, ``<name>.fields``) and
+        an ``overall_ok`` flag. When the table is missing, all three rows
+        are emitted as ``[ERR]`` rather than skipped.
+    """
+    result: dict[str, Any] = {}
+    for name, ucfg in updates.items():
+        cols = _list_table_columns(backend, backend_name, ucfg.schema_name, ucfg.table)
+
+        if cols is None:
+            qualified = f"{ucfg.schema_name}.{ucfg.table}".lstrip(".")
+            result[f"{name}.table"] = _entry(
+                ok=False, value=qualified, error="Table not found"
+            )
+            result[f"{name}.key_column"] = _entry(
+                ok=False, value="(skipped)", error="Table not found"
+            )
+            result[f"{name}.fields"] = _entry(
+                ok=False, value="(skipped)", error="Table not found"
+            )
+            continue
+
+        result[f"{name}.table"] = _entry(ok=True, value=ucfg.table)
+
+        key_field = ucfg.key.field if ucfg.key else ""
+        if not key_field:
+            result[f"{name}.key_column"] = _entry(
+                ok=False, value="(none)", error="No key configured"
+            )
+        elif key_field not in cols:
+            result[f"{name}.key_column"] = _entry(
+                ok=False,
+                value=key_field,
+                error=f"Column not found in {ucfg.table}",
+            )
+        else:
+            result[f"{name}.key_column"] = _entry(ok=True, value=key_field)
+
+        missing = [f.field for f in ucfg.fields if f.field not in cols]
+        if missing:
+            result[f"{name}.fields"] = _entry(
+                ok=False,
+                value=", ".join(f.field for f in ucfg.fields),
+                error=f"Missing columns: {', '.join(missing)}",
+            )
+        else:
+            result[f"{name}.fields"] = _entry(
+                ok=True, value=f"{len(ucfg.fields)} columns"
+            )
+
+    result["overall_ok"] = all(
+        entry["ok"] for key, entry in result.items() if key != "overall_ok"
+    )
+    return result
+
+
 def collect_install_instructions(
     sections: list[tuple[str, dict[str, Any]]],
 ) -> dict[str, Any]:
@@ -688,7 +787,14 @@ def run(args: argparse.Namespace) -> int:
                             ),
                         )
                     )
-                # TODO(step 9): sections.append(("UPDATES", verify_updates(...)))
+                    sections.append(
+                        (
+                            "UPDATES",
+                            verify_updates(
+                                query_config.updates, connection.backend, open_backend
+                            ),
+                        )
+                    )
             finally:
                 open_backend.close()
         else:

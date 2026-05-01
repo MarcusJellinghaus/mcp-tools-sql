@@ -18,6 +18,9 @@ from mcp_tools_sql.config.models import (
     ConnectionConfig,
     QueryConfig,
     QueryParamConfig,
+    UpdateConfig,
+    UpdateFieldConfig,
+    UpdateKeyConfig,
 )
 
 
@@ -807,3 +810,166 @@ def test_verify_queries_unimplemented_backend_explain_fails_cleanly() -> None:
 
     assert result["any.sql"]["ok"] is False
     assert result["overall_ok"] is False
+
+
+# ---------------------------------------------------------------------------
+# verify_updates
+# ---------------------------------------------------------------------------
+
+
+def test_verify_updates_valid_sqlite(sqlite_db: Path) -> None:
+    """Update on `customers` with key=`id` and fields=`name,country` → all ok."""
+    updates = {
+        "set_customer_name": UpdateConfig(
+            table="customers",
+            key=UpdateKeyConfig(field="id", type="int"),
+            fields=[
+                UpdateFieldConfig(field="name", type="str"),
+                UpdateFieldConfig(field="country", type="str"),
+            ],
+        ),
+    }
+    backend = _open_sqlite_backend(sqlite_db)
+    try:
+        result = verify_cmd.verify_updates(updates, "sqlite", backend)
+    finally:
+        backend.close()
+
+    assert result["set_customer_name.table"]["ok"] is True
+    assert result["set_customer_name.key_column"]["ok"] is True
+    assert result["set_customer_name.fields"]["ok"] is True
+    assert result["overall_ok"] is True
+
+
+def test_verify_updates_detects_missing_table(sqlite_db: Path) -> None:
+    """Update on `does_not_exist` → all three rows ok=False with Table not found."""
+    updates = {
+        "bad_update": UpdateConfig(
+            table="does_not_exist",
+            key=UpdateKeyConfig(field="id", type="int"),
+            fields=[UpdateFieldConfig(field="x", type="str")],
+        ),
+    }
+    backend = _open_sqlite_backend(sqlite_db)
+    try:
+        result = verify_cmd.verify_updates(updates, "sqlite", backend)
+    finally:
+        backend.close()
+
+    assert result["bad_update.table"]["ok"] is False
+    assert "Table not found" in result["bad_update.table"]["error"]
+    assert result["bad_update.key_column"]["ok"] is False
+    assert result["bad_update.fields"]["ok"] is False
+    assert result["overall_ok"] is False
+
+
+def test_verify_updates_detects_missing_key_column(sqlite_db: Path) -> None:
+    """Key column `nonexistent_id` → key row ok=False, table row ok=True."""
+    updates = {
+        "bad_key": UpdateConfig(
+            table="customers",
+            key=UpdateKeyConfig(field="nonexistent_id", type="int"),
+            fields=[UpdateFieldConfig(field="name", type="str")],
+        ),
+    }
+    backend = _open_sqlite_backend(sqlite_db)
+    try:
+        result = verify_cmd.verify_updates(updates, "sqlite", backend)
+    finally:
+        backend.close()
+
+    assert result["bad_key.table"]["ok"] is True
+    assert result["bad_key.key_column"]["ok"] is False
+    assert "nonexistent_id" in result["bad_key.key_column"]["value"]
+    assert result["bad_key.fields"]["ok"] is True
+    assert result["overall_ok"] is False
+
+
+def test_verify_updates_detects_missing_field_column(sqlite_db: Path) -> None:
+    """Issue test (xiv): field `nonexistent_field` → fields row ok=False."""
+    updates = {
+        "bad_field": UpdateConfig(
+            table="customers",
+            key=UpdateKeyConfig(field="id", type="int"),
+            fields=[
+                UpdateFieldConfig(field="name", type="str"),
+                UpdateFieldConfig(field="nonexistent_field", type="str"),
+            ],
+        ),
+    }
+    backend = _open_sqlite_backend(sqlite_db)
+    try:
+        result = verify_cmd.verify_updates(updates, "sqlite", backend)
+    finally:
+        backend.close()
+
+    assert result["bad_field.table"]["ok"] is True
+    assert result["bad_field.key_column"]["ok"] is True
+    assert result["bad_field.fields"]["ok"] is False
+    assert "nonexistent_field" in result["bad_field.fields"]["error"]
+    assert result["overall_ok"] is False
+
+
+def test_verify_updates_no_updates_configured(sqlite_db: Path) -> None:
+    """Empty updates dict → empty result, overall_ok=True."""
+    backend = _open_sqlite_backend(sqlite_db)
+    try:
+        result = verify_cmd.verify_updates({}, "sqlite", backend)
+    finally:
+        backend.close()
+
+    assert [k for k in result if k != "overall_ok"] == []
+    assert result["overall_ok"] is True
+
+
+def test_verify_full_run_with_queries_and_updates_returns_0(
+    sqlite_db: Path,
+    tmp_path: Path,
+    capsys: pytest.CaptureFixture[str],
+) -> None:
+    """Issue tests (vii)+(viii)+(x): full sqlite happy path → exit 0."""
+    query_cfg = tmp_path / "mcp-tools-sql.toml"
+    query_cfg.write_text(
+        'connection = "default"\n'
+        "\n"
+        "[queries.list_customers]\n"
+        'sql = "SELECT * FROM customers WHERE country = :country"\n'
+        "max_rows = 10\n"
+        "\n"
+        "[queries.list_customers.params.country]\n"
+        'name = "country"\n'
+        'type = "str"\n'
+        "\n"
+        "[updates.set_customer_name]\n"
+        'table = "customers"\n'
+        "\n"
+        "[updates.set_customer_name.key]\n"
+        'field = "id"\n'
+        'type = "int"\n'
+        "\n"
+        "[[updates.set_customer_name.fields]]\n"
+        'field = "name"\n'
+        'type = "str"\n'
+        "\n"
+        "[[updates.set_customer_name.fields]]\n"
+        'field = "country"\n'
+        'type = "str"\n',
+        encoding="utf-8",
+    )
+
+    db_cfg = tmp_path / "db-config.toml"
+    db_cfg.write_text(
+        "[connections.default]\n"
+        'backend = "sqlite"\n'
+        f'path = "{sqlite_db.as_posix()}"\n',
+        encoding="utf-8",
+    )
+
+    args = _make_args(config=query_cfg, database_config=db_cfg)
+    rc = verify_cmd.run(args)
+    captured = capsys.readouterr()
+
+    assert rc == 0
+    assert "=== QUERIES ===" in captured.out
+    assert "=== UPDATES ===" in captured.out
+    assert "[ERR]" not in captured.out
