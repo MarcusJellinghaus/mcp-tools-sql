@@ -12,14 +12,14 @@ import pytest
 
 from mcp_tools_sql.config.loader import (
     discover_query_config,
+    load_database_config,
     load_query_config,
-    load_user_config,
     resolve_connection,
 )
 from mcp_tools_sql.config.models import (
     ConnectionConfig,
+    DatabaseConfig,
     QueryFileConfig,
-    UserConfig,
 )
 
 
@@ -143,11 +143,11 @@ table = "records"
         assert config.updates["fix_record"].schema_name == "dbo"
 
 
-class TestLoadUserConfig:
-    """Tests for load_user_config."""
+class TestLoadDatabaseConfig:
+    """Tests for load_database_config."""
 
-    def test_valid_user_config(self, tmp_path: Path) -> None:
-        """Loads user config with multiple named connections."""
+    def test_valid_database_config(self, tmp_path: Path) -> None:
+        """Loads database config with multiple named connections."""
         toml_content = """\
 [connections.local_sqlite]
 backend = "sqlite"
@@ -164,9 +164,9 @@ password = "secret"
         config_file = tmp_path / "config.toml"
         config_file.write_text(toml_content)
 
-        config = load_user_config(config_file)
+        config = load_database_config(config_file)
 
-        assert isinstance(config, UserConfig)
+        assert isinstance(config, DatabaseConfig)
         assert "local_sqlite" in config.connections
         assert config.connections["local_sqlite"].backend == "sqlite"
         assert "prod_mssql" in config.connections
@@ -177,27 +177,27 @@ password = "secret"
         """None path defaults to ~/.mcp-tools-sql/config.toml."""
         # Point home to tmp_path so the default file won't exist
         with patch("mcp_tools_sql.config.loader.Path.home", return_value=tmp_path):
-            config = load_user_config(None)
+            config = load_database_config(None)
 
-        assert isinstance(config, UserConfig)
+        assert isinstance(config, DatabaseConfig)
         assert config.connections == {}
 
     def test_missing_file_returns_defaults(self, tmp_path: Path) -> None:
-        """Non-existent file returns UserConfig() with empty connections."""
+        """Non-existent file returns DatabaseConfig() with empty connections."""
         missing = tmp_path / "nonexistent.toml"
 
-        config = load_user_config(missing)
+        config = load_database_config(missing)
 
-        assert isinstance(config, UserConfig)
+        assert isinstance(config, DatabaseConfig)
         assert config.connections == {}
 
     def test_invalid_toml_raises_value_error(self, tmp_path: Path) -> None:
-        """Malformed user config raises ValueError."""
+        """Malformed database config raises ValueError."""
         config_file = tmp_path / "config.toml"
         config_file.write_text("[broken\n")
 
         with pytest.raises(ValueError, match="config.toml"):
-            load_user_config(config_file)
+            load_database_config(config_file)
 
     @pytest.mark.skipif(
         sys.platform == "win32", reason="Cannot reliably remove read on Windows"
@@ -210,7 +210,7 @@ password = "secret"
 
         try:
             with pytest.raises(ValueError, match=str(config_file)):
-                load_user_config(config_file)
+                load_database_config(config_file)
         finally:
             config_file.chmod(stat.S_IRUSR | stat.S_IWUSR)
 
@@ -222,38 +222,38 @@ class TestResolveConnection:
         """Returns ConnectionConfig when name matches."""
         conn = ConnectionConfig(backend="sqlite", path="./test.db")
         query_config = QueryFileConfig(connection="mydb")
-        user_config = UserConfig(connections={"mydb": conn})
+        db_config = DatabaseConfig(connections={"mydb": conn})
 
-        result = resolve_connection(query_config, user_config)
+        result = resolve_connection(query_config, db_config)
 
         assert result is conn
         assert result.backend == "sqlite"
         assert result.path == "./test.db"
 
     def test_missing_connection_raises(self) -> None:
-        """ValueError when connection name not in user config."""
+        """ValueError when connection name not in database config."""
         conn = ConnectionConfig(backend="sqlite")
         query_config = QueryFileConfig(connection="missing")
-        user_config = UserConfig(connections={"other": conn})
+        db_config = DatabaseConfig(connections={"other": conn})
 
         with pytest.raises(ValueError, match="missing"):
-            resolve_connection(query_config, user_config)
+            resolve_connection(query_config, db_config)
 
     def test_empty_connection_name_raises(self) -> None:
         """ValueError when query_config.connection is empty."""
         query_config = QueryFileConfig(connection="")
-        user_config = UserConfig(connections={"mydb": ConnectionConfig()})
+        db_config = DatabaseConfig(connections={"mydb": ConnectionConfig()})
 
         with pytest.raises(ValueError, match="No connection name"):
-            resolve_connection(query_config, user_config)
+            resolve_connection(query_config, db_config)
 
     def test_empty_connections_dict_raises(self) -> None:
-        """ValueError when user_config has no connections."""
+        """ValueError when db_config has no connections."""
         query_config = QueryFileConfig(connection="mydb")
-        user_config = UserConfig(connections={})
+        db_config = DatabaseConfig(connections={})
 
         with pytest.raises(ValueError, match="mydb"):
-            resolve_connection(query_config, user_config)
+            resolve_connection(query_config, db_config)
 
 
 class TestDiscoverQueryConfig:

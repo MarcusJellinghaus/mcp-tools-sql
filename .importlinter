@@ -7,6 +7,7 @@ name = Layered Architecture
 type = layers
 layers =
     mcp_tools_sql.main
+    mcp_tools_sql.cli
     mcp_tools_sql.server
     mcp_tools_sql.schema_tools | mcp_tools_sql.query_tools | mcp_tools_sql.update_tools | mcp_tools_sql.validation_tools
     mcp_tools_sql.backends | mcp_tools_sql.formatting

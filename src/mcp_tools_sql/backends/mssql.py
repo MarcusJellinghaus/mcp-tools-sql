@@ -32,6 +32,6 @@ class MSSQLBackend(DatabaseBackend):
         """Execute an UPDATE/INSERT."""
         raise NotImplementedError
 
-    def explain(self, sql: str) -> str:
+    def explain(self, sql: str, params: dict[str, Any] | None = None) -> str:
         """Return the query execution plan."""
         raise NotImplementedError

@@ -12,25 +12,25 @@ from mcp_tools_sql.backends.sqlite import SQLiteBackend
 from mcp_tools_sql.config.models import ConnectionConfig
 from mcp_tools_sql.schema_tools import (
     _apply_filter,
-    _extract_sql_params,
+    extract_sql_params,
     register_builtin_tools,
 )
 
 
 class TestExtractSqlParams:
-    """Tests for _extract_sql_params."""
+    """Tests for extract_sql_params."""
 
     def test_single_param(self) -> None:
-        assert _extract_sql_params("SELECT * WHERE x = :id") == {"id"}
+        assert extract_sql_params("SELECT * WHERE x = :id") == {"id"}
 
     def test_multiple_params(self) -> None:
-        assert _extract_sql_params("WHERE a = :x AND b = :y") == {"x", "y"}
+        assert extract_sql_params("WHERE a = :x AND b = :y") == {"x", "y"}
 
     def test_no_params(self) -> None:
-        assert _extract_sql_params("SELECT 'main' AS name") == set()
+        assert extract_sql_params("SELECT 'main' AS name") == set()
 
     def test_duplicate_param(self) -> None:
-        assert _extract_sql_params("WHERE a = :x OR b = :x") == {"x"}
+        assert extract_sql_params("WHERE a = :x OR b = :x") == {"x"}
 
 
 class TestApplyFilter:
@@ -70,7 +70,7 @@ class TestApplyFilter:
 
 def _make_mcp_with_tools(db_path: str) -> FastMCP:
     """Create a FastMCP instance with builtin tools registered against a SQLite DB."""
-    config = ConnectionConfig(backend="sqlite", connection_string=db_path)
+    config = ConnectionConfig(backend="sqlite", path=db_path)
     backend = SQLiteBackend(config)
     backend.connect()
     mcp = FastMCP("test-schema-tools")

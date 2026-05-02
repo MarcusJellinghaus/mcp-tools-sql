@@ -4,9 +4,9 @@ from __future__ import annotations
 
 from mcp_tools_sql.config.models import (
     ConnectionConfig,
+    DatabaseConfig,
     QueryConfig,
     UpdateConfig,
-    UserConfig,
 )
 
 
@@ -25,9 +25,9 @@ def test_connection_config_defaults() -> None:
     assert cfg.port == 0
 
 
-def test_user_config_empty() -> None:
-    """UserConfig can be constructed with no arguments."""
-    cfg = UserConfig()
+def test_database_config_empty() -> None:
+    """DatabaseConfig can be constructed with no arguments."""
+    cfg = DatabaseConfig()
     assert cfg.connections == {}
     assert cfg.security.allow_updates is True
 

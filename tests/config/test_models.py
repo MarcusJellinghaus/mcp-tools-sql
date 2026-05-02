@@ -8,11 +8,11 @@ from pydantic import ValidationError
 from mcp_tools_sql.config.models import (
     BackendQueryConfig,
     ConnectionConfig,
+    DatabaseConfig,
     QueryConfig,
     QueryFileConfig,
     QueryParamConfig,
     UpdateConfig,
-    UserConfig,
 )
 
 
@@ -51,9 +51,9 @@ class TestModelValidation:
         assert config.queries == {}
         assert config.updates == {}
 
-    def test_user_config_defaults(self) -> None:
-        """UserConfig defaults: empty connections, security.allow_updates=True."""
-        config = UserConfig()
+    def test_database_config_defaults(self) -> None:
+        """DatabaseConfig defaults: empty connections, security.allow_updates=True."""
+        config = DatabaseConfig()
         assert config.connections == {}
         assert config.security.allow_updates is True
 
@@ -61,6 +61,15 @@ class TestModelValidation:
         """ConnectionConfig defaults to sqlite backend."""
         config = ConnectionConfig()
         assert config.backend == "sqlite"
+
+    def test_connection_config_driver_default(self) -> None:
+        """ConnectionConfig.driver defaults to the standard MSSQL ODBC driver."""
+        config = ConnectionConfig()
+        assert config.driver == "ODBC Driver 18 for SQL Server"
+
+    def test_connection_config_no_connection_string_field(self) -> None:
+        """ConnectionConfig no longer exposes a connection_string field."""
+        assert not hasattr(ConnectionConfig(), "connection_string")
 
     def test_query_file_config_nested_parsing(self) -> None:
         """QueryFileConfig parses nested queries with params from dict."""
