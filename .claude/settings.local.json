@@ -74,6 +74,7 @@
   "enableAllProjectMcpServers": true,
   "enabledMcpjsonServers": [
     "tools-py",
+    "sql-prototype",
     "workspace"
   ]
 }
