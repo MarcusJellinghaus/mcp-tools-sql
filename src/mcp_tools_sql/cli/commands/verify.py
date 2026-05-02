@@ -427,6 +427,7 @@ def verify_connection(
         )
 
     open_backend: DatabaseBackend | None = None
+    backend: DatabaseBackend | None = None
     try:
         backend = create_backend(connection)
         backend.connect()
@@ -435,6 +436,11 @@ def verify_connection(
         open_backend = backend
     except Exception as exc:  # pylint: disable=broad-except
         result["select_1"] = _entry(ok=False, value="failed", error=str(exc))
+        if backend is not None:
+            try:
+                backend.close()
+            except Exception:  # pylint: disable=broad-except
+                pass
         open_backend = None
 
     result["overall_ok"] = all(
@@ -793,8 +799,8 @@ def run(args: argparse.Namespace) -> int:
     if connection is not None:
         connection_result, open_backend = verify_connection(connection)
         sections.append(("CONNECTION", connection_result))
-        if connection_result.get("overall_ok", False) and open_backend is not None:
-            try:
+        try:
+            if connection_result.get("overall_ok", False) and open_backend is not None:
                 query_config = _load_query_config_for_m2(args.config)
                 if query_config is not None:
                     sections.append(
@@ -813,11 +819,12 @@ def run(args: argparse.Namespace) -> int:
                             ),
                         )
                     )
-            finally:
+            else:
+                n_queries, n_updates = _load_query_config_for_counts(args.config)
+                skip_summary = render_skip_m2_summary(n_queries, n_updates)
+        finally:
+            if open_backend is not None:
                 open_backend.close()
-        else:
-            n_queries, n_updates = _load_query_config_for_counts(args.config)
-            skip_summary = render_skip_m2_summary(n_queries, n_updates)
 
     install_section = collect_install_instructions(sections)
     if any(key != "overall_ok" for key in install_section):

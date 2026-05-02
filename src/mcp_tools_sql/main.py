@@ -44,8 +44,8 @@ def _build_parser() -> argparse.ArgumentParser:
         type=Path,
         default=None,
         help=(
-            "Path to project query config (default: discover via "
-            "mcp-tools-sql.toml or [tool.mcp-tools-sql] in pyproject.toml)"
+            "Path to project query config (default: auto-discovered via "
+            "mcp-tools-sql.toml in the working directory)"
         ),
     )
     parser.add_argument(

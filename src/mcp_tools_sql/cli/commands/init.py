@@ -138,18 +138,6 @@ def _build_project_template_standalone(backend: str) -> str:
     return _PROJECT_TEMPLATE_STANDALONE
 
 
-def _build_project_template_pyproject(backend: str) -> str:
-    """Return minimal active-keys block for `[tool.mcp-tools-sql]`."""
-    del backend
-    return (
-        'connection = "default"\n'
-        "\n"
-        "# For commented examples of [queries.*] / [updates.*] blocks,\n"
-        "# see the standalone mcp-tools-sql.toml template\n"
-        "# (run `mcp-tools-sql init` without --pyproject).\n"
-    )
-
-
 def _build_pyproject_inserted_table() -> tomlkit.items.Table:
     """Build the tomlkit Table to insert under `[tool.mcp-tools-sql]`.
 
