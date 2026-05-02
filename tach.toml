@@ -105,6 +105,7 @@ path = "mcp_tools_sql.main"
 layer = "entry_point"
 depends_on = [
     { path = "mcp_tools_sql.cli" },
+    { path = "mcp_tools_sql.cli.commands" },
     { path = "mcp_tools_sql.server" },
     { path = "mcp_tools_sql.utils" },
 ]
