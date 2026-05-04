@@ -105,12 +105,10 @@ echo "  - mcp-tools-sql"
 echo "============================================="
 echo ""
 
-# Activate the correct venv (only persists if this script was sourced)
-if [ -n "${VIRTUAL_ENV:-}" ] && [ "$VIRTUAL_ENV" != "$VENV_DIR" ]; then
-    echo "  Deactivating wrong virtual environment: $VIRTUAL_ENV"
-    deactivate 2>/dev/null || true
-fi
-
+# Activate the correct venv (only persists if this script was sourced).
+# No fallback deactivate here — the strict early guard already exits when a
+# non-project venv is active. Diverges from mcp_coder, which silently
+# deactivates instead; we prefer hard-fail to avoid mutating the parent shell.
 if [ "${VIRTUAL_ENV:-}" != "$VENV_DIR" ]; then
     echo "  Activating virtual environment: $VENV_DIR"
     # shellcheck disable=SC1090,SC1091
