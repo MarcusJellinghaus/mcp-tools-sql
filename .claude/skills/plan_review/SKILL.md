@@ -2,9 +2,9 @@
 description: Review implementation plan for completeness, simplicity, and risks
 disable-model-invocation: true
 allowed-tools:
-  - mcp__workspace__git
-  - mcp__workspace__read_file
-  - mcp__workspace__list_directory
+  - mcp__mcp-workspace__git
+  - mcp__mcp-workspace__read_file
+  - mcp__mcp-workspace__list_directory
   - Glob
   - Grep
 ---
@@ -12,8 +12,8 @@ allowed-tools:
 # Review Implementation Plan
 
 **First, ensure we're up to date:**
-Call `mcp__workspace__git` with command `"fetch"` and args `["origin"]`.
-Use `mcp__workspace__git` with command `"status"` to check working directory state.
+Call `mcp__mcp-workspace__git` with command `"fetch"` and args `["origin"]`.
+Use `mcp__mcp-workspace__git` with command `"status"` to check working directory state.
 
 Confirm and display the current feature branch name.
 
