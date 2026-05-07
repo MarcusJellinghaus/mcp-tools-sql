@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import argparse
+import sqlite3
 from pathlib import Path
 from typing import Any
 
@@ -65,14 +66,129 @@ def test_no_command_defaults_to_server() -> None:
     assert args.command is None
 
 
-def test_no_command_prints_help_and_exits_0(
+def test_no_command_dispatches_to_server(monkeypatch: pytest.MonkeyPatch) -> None:
+    """`mcp-tools-sql` (no args) dispatches to run_server and exits 0."""
+    called = {"n": 0}
+
+    def fake(args: argparse.Namespace) -> None:
+        called["n"] += 1
+
+    monkeypatch.setattr("mcp_tools_sql.main.run_server", fake)
+    rc = main([])
+    assert rc == 0
+    assert called["n"] == 1
+
+
+def test_server_command_dispatches_to_server(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """`mcp-tools-sql server` dispatches to run_server and exits 0."""
+    called = {"n": 0}
+
+    def fake(args: argparse.Namespace) -> None:
+        called["n"] += 1
+
+    monkeypatch.setattr("mcp_tools_sql.main.run_server", fake)
+    rc = main(["server"])
+    assert rc == 0
+    assert called["n"] == 1
+
+
+def _build_failing_args(tmp_path: Path, scenario: str) -> list[str]:
+    """Build CLI args producing a pre-mcp.run failure for `scenario`."""
+    if scenario == "missing_config":
+        return ["--config", str(tmp_path / "missing.toml"), "server"]
+    if scenario == "missing_connection_name":
+        qcfg = tmp_path / "mcp-tools-sql.toml"
+        qcfg.write_text('connection = "nonexistent"\n')
+        dbcfg = tmp_path / "db.toml"
+        dbcfg.write_text('[connections.other]\nbackend = "sqlite"\npath = "x.db"\n')
+        return [
+            "--config",
+            str(qcfg),
+            "--database-config",
+            str(dbcfg),
+            "server",
+        ]
+    if scenario == "unknown_backend":
+        db = tmp_path / "test.db"
+        sqlite3.connect(str(db)).close()
+        qcfg = tmp_path / "mcp-tools-sql.toml"
+        qcfg.write_text('connection = "default"\n')
+        dbcfg = tmp_path / "db.toml"
+        dbcfg.write_text(
+            f'[connections.default]\nbackend = "bogus"\npath = "{db.as_posix()}"\n'
+        )
+        return [
+            "--config",
+            str(qcfg),
+            "--database-config",
+            str(dbcfg),
+            "server",
+        ]
+    raise AssertionError(f"unknown scenario: {scenario}")
+
+
+@pytest.mark.parametrize(
+    "scenario",
+    ["missing_config", "missing_connection_name", "unknown_backend"],
+)
+def test_server_friendly_error_for_bad_config_returns_2(
+    tmp_path: Path,
+    capsys: pytest.CaptureFixture[str],
+    scenario: str,
+) -> None:
+    """Bad configs produce exit 2 with a friendly stderr hint and no traceback."""
+    argv = _build_failing_args(tmp_path, scenario)
+    rc = main(argv)
+    captured = capsys.readouterr()
+    assert rc == 2
+    assert "Error:" in captured.err
+    assert "verify" in captured.err
+    assert "Traceback" not in captured.err
+
+
+def test_server_keyboard_interrupt_returns_130(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """KeyboardInterrupt from run_server is translated to exit code 130."""
+
+    def fake(args: argparse.Namespace) -> None:
+        raise KeyboardInterrupt
+
+    monkeypatch.setattr("mcp_tools_sql.main.run_server", fake)
+    rc = main(["server"])
+    assert rc == 130
+
+
+def test_help_subcommand_still_prints_help(
     capsys: pytest.CaptureFixture[str],
 ) -> None:
-    """`mcp-tools-sql` (no args) prints help and returns 0."""
-    rc = main([])
+    """`mcp-tools-sql help` continues to print help and return 0."""
+    rc = main(["help"])
     captured = capsys.readouterr()
     assert rc == 0
     assert "usage: mcp-tools-sql" in captured.out
+
+
+def test_setup_logging_runs_before_run_server(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """`setup_logging` must be invoked before `run_server` on the server path."""
+    order: list[str] = []
+
+    def fake_setup(*_args: Any, **_kwargs: Any) -> None:
+        order.append("setup_logging")
+
+    def fake_run(args: argparse.Namespace) -> None:
+        order.append("run_server")
+
+    monkeypatch.setattr("mcp_tools_sql.main.setup_logging", fake_setup)
+    monkeypatch.setattr("mcp_tools_sql.main.run_server", fake_run)
+
+    rc = main(["server"])
+    assert rc == 0
+    assert order == ["setup_logging", "run_server"]
 
 
 def test_init_subparser_requires_backend() -> None:
