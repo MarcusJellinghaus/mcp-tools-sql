@@ -116,3 +116,28 @@
 - summary.md: added `mcp-tools-sql.md` to the Files Modified table.
 
 **Status**: Pending commit.
+
+## Final Status
+
+**Plan ready for implementation.**
+
+- Rounds run: 7 (Rounds 1-6 produced changes; Round 7 produced zero changes, terminating the loop).
+- Findings addressed: 25 (S1-S25). All STRAIGHTFORWARD findings auto-accepted; design/scope questions (S19, S24, S25) escalated to user for decisions.
+- User decisions:
+  - S19 (verify.py result-key policy): A — rename in lockstep.
+  - S20 (TOML literal enumeration in test_verify.py): B — keep generic wording.
+  - S21 (test_verify.py call-site enumeration): A — enumerate explicitly.
+  - S22 (obsolete test methods in test_default_queries.py): A — delete both.
+  - S24 (docs/cli.md scope): A — include in this PR.
+  - S25 (mcp-tools-sql.md brainstorm doc scope): A — include in this PR.
+- Commits produced (6, on branch `5-dynamic-select-tool-registration`):
+  - Round 1: b582dcc
+  - Round 2: 0c971d2
+  - Round 3: 84fd2ff
+  - Round 4: 680d429
+  - Round 5: 4c06466
+  - Round 6: 19f4f1d
+- Plan files final state: `pr_info/steps/summary.md` + step_1.md through step_6.md.
+- Coverage verified: all `max_rows` and `filter` references across source, tests, docs, and the brainstorm doc are either enumerated in a step's WHERE list or intentionally preserved (e.g., MCP tool kwargs that keep their public name).
+
+The plan is mechanically complete and ready for the implementation phase.
