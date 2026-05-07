@@ -57,3 +57,28 @@
 - step_2.md: added `tests/test_smoke.py` (`qc.max_rows == 100` → `qc.max_rows_default == 100`) and `tests/config/test_loader.py` (TOML `max_rows = 50` → `max_rows_default = 50`; assertion `.max_rows == 50` → `.max_rows_default == 50`) to WHERE.
 
 **Status**: Pending commit.
+
+## Round 4 — 2026-05-07
+**Findings**:
+- S19: verify.py result-dict keys, error text, and docstring needed an explicit policy after the `max_rows` field rename. (DESIGN/REQUIREMENTS)
+- S20: TOML literal at `tests/cli/test_verify.py:937` not enumerated in Step 2 WHERE.
+- S21: `tests/cli/test_verify.py` had 7 `QueryConfig(..., max_rows=N)` call sites + 4 result-key/error-text assertion sites + a test-method name not enumerated.
+- S22: `tests/test_default_queries.py` test methods `test_read_columns_has_filter_param` / `test_read_columns_has_max_rows_param` need explicit handling — both fully obsolete after Step 4.
+
+**Decisions**:
+- S19: ACCEPT option A — rename verify.py keys/error/docstring in lockstep with the field. (User decision)
+- S20: SKIP — keep generic "adjust field references" wording for the TOML literal. (User decision)
+- S21: ACCEPT option A — enumerate the call sites, assertion sites, and test-method rename. (User decision)
+- S22: ACCEPT option A — delete both obsolete test methods entirely. (User decision)
+
+**User decisions**:
+- S19 (verify.py result-key policy): A — rename in lockstep.
+- S20 (TOML literal enumeration): B — keep generic.
+- S21 (test_verify.py call-site enumeration): A — enumerate.
+- S22 (test_default_queries.py obsolete methods): A — delete both.
+
+**Changes**:
+- step_2.md: added explicit WHERE/HOW entries for `verify.py` (result-key, error text, docstring lines 524/528, field access); replaced generic `tests/cli/test_verify.py` entry with explicit enumeration of 7 `QueryConfig` keyword call sites, result-key assertions, error-text assertions, and rename of `test_verify_queries_detects_missing_max_rows` → `..._max_rows_default`. Generic wording retained for the line 937 TOML literal per user choice.
+- step_4.md: replaced generic wording for `tests/test_default_queries.py` with explicit deletion instruction for `test_read_columns_has_filter_param` and `test_read_columns_has_max_rows_param`, with rationale that their coverage is provided elsewhere (Step 2 + Step 6).
+
+**Status**: Pending commit.

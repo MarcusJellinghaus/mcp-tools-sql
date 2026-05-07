@@ -21,12 +21,34 @@
   `max_rows_default` (only `read_columns` currently sets it)
 - `src/mcp_tools_sql/schema_tools.py` — `_build_tool_fn`: read
   `config.max_rows_default`, add clamp + note
-- `src/mcp_tools_sql/cli/commands/verify.py` — `verify_queries`:
-  `qcfg.max_rows` → `qcfg.max_rows_default`
+- `src/mcp_tools_sql/cli/commands/verify.py` — `verify_queries`, in
+  lockstep with the field rename:
+  - field access (line ~549, ~552): `qcfg.max_rows` →
+    `qcfg.max_rows_default`
+  - result-dict key (line ~550): `f"{name}.max_rows"` →
+    `f"{name}.max_rows_default"`
+  - error text (line ~553): `"max_rows must be > 0"` →
+    `"max_rows_default must be > 0"`
+  - docstring (lines ~524 and ~528): replace `max_rows` with
+    `max_rows_default` (both the summary line and the result-row example)
 - `tests/config/test_models.py` — validator tests
 - `tests/test_default_queries.py` — rename assertion
 - `tests/test_schema_tools.py` — clamp test
-- `tests/cli/test_verify.py` — adjust field references
+- `tests/cli/test_verify.py` — explicit changes:
+  1. `QueryConfig(..., max_rows=N)` keyword call sites (7 occurrences at
+     lines ~671, ~692, ~714, ~737, ~765, ~784, ~804): rename keyword
+     `max_rows=` → `max_rows_default=`.
+  2. Result-key assertions (lines ~682, ~793, ~794):
+     `result["list_customers.max_rows"]`, `result["no_max.max_rows"]`,
+     etc. → use `.max_rows_default` keys.
+  3. Error-text assertion (line ~794):
+     `"max_rows" in result["no_max.max_rows"]["error"]` →
+     `"max_rows_default" in result["no_max.max_rows_default"]["error"]`.
+  4. Test method rename:
+     `test_verify_queries_detects_missing_max_rows` →
+     `test_verify_queries_detects_missing_max_rows_default`.
+  5. Adjust TOML literals to match the renamed field (e.g. line ~937
+     `"max_rows = 10\n"` becomes `"max_rows_default = 10\n"`).
 - `tests/test_smoke.py` — change `assert qc.max_rows == 100` to
   `assert qc.max_rows_default == 100` (line ~39, in
   `test_query_config_minimal`)

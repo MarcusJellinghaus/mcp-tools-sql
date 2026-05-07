@@ -20,7 +20,18 @@
   `params.filter` and `params.max_rows`; add `filter_column = "name"`
 - `src/mcp_tools_sql/cli/commands/verify.py` — remove entirely the
   `_LEGITIMATE_NON_SQL_PARAMS` exclusion list (no longer needed)
-- `tests/test_default_queries.py` — adjust assertions
+- `tests/test_default_queries.py` — adjust assertions, and **delete two
+  now-obsolete test methods entirely**:
+  - `test_read_columns_has_filter_param` — its sole assertions
+    (`"filter" in columns_config.params`) become invalid once
+    `params.filter` is removed in this step. Coverage of the new
+    `filter_column` configuration is already provided by the
+    implicit-filter-injection tests added in Step 6.
+  - `test_read_columns_has_max_rows_param` — its sole `params`-side
+    assertions become invalid once `params.max_rows` is removed in this
+    step. The field-rename assertion `columns_config.max_rows_default ==
+    100` is already covered by Step 2's `test_smoke.py` and
+    `test_loader.py` updates.
 - `tests/test_schema_tools.py` — `filter` → `name_filter`
 - `tests/cli/test_verify.py` — rename
   `test_verify_queries_accepts_filter_and_max_rows_as_non_sql_params` to
