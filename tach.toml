@@ -87,6 +87,11 @@ depends_on = [
 ]
 
 [[modules]]
+path = "mcp_tools_sql.tool_logging"
+layer = "infrastructure"
+depends_on = []
+
+[[modules]]
 path = "mcp_tools_sql.server"
 layer = "server"
 depends_on = [
