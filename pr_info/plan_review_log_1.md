@@ -82,3 +82,21 @@
 - step_4.md: replaced generic wording for `tests/test_default_queries.py` with explicit deletion instruction for `test_read_columns_has_filter_param` and `test_read_columns_has_max_rows_param`, with rationale that their coverage is provided elsewhere (Step 2 + Step 6).
 
 **Status**: Pending commit.
+
+## Round 5 — 2026-05-07
+**Findings**:
+- S23: `src/mcp_tools_sql/cli/commands/init.py` line 24 has `# max_rows = 1` in the user-facing `_PROJECT_TEMPLATE_STANDALONE` TOML template. Uncommenting it after the rename would fail Pydantic validation.
+- S24: `docs/cli.md` lines 152 and 205 reference `max_rows` (line 205 shows the verify output `read_schemas.max_rows         100` which becomes `read_schemas.max_rows_default` after the S19 rename).
+
+**Decisions**:
+- S23: ACCEPT (mechanical fix; user-facing template breakage). (Supervisor auto-accept.)
+- S24: ACCEPT option A — update docs/cli.md in this PR alongside the verify output change. (User decision.)
+
+**User decisions**:
+- S24 (docs/cli.md scope): A — include in this PR.
+
+**Changes**:
+- step_2.md: added `src/mcp_tools_sql/cli/commands/init.py` (line 24: `# max_rows = 1` → `# max_rows_default = 1`) and `docs/cli.md` (line 152 and line 205) to WHERE.
+- summary.md: added `src/mcp_tools_sql/cli/commands/init.py` and `docs/cli.md` to the Files Modified listing.
+
+**Status**: Pending commit.

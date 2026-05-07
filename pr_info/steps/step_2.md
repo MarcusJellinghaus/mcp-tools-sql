@@ -56,6 +56,15 @@
   literal `max_rows = 50` to `max_rows_default = 50` (line ~37) and
   assertion `config.queries["get_users"].max_rows == 50` to
   `config.queries["get_users"].max_rows_default == 50` (line ~68)
+- `src/mcp_tools_sql/cli/commands/init.py` — in the
+  `_PROJECT_TEMPLATE_STANDALONE` user-facing TOML template (line ~24),
+  change the commented example `# max_rows = 1` →
+  `# max_rows_default = 1` so a user uncommenting it gets a valid field
+- `docs/cli.md` — verify-behavior description (line ~152):
+  `max_rows > 0` → `max_rows_default > 0`; verify example output
+  (line ~205): `read_schemas.max_rows         100` →
+  `read_schemas.max_rows_default 100` (preserving the 30-char label
+  column alignment used by the surrounding rows)
 
 ## WHAT
 
