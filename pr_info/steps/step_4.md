@@ -22,9 +22,12 @@
   `_LEGITIMATE_NON_SQL_PARAMS` exclusion list (no longer needed)
 - `tests/test_default_queries.py` — adjust assertions
 - `tests/test_schema_tools.py` — `filter` → `name_filter`
-- `tests/cli/test_verify.py` — any tests that exercise the
-  `_LEGITIMATE_NON_SQL_PARAMS` exclusion need updating now that the
-  exclusion is removed
+- `tests/cli/test_verify.py` — rename
+  `test_verify_queries_accepts_filter_and_max_rows_as_non_sql_params` to
+  `test_verify_queries_rejects_filter_and_max_rows_as_non_sql_params`.
+  Invert the assertions: `result["with_filter.params"]["ok"] is False` and
+  the error message contains `"not used in SQL"`. This converts the existing
+  allow-list test into a regression guard for the new stricter behavior.
 - `tests/config/test_models.py` — test for `filter_column` default
 
 ## WHAT

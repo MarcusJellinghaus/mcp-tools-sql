@@ -87,6 +87,10 @@ layers =
 - Append `{ path = "mcp_tools_sql.tool_builder" }` to the `depends_on` list of
   `mcp_tools_sql.schema_tools`, `mcp_tools_sql.query_tools`,
   `mcp_tools_sql.update_tools`, `mcp_tools_sql.validation_tools`.
+- Append `{ path = "mcp_tools_sql.tool_builder" }` to the `depends_on` list of
+  `mcp_tools_sql.cli.commands` as well — `verify.py` (in `cli.commands`) is
+  also moving its import to `tool_builder` in this same step, so without this
+  entry the `run_tach_check` will fail.
 
 (The existing `tool_implementation` layer holds both the tool modules and
 `tool_builder`. Direction is enforced via the `depends_on` lists.)

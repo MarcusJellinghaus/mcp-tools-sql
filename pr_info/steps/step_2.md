@@ -57,6 +57,20 @@ class QueryConfig(BaseModel):
 - The clamp logic is added to `_build_tool_fn` in `schema_tools.py` here;
   Step 3 mechanically moves that function (clamp included, untouched) into
   `tool_builder.py`. No behavioral change in Step 3.
+- Mypy note for `max_rows_hard: int | None`: after the
+  `model_validator(mode="after")` runs, the field is logically always `int`,
+  but mypy does not narrow the static type. At clamp call sites in
+  `_build_tool_fn`, use one of these equivalent forms:
+
+  ```python
+  hard: int = cast(int, config.max_rows_hard)  # import: from typing import cast
+  # OR
+  assert config.max_rows_hard is not None  # set by validator
+  hard = config.max_rows_hard
+  ```
+
+  Apply the same pattern in Step 3 when the function moves to
+  `tool_builder.py` — the call site moves untouched.
 
 ## ALGORITHM (clamp inside `_tool_fn`)
 
