@@ -2,12 +2,21 @@
 
 from __future__ import annotations
 
+import argparse
 import logging
+from pathlib import Path
 from typing import TYPE_CHECKING
 
 from mcp.server.fastmcp import FastMCP
 
-from mcp_tools_sql.schema_tools import register_builtin_tools
+from mcp_tools_sql.backends.base import create_backend
+from mcp_tools_sql.config.loader import (
+    discover_query_config,
+    load_database_config,
+    load_query_config,
+    resolve_connection,
+)
+from mcp_tools_sql.schema_tools import load_default_queries, register_builtin_tools
 
 if TYPE_CHECKING:
     from mcp_tools_sql.backends.base import DatabaseBackend
@@ -61,3 +70,32 @@ def create_server(
         A configured ToolServer instance.
     """
     return ToolServer(config=config, backend=backend, backend_name=backend_name)
+
+
+def run_server(args: argparse.Namespace) -> None:
+    """Wire configs, backend and tool server together, then run.
+
+    Pure wiring: discover and load configs, build a backend, construct the
+    tool server, and invoke its event loop. Raises ``ValueError`` /
+    ``OSError`` on pre-``mcp.run()`` configuration failures and propagates
+    ``KeyboardInterrupt`` from the event loop. ``backend.close()`` always
+    runs via ``finally``.
+    """
+    qpath = discover_query_config(args.config, project_dir=Path.cwd())
+    qcfg = load_query_config(qpath)
+    dbcfg = load_database_config(args.database_config)
+    conn = resolve_connection(qcfg, dbcfg)
+    backend = create_backend(conn)
+    try:
+        n_builtin = len(load_default_queries())
+        logger.info(
+            "starting MCP server backend=%s connection=%s "
+            "query_config=%s builtin_tools=%d",
+            conn.backend,
+            qcfg.connection,
+            qpath,
+            n_builtin,
+        )
+        ToolServer(qcfg, backend, conn.backend).run()
+    finally:
+        backend.close()

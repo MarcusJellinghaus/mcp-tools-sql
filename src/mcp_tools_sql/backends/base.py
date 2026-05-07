@@ -24,15 +24,27 @@ class DatabaseBackend(ABC):
     def execute_query(
         self, sql: str, params: dict[str, Any] | None = None
     ) -> list[dict[str, Any]]:
-        """Execute a SELECT query and return rows as dicts."""
+        """Execute a SELECT query and return rows as dicts.
+
+        Implies connected: backends MUST connect lazily on first call. After
+        ``close()``, further calls raise ``RuntimeError``.
+        """
 
     @abstractmethod
     def execute_update(self, sql: str, params: dict[str, Any] | None = None) -> int:
-        """Execute an UPDATE/INSERT and return affected row count."""
+        """Execute an UPDATE/INSERT and return affected row count.
+
+        Implies connected: backends MUST connect lazily on first call. After
+        ``close()``, further calls raise ``RuntimeError``.
+        """
 
     @abstractmethod
     def explain(self, sql: str, params: dict[str, Any] | None = None) -> str:
-        """Return the query execution plan as text."""
+        """Return the query execution plan as text.
+
+        Implies connected: backends MUST connect lazily on first call. After
+        ``close()``, further calls raise ``RuntimeError``.
+        """
 
     def __enter__(self) -> Self:
         """Connect and return self for use as context manager.

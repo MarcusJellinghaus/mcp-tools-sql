@@ -5,11 +5,13 @@ from __future__ import annotations
 import argparse
 import logging
 import sys
+import traceback
 from pathlib import Path
 
 from mcp_tools_sql import __version__
 from mcp_tools_sql.cli.commands import init, verify
 from mcp_tools_sql.cli.parsers import HelpHintArgumentParser, WideHelpFormatter
+from mcp_tools_sql.server import run_server
 from mcp_tools_sql.utils.log_utils import setup_logging
 
 logger = logging.getLogger(__name__)
@@ -94,17 +96,27 @@ def main(argv: list[str] | None = None) -> int:
     parser = _build_parser()
     args = parser.parse_args(argv if argv is not None else sys.argv[1:])
 
-    if not args.command or args.command == "help" or args.help:
+    if args.command == "help" or args.help:
         parser.print_help()
         return 0
 
     log_file = None if args.console_only else args.log_file
     setup_logging(args.log_level, log_file)
 
-    command = args.command
+    command = args.command or "server"
 
     if command == "server":
-        raise NotImplementedError("server command not yet implemented")
+        try:
+            run_server(args)
+            return 0
+        except KeyboardInterrupt:
+            return 130
+        except (ValueError, OSError) as exc:
+            print(f"Error: {exc}", file=sys.stderr)
+            print("Try 'mcp-tools-sql verify' for diagnostics.", file=sys.stderr)
+            if args.log_level == "DEBUG":
+                traceback.print_exc()
+            return 2
     if command == "init":
         return init.run(args)
     if command == "verify":

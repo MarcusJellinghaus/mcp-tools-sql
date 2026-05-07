@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import logging
 from pathlib import Path
 
 import pytest
@@ -12,7 +13,9 @@ from mcp_tools_sql.backends.sqlite import SQLiteBackend
 from mcp_tools_sql.config.models import ConnectionConfig
 from mcp_tools_sql.schema_tools import (
     _apply_filter,
+    _build_tool_fn,
     extract_sql_params,
+    load_default_queries,
     register_builtin_tools,
 )
 
@@ -315,3 +318,35 @@ class TestSchemaToolsEdgeCases:
             result = await client.list_tools()
             for tool in result.tools:
                 assert tool.description, f"Tool {tool.name} has no description"
+
+
+# ---------------------------------------------------------------------------
+# Per-tool-call logging tests
+# ---------------------------------------------------------------------------
+
+
+@pytest.mark.sqlite_integration
+@pytest.mark.asyncio
+async def test_builtin_tool_logs_info_line(
+    sqlite_db: Path,
+    caplog: pytest.LogCaptureFixture,
+) -> None:
+    """Calling a built-in tool emits one INFO log line via log_tool_call."""
+    caplog.set_level(logging.INFO, logger="mcp_tools_sql.tool_logging")
+
+    config = ConnectionConfig(backend="sqlite", path=str(sqlite_db))
+    backend = SQLiteBackend(config)
+    backend.connect()
+    queries = load_default_queries()
+    fn = _build_tool_fn("read_tables", queries["read_tables"], backend, "sqlite")
+
+    await fn()
+
+    info_records = [
+        r
+        for r in caplog.records
+        if r.levelno == logging.INFO
+        and "tool=read_tables" in r.getMessage()
+        and "duration_ms=" in r.getMessage()
+    ]
+    assert len(info_records) == 1

@@ -14,6 +14,7 @@ from pydantic import Field
 
 from mcp_tools_sql.config.models import QueryConfig
 from mcp_tools_sql.formatting import format_rows
+from mcp_tools_sql.tool_logging import log_tool_call
 from mcp_tools_sql.utils.data_type_utility.type_mapping import resolve_python_type
 
 if TYPE_CHECKING:
@@ -96,9 +97,12 @@ def _build_tool_fn(
 
         # Strip kwargs to only params referenced in resolved SQL
         stripped = {k: v for k, v in kwargs.items() if k in sql_params}
-        rows = backend.execute_query(resolved_sql, stripped or None)
-        rows = _apply_filter(rows, filter_pattern)
-        return format_rows(rows, max_rows)
+
+        async with log_tool_call(name, stripped, sql=resolved_sql) as rec:
+            rows = backend.execute_query(resolved_sql, stripped or None)
+            rows = _apply_filter(rows, filter_pattern)
+            rec.record(rows=len(rows), cols=len(rows[0]) if rows else 0)
+            return format_rows(rows, max_rows)
 
     # Build signature from config.params
     sig_params: list[inspect.Parameter] = []

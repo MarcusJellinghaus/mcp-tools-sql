@@ -121,6 +121,7 @@ plus shared argparse helpers (`HelpHintArgumentParser`, `WideHelpFormatter`) in
 | `backends/sqlite.py` | SQLite implementation |
 | `backends/mssql.py` | SQL Server implementation (pyodbc) |
 | `formatting.py` | Result → LLM-friendly text (tabular, truncated) |
+| `tool_logging.py` | Per-tool-call logging context manager (INFO counts, DEBUG params, ERROR duration) |
 
 ---
 
