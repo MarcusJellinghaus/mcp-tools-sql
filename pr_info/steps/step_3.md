@@ -24,8 +24,10 @@
   update tool modules to depend on it
 - `tests/test_tool_builder.py` — **create**: move `TestExtractSqlParams` and
   `TestApplyFilter` here from `tests/test_schema_tools.py`
-- `tests/test_schema_tools.py` — drop the moved test classes; update imports
-  for `_build_tool_fn` to come from `tool_builder`
+- `tests/test_schema_tools.py` — drop the moved test classes; update its
+  `from mcp_tools_sql.schema_tools import ...` lines to import the moved
+  helpers (`extract_sql_params`, `_apply_filter` / `apply_filter`,
+  `_build_tool_fn`) from `mcp_tools_sql.tool_builder`
 
 ## WHAT
 
@@ -57,10 +59,11 @@ def build_tool_fn(
   same as today's `schema_tools._build_tool_fn` (including the special-cases
   for `max_rows` and `filter` params, the clamp added in Step 2, and the
   `format_rows` call). Pure mechanical extract.
-- `schema_tools.py` shrinks to: `load_default_queries`,
-  `register_builtin_tools` (still a function), and re-imports of the helpers
-  via `from mcp_tools_sql.tool_builder import ...` so existing tests/users
-  that import them from `schema_tools` keep working until Step 4/5.
+- After this step, `schema_tools.py` contains only `load_default_queries`
+  and `register_builtin_tools` (still a function — converted to
+  `SchemaTools` class in Step 5). All importers of `extract_sql_params` /
+  `_apply_filter` / `_build_tool_fn` are updated in this same commit to
+  import from `mcp_tools_sql.tool_builder` directly. No re-export shim.
 
 ### `.importlinter` change
 

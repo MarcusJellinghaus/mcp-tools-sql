@@ -13,7 +13,10 @@
 
 ## WHERE
 
-- `src/mcp_tools_sql/config/models.py` — modify `QueryConfig`
+- `src/mcp_tools_sql/config/models.py` — modify `QueryConfig`; add
+  `model_validator` to the existing `pydantic` import; add
+  `from typing import Self` (Python 3.11+ — no fallback needed since
+  `requires-python = ">=3.11"`)
 - `src/mcp_tools_sql/default_queries.toml` — rename `max_rows` to
   `max_rows_default` (only `read_columns` currently sets it)
 - `src/mcp_tools_sql/schema_tools.py` — `_build_tool_fn`: read
@@ -51,6 +54,9 @@ class QueryConfig(BaseModel):
   `config.max_rows_default`.
 - After `kwargs.pop("max_rows", ...)`, compare against `config.max_rows_hard`
   and clamp; capture a note string and append it after `format_rows`.
+- The clamp logic is added to `_build_tool_fn` in `schema_tools.py` here;
+  Step 3 mechanically moves that function (clamp included, untouched) into
+  `tool_builder.py`. No behavioral change in Step 3.
 
 ## ALGORITHM (clamp inside `_tool_fn`)
 
@@ -86,7 +92,13 @@ return format_rows(rows, requested) + note
    `max_rows=500` to the tool over enough rows; assert clamped output and
    that the note text `"Requested max_rows=500 exceeds hard limit 10"`
    appears
-5. `tests/cli/test_verify.py` — update any references to the renamed field
+5. `tests/test_schema_tools.py::test_clamp_and_truncation_both_appear` —
+   build a `QueryConfig` where (a) caller passes `max_rows` greater than
+   `max_rows_hard` AND (b) the clamped result still has row count >
+   clamped limit, so BOTH the `"Showing N of M rows. Use filter to narrow."`
+   line AND the `"Requested max_rows=… exceeds hard limit …"` note appear
+   in the result text
+6. `tests/cli/test_verify.py` — update any references to the renamed field
 
 ## Verification
 

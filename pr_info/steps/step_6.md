@@ -131,6 +131,12 @@ Cover every item from issue #5's Tests section:
     `backends.sqlite` SQL; verify the SQLite override is what executes.
 12. **Filter parameter** — config with `filter_column = "name"`; call
     with `name_filter="user_*"`; assert the result is filtered.
+13. `test_query_tool_binds_datetime_param` — **datetime parameter
+    binding**: a parameterized SELECT query with a `datetime` param.
+    Assert (a) that an ISO 8601 string passed by the MCP caller is parsed
+    by Pydantic to a `datetime.datetime`, and (b) that the parameter
+    passed to the backend is a `datetime.datetime` (not `str`). Spy on
+    `backend.execute_query` to capture the bound `dict`.
 
 ## TDD Tests (`tests/test_server.py`)
 
