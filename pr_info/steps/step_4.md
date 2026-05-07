@@ -50,9 +50,10 @@ INFO  starting MCP server backend=<b> connection=<c> query_config=<path> builtin
   - `load_default_queries` from `mcp_tools_sql.schema_tools`
   - `Path` from `pathlib`
 - `main.py` adds `import traceback` and `from mcp_tools_sql.server import run_server`.
-- The friendly-error UX:
+- The friendly-error UX (catches `OSError` too — covers permission errors,
+  unreadable files, etc.; matches `verify.py`'s existing pattern):
   ```python
-  except ValueError as exc:
+  except (ValueError, OSError) as exc:
       print(f"Error: {exc}", file=sys.stderr)
       print("Try 'mcp-tools-sql verify' for diagnostics.", file=sys.stderr)
       if args.log_level == "DEBUG":
@@ -75,6 +76,7 @@ run_server(args):
         n_builtin = len(load_default_queries())
         logger.info("starting MCP server backend=%s connection=%s query_config=%s builtin_tools=%d",
                     conn.backend, qcfg.connection, qpath, n_builtin)
+        # connection name comes from qcfg.connection (the resolved name), NOT conn.backend
         ToolServer(qcfg, backend, conn.backend).run()
     finally:
         backend.close()
@@ -88,7 +90,7 @@ main():
     if cmd == "server":
         try: run_server(args); return 0
         except KeyboardInterrupt: return 130
-        except ValueError as exc: <friendly-stderr>; return 2
+        except (ValueError, OSError) as exc: <friendly-stderr>; return 2
     if cmd == "init":   return init.run(args)
     if cmd == "verify": return verify.run(args)
 ```
@@ -136,10 +138,14 @@ Tests:
    `config` points at a non-existent file. Assert `run_server` raises
    `ValueError` (message contains "Config not found").
 
-4. **`test_lazy_connect_constructible_when_db_unreachable`**: write configs
-   pointing at `path=":memory:"` but with a non-existent file path; monkeypatch
-   `ToolServer.run` to a no-op so the call returns. Assert no exception during
-   construction. (Replicates the issue's "DB unreachable but server constructs.")
+4. **`test_lazy_connect_constructible_when_db_unreachable`**: write a database
+   config whose `path` points under a non-existent parent directory (e.g.
+   `tmp_path / "missing_subdir" / "test.db"`) — opening this path would fail at
+   `sqlite3.connect()` time. Monkeypatch `SQLiteBackend.connect` to a counter,
+   monkeypatch `ToolServer.run` to a no-op. Call `run_server(args)`. Assert it
+   returns without error AND the connect counter is `0` (i.e. `connect()` was
+   never called because the server never executed a tool). Replicates the
+   issue's "DB unreachable but server constructs."
 
 5. **`test_startup_info_log_line`**: monkeypatch `ToolServer.run` to no-op.
    Assert `caplog` contains one INFO record matching
@@ -162,16 +168,33 @@ Remove `test_no_command_prints_help_and_exits_0`. Replace with:
 
 2. **`test_server_command_dispatches_to_server`**: same as above but `main(["server"])`.
 
-3. **`test_server_friendly_error_for_bad_config_returns_2`**: pass
-   `["--config", "<nonexistent>", "server"]`; capture stderr; assert exit 2,
-   stderr contains `"Error:"` and `"verify"`, and **does not** contain
-   `"Traceback"` (default log level is INFO).
+3. **`test_server_friendly_error_for_bad_config_returns_2`** (parametrized over
+   three failure modes — each must produce exit 2, stderr containing `"Error:"`
+   and `"verify"`, and **no** `"Traceback"` at the default log level):
+   - `--config` points at a non-existent file (FileNotFoundError → exit 2)
+   - `--database-config` points at a missing connection name (ValueError → exit 2)
+   - `--database-config` connection has unknown backend type (ValueError → exit 2)
+   ```python
+   @pytest.mark.parametrize("scenario", ["missing_config", "missing_connection_name", "unknown_backend"])
+   def test_server_friendly_error_for_bad_config_returns_2(
+       tmp_path, capsys, scenario,
+   ):
+       # build args per scenario, run main([...]), assert rc == 2,
+       # assert "Error:" in err and "verify" in err and "Traceback" not in err
+       ...
+   ```
 
 4. **`test_server_keyboard_interrupt_returns_130`**: monkeypatch `run_server`
    to raise `KeyboardInterrupt`; assert `main(["server"])` returns 130.
 
 5. **`test_help_subcommand_still_prints_help`** (keep behaviour): explicit
    `main(["help"])` → 0 with help text in stdout.
+
+6. **`test_setup_logging_runs_before_run_server`**: monkeypatch both
+   `setup_logging` and `run_server` to append their name to a shared list when
+   called. Run `main(["server"])`. Assert the list is `["setup_logging",
+   "run_server"]` (i.e. `setup_logging` was invoked first). Guards against
+   regressions that would silently swallow startup-error logs.
 
 ## Acceptance
 

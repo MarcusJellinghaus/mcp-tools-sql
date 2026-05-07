@@ -27,10 +27,16 @@ first call. After `close()`, calling them raises `RuntimeError`. Thread-safe via
 - Adds `self._closed: bool = False` and `self._connect_lock = threading.Lock()`.
 
 `SQLiteBackend.connect(self) -> None`
-- Acquires `self._connect_lock`.
-- Raises `RuntimeError("Backend has been closed.")` if `self._closed`.
-- Existing idempotent body (early-return when `_connection is not None`, raise
-  `ValueError` for empty path, open `sqlite3.connect(path, check_same_thread=False)`).
+- **Fast path (no lock)**: if `self._connection is not None` and `not self._closed`,
+  return immediately. This keeps the steady-state hot path (every `execute_query`
+  call after the first) lock-free.
+- Otherwise, acquire `self._connect_lock` (double-checked locking) and inside the
+  locked region:
+  - Raise `RuntimeError("Backend has been closed.")` if `self._closed`.
+  - Re-check `self._connection is not None` and early-return if so.
+  - Raise `ValueError` for empty `config.path`.
+  - Open `sqlite3.connect(path, check_same_thread=False)` and assign to
+    `self._connection`; set `row_factory = sqlite3.Row`.
 
 `SQLiteBackend.close(self) -> None`
 - Closes the connection if open, sets `_connection = None`, sets `_closed = True`.
@@ -38,7 +44,8 @@ first call. After `close()`, calling them raises `RuntimeError`. Thread-safe via
 
 `SQLiteBackend.execute_query`, `execute_update`, `explain`
 - Each calls `self.connect()` at the top, then proceeds as today.
-- Drop the `_require_connection()` helper (or keep it as a thin asserter for mypy).
+- Drop the `_require_connection()` helper. Each public method calls
+  `self.connect()` and then `assert self._connection is not None` to satisfy mypy.
 
 ## HOW
 
@@ -54,7 +61,8 @@ first call. After `close()`, calling them raises `RuntimeError`. Thread-safe via
 
 ```
 connect():
-    acquire _connect_lock:
+    if _connection is not None and not _closed: return  # fast path, no lock
+    with _connect_lock:
         if _closed: raise RuntimeError("Backend has been closed.")
         if _connection is not None: return
         if not config.path: raise ValueError("SQLite path must not be empty.")
@@ -81,18 +89,28 @@ No public return-type changes. Internal additions:
 
 In `tests/backends/test_sqlite.py`:
 
-1. **Replace `test_operations_before_connect`** with a test asserting lazy-connect
-   succeeds:
+1. **Replace `test_operations_before_connect`** with a parametrized test that
+   matches the existing parametrization (`_DATA_METHODS`, which covers
+   `execute_query`, `execute_update`, `explain`). Asserts each method
+   lazy-connects on first call:
    ```python
-   def test_lazy_connect_on_first_call(self, sqlite_db: Path) -> None:
+   @pytest.mark.parametrize("method,args", [
+       ("execute_query", ("SELECT name FROM sqlite_master WHERE type='table'",)),
+       ("execute_update", ("UPDATE customers SET name=name WHERE id=-1",)),
+       ("explain", ("SELECT 1",)),
+   ])
+   def test_lazy_connect_on_first_call(
+       self, sqlite_db: Path, method: str, args: tuple[Any, ...]
+   ) -> None:
        backend = _make_backend(str(sqlite_db))
-       rows = backend.execute_query(
-           "SELECT name FROM sqlite_master WHERE type='table'"
-       )
-       assert any(r["name"] == "customers" for r in rows)
+       getattr(backend, method)(*args)
+       assert backend._connection is not None  # connected lazily
        backend.close()
    ```
-   No explicit `backend.connect()` call.
+   No explicit `backend.connect()` call. Adjust the parametrization to reuse the
+   file's existing `_DATA_METHODS` constant if present (read
+   `tests/backends/test_sqlite.py` first to confirm the helper / fixture names
+   actually used: `_make_backend`, `sqlite_db`, `_DATA_METHODS`).
 
 2. **Update `test_operations_after_close`** parametrize match string to
    `"Backend has been closed"` (replaces today's `"Not connected"`).

@@ -20,7 +20,7 @@ Self-contained `tool_logging` module exposing a single async context manager
 - `src/mcp_tools_sql/tool_logging.py` — new module.
 - `tests/test_tool_logging.py` — new tests.
 - `.importlinter` — add to infrastructure layer alongside `formatting`.
-- `tach.toml` — new `[[modules]]` entry depending only on `utils`.
+- `tach.toml` — new `[[modules]]` entry with `depends_on = []` (stdlib only).
 - `docs/architecture/architecture.md` — append one row to the modules table.
 
 ## WHAT
@@ -40,7 +40,27 @@ async def log_tool_call(
     params: Mapping[str, Any] | None = None,
     *,
     sql: str | None = None,
-) -> AsyncIterator[ToolCallRecord]: ...
+) -> AsyncIterator[ToolCallRecord]:
+    """Per-tool-call logging context manager.
+
+    DEBUG output may include parameter values and resolved SQL — only enable
+    DEBUG in trusted environments (these can contain PII / secrets).
+    """
+    ...
+```
+
+The module opens with this docstring (distinct from `utils.log_utils`, which
+configures process-wide logging):
+
+```python
+"""Per-tool-call observability helper.
+
+Distinct from `mcp_tools_sql.utils.log_utils`, which configures process-wide
+logging. This module emits one structured log line per MCP tool invocation:
+INFO with row/col counts + duration on success; DEBUG adds param keys/values
+and resolved SQL (may contain PII — only enable DEBUG in trusted environments);
+ERROR on exceptions including duration_ms.
+"""
 ```
 
 ## HOW
@@ -79,8 +99,8 @@ at 0. Caller mutates via `record(rows, cols)`. No return value from the helper.
 ## Tests (TDD — write first)
 
 In `tests/test_tool_logging.py`, all use `pytest`'s built-in `caplog` and
-`@pytest.mark.asyncio` (the project already pulls in `pytest-asyncio`; if not,
-use `asyncio.run(...)` directly inside a sync test).
+`@pytest.mark.asyncio`. `pytest-asyncio` is already a dev dependency and
+`asyncio_default_fixture_loop_scope = "function"` is set in `pyproject.toml`.
 
 1. **`test_info_on_success`**:
    ```python
@@ -120,10 +140,9 @@ use `asyncio.run(...)` directly inside a sync test).
   [[modules]]
   path = "mcp_tools_sql.tool_logging"
   layer = "infrastructure"
-  depends_on = [
-      { path = "mcp_tools_sql.utils" },
-  ]
+  depends_on = []
   ```
+  The module body uses only stdlib (`contextlib`, `dataclasses`, `logging`, `time`).
 
 - `docs/architecture/architecture.md` — append row in the Key Modules table:
   ```

@@ -18,9 +18,12 @@ implements it with a `threading.Lock` (matches its sync, `check_same_thread=Fals
 concurrency model).
 
 A `_closed` flag is added so post-`close()` calls raise rather than silently
-reconnecting (matches the M1 "no auto-reconnect" rule). The lock + `_closed` check
-live inside the existing idempotent `connect()` — no double-check pattern, no
-parallel `_connected` bool.
+reconnecting (matches the M1 "no auto-reconnect" rule). `connect()` uses a fast
+path that returns immediately when `_connection` is already set and the backend
+isn't closed; only first-call setup acquires `_connect_lock`. The `_closed` check
+sits inside the locked region to avoid races against `close()`. No parallel
+`_connected` bool — the existing `_connection is not None` check is the source of
+truth.
 
 `verify_connection` is untouched: it keeps its eager connect + `SELECT 1` probe.
 The lazy contract applies only to the server-command path.
@@ -36,8 +39,9 @@ async with log_tool_call(name, params) as rec:
     return format_rows(rows, max_rows)
 ```
 
-Sits at the **infrastructure** layer (peer of `formatting`, depends only on
-`utils`). Built-in tools, plus #5 / #6 / #8 later, all import the same helper.
+Sits at the **infrastructure** layer (peer of `formatting`). Body uses only
+stdlib, so its `tach.toml` `depends_on = []`. Built-in tools, plus #5 / #6 / #8
+later, all import the same helper.
 
 Logging shape:
 - INFO on success: `tool=<name> rows=<n> cols=<m> duration_ms=<k>`
@@ -59,7 +63,7 @@ discover_query_config → load_query_config → load_database_config
 |---|---|---|
 | Clean exit | 0 | — |
 | `KeyboardInterrupt` (Ctrl+C) | 130 | POSIX SIGINT convention; backend.close() still runs |
-| Pre-`mcp.run()` `ValueError` (config / unknown backend) | 2 | Friendly stderr + hint pointing at `verify`; traceback only at `--log-level=DEBUG` |
+| Pre-`mcp.run()` `ValueError` / `OSError` (config / unknown backend / permission) | 2 | Friendly stderr + hint pointing at `verify`; traceback only at `--log-level=DEBUG` |
 | Runtime errors (post-`mcp.run()`) | — | Flow through `tool_logging` ERROR path on first tool call |
 
 `main([])` (no subcommand) → server. Existing `--help` / `-h` / `help` still print
@@ -71,10 +75,10 @@ help and exit 0.
 
 - `.importlinter`: `mcp_tools_sql.tool_logging` added to the infrastructure layer
   alongside `formatting`.
-- `tach.toml`: new module entry for `tool_logging` (depends on `utils`); the four
-  tool-implementation modules (`schema_tools`, `query_tools`, `update_tools`,
-  `validation_tools`) gain `tool_logging` in their `depends_on` so #5 / #6 / #8
-  can import it without further config churn.
+- `tach.toml`: new module entry for `tool_logging` (`depends_on = []` — stdlib
+  only); the four tool-implementation modules (`schema_tools`, `query_tools`,
+  `update_tools`, `validation_tools`) gain `tool_logging` in their `depends_on`
+  so #5 / #6 / #8 can import it without further config churn.
 - `docs/architecture/architecture.md`: one row added to the modules table.
 
 ---

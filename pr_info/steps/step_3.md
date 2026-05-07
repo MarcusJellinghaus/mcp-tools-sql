@@ -19,7 +19,8 @@ tool output or signatures.
 
 - `src/mcp_tools_sql/schema_tools.py` — modify `_build_tool_fn` only.
 - `tests/test_schema_tools.py` — add one caplog test.
-- `tach.toml` — extend `mcp_tools_sql.schema_tools` `depends_on` with
+- `tach.toml` — extend the `depends_on` of all four tool-implementation modules
+  (`schema_tools`, `query_tools`, `update_tools`, `validation_tools`) with
   `mcp_tools_sql.tool_logging`.
 
 ## WHAT
@@ -63,9 +64,9 @@ attributes.
 
 ## Tests (TDD — write first)
 
-Add to `tests/test_schema_tools.py` — reuse the existing `_make_mcp_with_tools`
-helper, but bypass the FastMCP plumbing and call the registered async function
-directly via the FastMCP tool registry:
+Add to `tests/test_schema_tools.py`. Call `_build_tool_fn` directly (bypassing
+FastMCP plumbing) — verify the actual `_build_tool_fn` signature in
+`src/mcp_tools_sql/schema_tools.py` first and adjust args to match:
 
 ```python
 @pytest.mark.sqlite_integration
@@ -74,27 +75,26 @@ async def test_builtin_tool_logs_info_line(
     caplog: pytest.LogCaptureFixture,
 ) -> None:
     caplog.set_level(logging.INFO, logger="mcp_tools_sql.tool_logging")
-    mcp = _make_mcp_with_tools(str(sqlite_db))
-    # Locate the read_tables (or read_schemas) tool object and invoke its run fn.
-    # Either via FastMCP's internal tool dict, or via
-    # create_connected_server_and_client_session (already used in this file).
-    ...
-    info_records = [r for r in caplog.records if r.levelno == logging.INFO]
-    assert any("tool=" in r.getMessage() and "duration_ms=" in r.getMessage()
-               for r in info_records)
-```
-
-If invoking through FastMCP is awkward, the test can call `_build_tool_fn`
-directly:
-
-```python
-fn = _build_tool_fn("read_tables", config, backend, "sqlite")
-result = await fn()
+    # ... build a backend + load a QueryConfig (e.g. read_tables) ...
+    fn = _build_tool_fn("read_tables", config, backend, "sqlite")
+    result = await fn()
+    info_records = [r for r in caplog.records
+                    if r.levelno == logging.INFO
+                    and "tool=read_tables" in r.getMessage()
+                    and "duration_ms=" in r.getMessage()]
+    assert len(info_records) == 1
 ```
 
 ## Architecture wiring
 
-`tach.toml` — extend the module's deps:
+Per the summary's architectural plan, all four tool-implementation modules
+(`schema_tools`, `query_tools`, `update_tools`, `validation_tools`) gain
+`tool_logging` in their `depends_on` in this step. This is one line per module
+and prevents micro-churn in #5 / #6 / #8 when they import the helper. Read the
+current `tach.toml` and add `{ path = "mcp_tools_sql.tool_logging" }` to each of
+these four modules' `depends_on`.
+
+`tach.toml` — extend each tool-implementation module's deps:
 
 ```toml
 [[modules]]
@@ -107,13 +107,31 @@ depends_on = [
     { path = "mcp_tools_sql.tool_logging" },   # added
     { path = "mcp_tools_sql.utils" },
 ]
-```
 
-(The other tool-implementation modules — `query_tools`, `update_tools`,
-`validation_tools` — can also have `tool_logging` added preemptively in this
-step, since #5 / #6 / #8 will need it. **Decision per KISS**: add only to
-`schema_tools` here; the other modules pick it up when their issues land. Don't
-expand scope.)
+[[modules]]
+path = "mcp_tools_sql.query_tools"
+layer = "tool_implementation"
+depends_on = [
+    # ... existing deps ...
+    { path = "mcp_tools_sql.tool_logging" },   # added
+]
+
+[[modules]]
+path = "mcp_tools_sql.update_tools"
+layer = "tool_implementation"
+depends_on = [
+    # ... existing deps ...
+    { path = "mcp_tools_sql.tool_logging" },   # added
+]
+
+[[modules]]
+path = "mcp_tools_sql.validation_tools"
+layer = "tool_implementation"
+depends_on = [
+    # ... existing deps ...
+    { path = "mcp_tools_sql.tool_logging" },   # added
+]
+```
 
 ## Acceptance
 
