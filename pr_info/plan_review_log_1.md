@@ -43,3 +43,17 @@
 - step_4.md: replaced loose "any tests..." wording with explicit rename/invert of `test_verify_queries_accepts_filter_and_max_rows_as_non_sql_params` to `..._rejects_...`, asserting `ok is False` and error contains `"not used in SQL"`.
 
 **Status**: Pending commit.
+
+## Round 3 — 2026-05-07
+**Findings**:
+- S18: Step 2 WHERE missed two test files that reference the renamed `max_rows` field (`tests/test_smoke.py`, `tests/config/test_loader.py`). Without explicit updates, pytest would fail at the end of Step 2.
+
+**Decisions**:
+- S18: ACCEPT (mechanical correctness — required for pytest to pass after the rename).
+
+**User decisions**: None.
+
+**Changes**:
+- step_2.md: added `tests/test_smoke.py` (`qc.max_rows == 100` → `qc.max_rows_default == 100`) and `tests/config/test_loader.py` (TOML `max_rows = 50` → `max_rows_default = 50`; assertion `.max_rows == 50` → `.max_rows_default == 50`) to WHERE.
+
+**Status**: Pending commit.

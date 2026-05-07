@@ -27,6 +27,13 @@
 - `tests/test_default_queries.py` — rename assertion
 - `tests/test_schema_tools.py` — clamp test
 - `tests/cli/test_verify.py` — adjust field references
+- `tests/test_smoke.py` — change `assert qc.max_rows == 100` to
+  `assert qc.max_rows_default == 100` (line ~39, in
+  `test_query_config_minimal`)
+- `tests/config/test_loader.py` — in `test_valid_query_config`: change TOML
+  literal `max_rows = 50` to `max_rows_default = 50` (line ~37) and
+  assertion `config.queries["get_users"].max_rows == 50` to
+  `config.queries["get_users"].max_rows_default == 50` (line ~68)
 
 ## WHAT
 
