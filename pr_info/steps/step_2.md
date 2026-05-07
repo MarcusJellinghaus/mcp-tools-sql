@@ -65,6 +65,14 @@
   (line ~205): `read_schemas.max_rows         100` →
   `read_schemas.max_rows_default 100` (preserving the 30-char label
   column alignment used by the surrounding rows)
+- `mcp-tools-sql.md` (project root): apply a global `max_rows` →
+  `max_rows_default` rename across TOML examples, prose descriptions,
+  and verify-output mockups (~10 occurrences at lines 89, 121, 143,
+  144, 247, 269, 369, 705, 710, 728, 771). The `add_query(...)`
+  future-API mockup signature on line 247 should also be updated.
+  This is the brainstorm/planning doc — it's marked
+  `Status: Draft / Brainstorm` but linked from README, so keep it
+  consistent with the field rename.
 
 ## WHAT
 

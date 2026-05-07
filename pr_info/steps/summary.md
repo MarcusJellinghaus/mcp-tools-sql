@@ -73,6 +73,7 @@ Reference: GitHub issue #5 (milestone M2). Architecture: `docs/architecture/arch
 | `src/mcp_tools_sql/cli/commands/verify.py` | Update import + field-name references |
 | `src/mcp_tools_sql/cli/commands/init.py` | Rename commented `max_rows` to `max_rows_default` in user-facing TOML template |
 | `docs/cli.md` | Update verify-behavior text and example output for `max_rows` → `max_rows_default` |
+| `mcp-tools-sql.md` | Global `max_rows` → `max_rows_default` rename in root brainstorm doc (TOML examples, prose, verify mockups, future-API signature) |
 | `.importlinter` | Add `tool_builder` layer |
 | `tach.toml` | Add `mcp_tools_sql.tool_builder` module + dependencies |
 | `tests/test_formatting.py` | Tests for `truncation_hint` |

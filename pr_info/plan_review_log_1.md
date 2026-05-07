@@ -100,3 +100,19 @@
 - summary.md: added `src/mcp_tools_sql/cli/commands/init.py` and `docs/cli.md` to the Files Modified listing.
 
 **Status**: Pending commit.
+
+## Round 6 — 2026-05-07
+**Findings**:
+- S25: `mcp-tools-sql.md` (root planning doc, linked from README) has ~10 stale `max_rows` references in TOML examples, prose, and a future-API mockup. Doc is marked "Status: Draft / Brainstorm" but is user-discoverable.
+
+**Decisions**:
+- S25: ACCEPT option A — include the doc in Step 2's WHERE for consistency with S24 (docs/cli.md). (User decision.)
+
+**User decisions**:
+- S25 (mcp-tools-sql.md scope): A — include in this PR.
+
+**Changes**:
+- step_2.md: added `mcp-tools-sql.md` (root) to WHERE — global `max_rows` → `max_rows_default` rename across TOML examples, prose, verify-output mockups, and the `add_query(...)` future-API signature line.
+- summary.md: added `mcp-tools-sql.md` to the Files Modified table.
+
+**Status**: Pending commit.
