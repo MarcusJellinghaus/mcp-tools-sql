@@ -43,6 +43,11 @@ async def log_tool_call(
 
     DEBUG output may include parameter values and resolved SQL — only enable
     DEBUG in trusted environments (these can contain PII / secrets).
+
+    Yields:
+        The mutable :class:`ToolCallRecord` that callers populate via
+        ``record()`` with row/column counts before context exit; those
+        counts are emitted in the success INFO log line.
     """
     rec = ToolCallRecord()
     params_map: Mapping[str, Any] = params if params is not None else {}
