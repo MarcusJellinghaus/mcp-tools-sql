@@ -3,8 +3,10 @@
 from __future__ import annotations
 
 import os
+import sqlite3
 import stat
 import sys
+import threading
 from pathlib import Path
 from typing import Any
 
@@ -146,12 +148,13 @@ class TestErrorHandling:
         _DATA_METHODS,
         ids=[m for m, _ in _DATA_METHODS],
     )
-    def test_operations_before_connect(
-        self, tmp_path: Path, method: str, args: tuple[Any, ...]
+    def test_lazy_connect_on_first_call(
+        self, sqlite_db: Path, method: str, args: tuple[Any, ...]
     ) -> None:
-        backend = _make_backend(str(tmp_path / "unused.db"))
-        with pytest.raises(RuntimeError, match="Not connected"):
-            getattr(backend, method)(*args)
+        backend = _make_backend(str(sqlite_db))
+        getattr(backend, method)(*args)
+        assert backend._connection is not None
+        backend.close()
 
     @pytest.mark.parametrize(
         "method,args",
@@ -164,7 +167,7 @@ class TestErrorHandling:
         backend = _make_backend(str(sqlite_db))
         backend.connect()
         backend.close()
-        with pytest.raises(RuntimeError, match="Not connected"):
+        with pytest.raises(RuntimeError, match="Backend has been closed"):
             getattr(backend, method)(*args)
 
     def test_connect_invalid_path(self, tmp_path: Path) -> None:
@@ -193,3 +196,53 @@ class TestErrorHandling:
         backend.connect()
         with pytest.raises(Exception):
             backend.execute_query("SELECT name FROM sqlite_master WHERE type='table'")
+
+
+# ---------------------------------------------------------------------------
+# Concurrency
+# ---------------------------------------------------------------------------
+
+
+@pytest.mark.sqlite_integration
+class TestConcurrency:
+    """Thread-safety tests for lazy-connect."""
+
+    def test_concurrent_first_call_connects_once(
+        self, sqlite_db: Path, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        real_connect = sqlite3.connect
+        call_count = 0
+        count_lock = threading.Lock()
+
+        def counting_connect(*args: Any, **kwargs: Any) -> sqlite3.Connection:
+            nonlocal call_count
+            with count_lock:
+                call_count += 1
+            conn: sqlite3.Connection = real_connect(*args, **kwargs)
+            return conn
+
+        monkeypatch.setattr(sqlite3, "connect", counting_connect)
+
+        backend = _make_backend(str(sqlite_db))
+        errors: list[BaseException] = []
+        barrier = threading.Barrier(5)
+        exec_lock = threading.Lock()
+
+        def worker() -> None:
+            try:
+                barrier.wait()
+                backend.connect()
+                with exec_lock:
+                    backend.execute_query("SELECT 1")
+            except BaseException as exc:  # pylint: disable=broad-except
+                errors.append(exc)
+
+        threads = [threading.Thread(target=worker) for _ in range(5)]
+        for t in threads:
+            t.start()
+        for t in threads:
+            t.join()
+
+        assert errors == []
+        assert call_count == 1
+        backend.close()

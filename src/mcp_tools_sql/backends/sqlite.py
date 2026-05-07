@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import sqlite3
+import threading
 from typing import Any
 
 from mcp_tools_sql.backends.base import DatabaseBackend
@@ -15,42 +16,38 @@ class SQLiteBackend(DatabaseBackend):
     def __init__(self, config: ConnectionConfig) -> None:
         self._config = config
         self._connection: sqlite3.Connection | None = None
-
-    def _require_connection(self) -> sqlite3.Connection:
-        """Return the active connection or raise.
-
-        Returns:
-            The active SQLite connection.
-
-        Raises:
-            RuntimeError: If not connected.
-        """
-        if self._connection is None:
-            msg = "Not connected. Call connect() first."
-            raise RuntimeError(msg)
-        return self._connection
+        self._closed: bool = False
+        self._connect_lock = threading.Lock()
 
     def connect(self) -> None:
-        """Open a connection to the SQLite database.
+        """Open a connection to the SQLite database (lazy, idempotent).
 
         Raises:
             ValueError: If the connection path is empty.
+            RuntimeError: If the backend was already closed.
         """
-        if self._connection is not None:
+        if self._connection is not None and not self._closed:
             return
-        path = self._config.path
-        if not path:
-            msg = "SQLite path must not be empty."
-            raise ValueError(msg)
-        conn = sqlite3.connect(path, check_same_thread=False)
-        conn.row_factory = sqlite3.Row
-        self._connection = conn
+        with self._connect_lock:
+            if self._closed:
+                msg = "Backend has been closed."
+                raise RuntimeError(msg)
+            if self._connection is not None:
+                return
+            path = self._config.path
+            if not path:
+                msg = "SQLite path must not be empty."
+                raise ValueError(msg)
+            conn = sqlite3.connect(path, check_same_thread=False)
+            conn.row_factory = sqlite3.Row
+            self._connection = conn
 
     def close(self) -> None:
-        """Close the SQLite connection."""
+        """Close the SQLite connection (idempotent)."""
         if self._connection is not None:
             self._connection.close()
             self._connection = None
+        self._closed = True
 
     def execute_query(
         self, sql: str, params: dict[str, Any] | None = None
@@ -60,8 +57,9 @@ class SQLiteBackend(DatabaseBackend):
         Returns:
             Rows as a list of dicts.
         """
-        conn = self._require_connection()
-        cursor = conn.execute(sql, params or {})
+        self.connect()
+        assert self._connection is not None
+        cursor = self._connection.execute(sql, params or {})
         return [dict(row) for row in cursor.fetchall()]
 
     def execute_update(self, sql: str, params: dict[str, Any] | None = None) -> int:
@@ -70,9 +68,10 @@ class SQLiteBackend(DatabaseBackend):
         Returns:
             Number of affected rows.
         """
-        conn = self._require_connection()
-        cursor = conn.execute(sql, params or {})
-        conn.commit()
+        self.connect()
+        assert self._connection is not None
+        cursor = self._connection.execute(sql, params or {})
+        self._connection.commit()
         return cursor.rowcount
 
     def explain(self, sql: str, params: dict[str, Any] | None = None) -> str:
@@ -82,7 +81,8 @@ class SQLiteBackend(DatabaseBackend):
         parameterized SQL, so callers must pass ``params`` whenever the SQL
         references ``:name`` placeholders.
         """
-        conn = self._require_connection()
-        cursor = conn.execute(f"EXPLAIN QUERY PLAN {sql}", params or {})
+        self.connect()
+        assert self._connection is not None
+        cursor = self._connection.execute(f"EXPLAIN QUERY PLAN {sql}", params or {})
         rows = cursor.fetchall()
         return "\n".join(row["detail"] for row in rows)
