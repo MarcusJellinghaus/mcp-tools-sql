@@ -31,7 +31,12 @@ class QueryTools:
         self._backend_name = backend_name
 
     def register(self, mcp: FastMCP) -> None:
-        """Register one MCP tool per configured query as ``query_<name>``."""
+        """Register one MCP tool per configured query as ``query_<name>``.
+
+        Raises:
+            ValueError: If a configured query name does not match the allowed
+                identifier pattern (``_NAME_RE``).
+        """
         for name, config in self._queries.items():
             if not self._NAME_RE.match(name):
                 raise ValueError(
