@@ -10,7 +10,7 @@ from tabulate import tabulate
 def format_rows(
     rows: list[dict[str, Any]],
     max_rows: int = 100,
-    truncation_hint: str = "Use filter to narrow.",
+    truncation_hint: str = "",
 ) -> str:
     """Format query result rows as LLM-friendly tabular text.
 

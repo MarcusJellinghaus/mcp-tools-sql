@@ -60,7 +60,14 @@ class TestFormatRows:
         rows = [{"id": i} for i in range(20)]
         result = format_rows(rows, max_rows=5)
         assert "Showing 5 of 20 rows" in result
-        assert "Use filter to narrow" in result
+
+    def test_truncation_hint_default_is_empty(self) -> None:
+        """Default ``truncation_hint`` produces no schema-specific suffix."""
+        rows = [{"id": i} for i in range(20)]
+        result = format_rows(rows, max_rows=5)
+        last_line = result.strip().split("\n")[-1]
+        assert last_line.endswith("rows.")
+        assert "Use filter to narrow" not in result
 
     def test_no_truncation_at_boundary(self) -> None:
         """Exactly max_rows rows → no truncation message."""

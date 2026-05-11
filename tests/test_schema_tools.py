@@ -15,7 +15,7 @@ from mcp_tools_sql.config.models import (
     ConnectionConfig,
     QueryConfig,
 )
-from mcp_tools_sql.schema_tools import load_default_queries, register_builtin_tools
+from mcp_tools_sql.schema_tools import SchemaTools, load_default_queries
 from mcp_tools_sql.tool_builder import build_tool_fn
 
 # ---------------------------------------------------------------------------
@@ -29,7 +29,7 @@ def _make_mcp_with_tools(db_path: str) -> FastMCP:
     backend = SQLiteBackend(config)
     backend.connect()
     mcp = FastMCP("test-schema-tools")
-    register_builtin_tools(mcp, backend, "sqlite")
+    SchemaTools(backend, "sqlite").register(mcp)
     return mcp
 
 
@@ -351,10 +351,35 @@ async def test_clamp_and_truncation_both_appear(sqlite_wide_db: Path) -> None:
         max_rows_default=5,
         max_rows_hard=10,
     )
-    fn = build_tool_fn("clamp_trunc_test", qcfg, backend, "sqlite")
+    fn = build_tool_fn(
+        "clamp_trunc_test",
+        qcfg,
+        backend,
+        "sqlite",
+        truncation_hint="Use filter to narrow.",
+    )
 
     text = await fn(table="wide_table", max_rows=500)
 
     assert "Showing 10 of 150 rows" in text
     assert "Use filter to narrow" in text
     assert "Requested max_rows=500 exceeds hard limit 10" in text
+
+
+# ---------------------------------------------------------------------------
+# Truncation-hint plumbing (regression guard)
+# ---------------------------------------------------------------------------
+
+
+@pytest.mark.asyncio
+async def test_truncation_hint_preserved(sqlite_wide_db: Path) -> None:
+    """SchemaTools routes ``truncation_hint`` through to format_rows output."""
+    mcp = _make_mcp_with_tools(str(sqlite_wide_db))
+    async with create_connected_server_and_client_session(
+        mcp, raise_exceptions=True
+    ) as client:
+        result = await client.call_tool(
+            "read_columns", {"schema": "main", "table": "wide_table"}
+        )
+        text = result.content[0].text  # type: ignore[union-attr]
+        assert "Use filter to narrow" in text

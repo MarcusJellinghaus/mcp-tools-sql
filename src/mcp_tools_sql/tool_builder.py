@@ -48,6 +48,8 @@ def build_tool_fn(
     config: QueryConfig,
     backend: DatabaseBackend,
     backend_name: str,
+    *,
+    truncation_hint: str = "",
 ) -> Callable[..., Any]:
     """Build a dynamic async function for one query config entry.
 
@@ -84,7 +86,7 @@ def build_tool_fn(
             if filter_kwarg:
                 rows = apply_filter(rows, config.filter_column, filter_pattern)
             rec.record(rows=len(rows), cols=len(rows[0]) if rows else 0)
-            return format_rows(rows, requested) + note
+            return format_rows(rows, requested, truncation_hint=truncation_hint) + note
 
     # Build signature from user-declared config.params only
     sig_params: list[inspect.Parameter] = []

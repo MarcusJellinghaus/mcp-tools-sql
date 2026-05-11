@@ -29,13 +29,25 @@ def load_default_queries() -> dict[str, QueryConfig]:
     }
 
 
-def register_builtin_tools(
-    mcp: FastMCP,
-    backend: DatabaseBackend,
-    backend_name: str,
-) -> None:
-    """Load default_queries.toml and register all schema tools on mcp."""
-    queries = load_default_queries()
-    for name, config in queries.items():
-        fn = build_tool_fn(name, config, backend, backend_name)
-        mcp.add_tool(fn)
+class SchemaTools:
+    """Registers built-in schema-exploration tools on an MCP server."""
+
+    def __init__(
+        self,
+        backend: DatabaseBackend,
+        backend_name: str,
+    ) -> None:
+        self._backend = backend
+        self._backend_name = backend_name
+
+    def register(self, mcp: FastMCP) -> None:
+        """Load default_queries.toml and register all schema tools on ``mcp``."""
+        for name, config in load_default_queries().items():
+            fn = build_tool_fn(
+                name,
+                config,
+                self._backend,
+                self._backend_name,
+                truncation_hint="Use filter to narrow.",
+            )
+            mcp.add_tool(fn)
