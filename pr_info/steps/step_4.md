@@ -126,6 +126,10 @@ See pseudocode in WHAT. Two extra `kwargs.pop` calls + one conditional
 4. `tests/test_tool_builder.py::test_build_fn_injects_max_rows`
 5. `tests/test_tool_builder.py::test_build_fn_injects_filter_when_set`
 6. `tests/test_tool_builder.py::test_build_fn_no_filter_when_unset`
+7. `tests/test_tool_builder.py::test_apply_filter_column_absent_from_rows_returns_empty` —
+   call `apply_filter` with a `filter_column` name that does not appear
+   in any of the result rows' keys; assert it returns an empty list
+   cleanly (no `KeyError`).
 
 ## Verification
 

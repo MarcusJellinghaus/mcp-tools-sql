@@ -140,6 +140,10 @@ return format_rows(rows, requested) + note
 - Note appears after the formatted table, separated by `\n\n`.
 - Schema tools see no behaviour change (their `max_rows_hard` defaults to
   `max_rows_default`, so the clamp is a no-op).
+- `max_rows=0` and negative values are passed through to `format_rows`
+  unchanged; this returns zero rows and is treated as a valid LLM choice
+  (no lower-bound clamp, no validation error). The clamp logic only
+  enforces the upper bound against `max_rows_hard`.
 
 ## TDD Tests
 
@@ -159,6 +163,9 @@ return format_rows(rows, requested) + note
    line AND the `"Requested max_rows=… exceeds hard limit …"` note appear
    in the result text
 6. `tests/cli/test_verify.py` — update any references to the renamed field
+7. `tests/test_schema_tools.py::test_max_rows_zero_returns_no_rows_without_clamp_note` —
+   call a built-in tool with `max_rows=0`; assert the result contains zero
+   rows and does NOT append the truncation/clamp note text.
 
 ## Verification
 

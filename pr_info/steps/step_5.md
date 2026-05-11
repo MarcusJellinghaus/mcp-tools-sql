@@ -50,6 +50,10 @@ class SchemaTools:
 `build_tool_fn` gains a `truncation_hint: str = ""` keyword-only parameter
 that flows into the `format_rows` call inside the closure.
 
+Tighten `format_rows`'s `truncation_hint` default to `""` in this commit
+since every caller now passes it explicitly; update the affected existing
+assertion in `tests/test_schema_tools.py` in the same commit.
+
 ## HOW
 
 - `load_default_queries()` stays a module-level function (used by `verify`
@@ -89,6 +93,11 @@ SchemaTools.register(mcp):
 3. New: `tests/test_schema_tools.py::test_truncation_hint_preserved` —
    trigger truncation; assert the string `"Use filter to narrow"` appears
    (regression guard for the hint plumbing).
+4. New: `tests/test_formatting.py::test_truncation_hint_default_is_empty` —
+   call `format_rows` with no `truncation_hint` argument over enough rows
+   to trigger truncation; assert the suffix line ends with `"rows."` and
+   does NOT contain the legacy schema-specific phrase
+   `"Use filter to narrow"`.
 
 ## Verification
 

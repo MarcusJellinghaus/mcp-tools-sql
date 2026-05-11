@@ -70,6 +70,9 @@ def _register_configured_tools(self) -> None:
 
 ## HOW
 
+- Duplicate `query_<name>` registration is structurally impossible because
+  `QueryFileConfig.queries` is a `dict[str, QueryConfig]`; no runtime
+  dedup check is needed.
 - Empty `self._queries` → loop body never executes → registration is a no-op.
 - Name regex validated before calling `build_tool_fn`. Closure `__name__` is
   set inside the builder; the prefixed name passed to `mcp.add_tool` is what
@@ -110,7 +113,8 @@ Cover every item from issue #5's Tests section:
 2. **Tool name prefix** — register `{"customers": ...}`; assert
    `"query_customers"` is in `list_tools()` and `"customers"` is not.
 3. **Invalid tool name** — `{"123-bad": ...}` raises `ValueError` at
-   registration with a clear message.
+   registration; assert the offending name (`"123-bad"`) appears in the
+   exception message.
 4. **JSON schema generation** — register a query with `int` + `str` +
    optional `float` params; assert the FastMCP-generated input schema has
    the right `type`/`required` entries and includes the implicit `max_rows`.
@@ -140,7 +144,7 @@ Cover every item from issue #5's Tests section:
 
 ## TDD Tests (`tests/test_server.py`)
 
-13. `test_configured_query_registered_as_tool` — write a
+14. `test_configured_query_registered_as_tool` — write a
     `mcp-tools-sql.toml` with one `[queries.foo]` entry; build a
     `ToolServer` (without calling `mcp.run()`); list its registered tools
     and assert `query_foo` is present alongside the four built-in tools.
