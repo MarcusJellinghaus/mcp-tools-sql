@@ -47,12 +47,12 @@ class TestDefaultQueriesLoading:
         assert columns_config.params["filter"].required is False
 
     def test_read_columns_has_max_rows_param(self) -> None:
-        """read_columns has an optional 'max_rows' param and config.max_rows == 100."""
+        """read_columns has an optional 'max_rows' param and config.max_rows_default == 100."""
         queries = load_default_queries()
         columns_config = queries["read_columns"]
         assert "max_rows" in columns_config.params
         assert columns_config.params["max_rows"].required is False
-        assert columns_config.max_rows == 100
+        assert columns_config.max_rows_default == 100
 
 
 class TestSqlitePragmaBinding:

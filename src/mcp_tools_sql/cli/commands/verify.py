@@ -521,11 +521,11 @@ def verify_queries(
     backend_name: str,
     backend: DatabaseBackend,
 ) -> dict[str, Any]:
-    """Per-query validation: SQL EXPLAIN, params well-formed, max_rows > 0.
+    """Per-query validation: SQL EXPLAIN, params well-formed, max_rows_default > 0.
 
     Returns:
         Standard verifier result dict with three rows per query
-        (``<name>.sql``, ``<name>.params``, ``<name>.max_rows``) and an
+        (``<name>.sql``, ``<name>.params``, ``<name>.max_rows_default``) and an
         ``overall_ok`` flag.
     """
     result: dict[str, Any] = {}
@@ -546,11 +546,11 @@ def verify_queries(
             error=err,
         )
 
-        ok = qcfg.max_rows > 0
-        result[f"{name}.max_rows"] = _entry(
+        ok = qcfg.max_rows_default > 0
+        result[f"{name}.max_rows_default"] = _entry(
             ok=ok,
-            value=str(qcfg.max_rows),
-            error="" if ok else "max_rows must be > 0",
+            value=str(qcfg.max_rows_default),
+            error="" if ok else "max_rows_default must be > 0",
         )
     result["overall_ok"] = all(
         entry["ok"] for key, entry in result.items() if key != "overall_ok"

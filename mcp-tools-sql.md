@@ -86,7 +86,7 @@ Built-in tools that work out of the box without user configuration:
 
 The bank fundamentals scenario (see section 2) reveals that `read_columns` returning 1000 rows is unusable. Strategy:
 
-1. **`read_columns` with `filter` parameter**: Optional `filter` argument for column name pattern matching (`LIKE '%income%'` or `LIKE '%revenue%'`). Without filter, truncates at `max_rows` (default 100) with a warning: "Showing 100 of 1,042 columns. Use filter parameter to narrow results."
+1. **`read_columns` with `filter` parameter**: Optional `filter` argument for column name pattern matching (`LIKE '%income%'` or `LIKE '%revenue%'`). Without filter, truncates at `max_rows_default` (default 100) with a warning: "Showing 100 of 1,042 columns. Use filter parameter to narrow results."
 
 2. **`search_columns` tool**: Dedicated search — takes a pattern, returns only matching columns. Supports SQL LIKE patterns (`%profit%`, `%loss%`) and optionally comma-separated terms (`"profit, loss, revenue, income"`). Returns column name + type + description.
 
@@ -118,7 +118,7 @@ sql = """
       AND (:country IS NULL OR Country = :country)
     ORDER BY BankName
 """
-max_rows = 50
+max_rows_default = 50
 ```
 
 The final data retrieval is also a configured query — the LLM uses the discovered column names and bank IDs to call it.
@@ -140,7 +140,7 @@ Shipped as default config (e.g. `default_queries.toml` bundled in the package), 
 - Each query becomes an MCP tool with a descriptive name and docstring
 - Queries use parameterized placeholders (prevents SQL injection)
 - Parameters exposed as MCP tool arguments with types and descriptions
-- Result truncation: configurable `max_rows` per query (default 100)
+- Result truncation: configurable `max_rows_default` per query (default 100)
 - Truncation message: "Showing 100 of N rows. Refine your query or increase max_rows."
 
 ### 4.3 Configurable UPDATE Statements
@@ -244,7 +244,7 @@ The config will grow as more queries and updates are added. The LLM should be ab
 1. **Config schema as an MCP resource**: Expose a `read_config_schema()` tool that returns the full config format with field descriptions, types, and examples. The LLM reads this before writing config — no guesswork.
 
 2. **Structured add/remove tools** (instead of raw file editing):
-   - `add_query(name, description, sql, params, max_rows?)` — adds a SELECT query to the config
+   - `add_query(name, description, sql, params, max_rows_default?)` — adds a SELECT query to the config
    - `add_update(name, description, schema, table, key, fields)` — adds an UPDATE definition
    - `remove_query(name)` / `remove_update(name)` — removes by name
    - `list_configured_tools()` — shows what's currently configured
@@ -266,7 +266,7 @@ LLM:  add_query(
         description="Search for banks in a given country",
         sql="SELECT BankID, BankName, Country FROM bank_fundamentals.bank_data WHERE Country = :country ORDER BY BankName",
         params=[{"name": "country", "type": "str", "description": "Country name", "required": true}],
-        max_rows=50
+        max_rows_default=50
       )
       → "Query `find_banks_by_country` added. Verify: [OK]"
 ```
@@ -366,7 +366,7 @@ sql = """
     WHERE CustomerID = :customer_id
     ORDER BY OrderDate DESC
 """
-max_rows = 100
+max_rows_default = 100
 
 [queries.get_orders_by_customer.params.customer_id]
 type = "int"
@@ -702,12 +702,12 @@ $ mcp-tools-sql verify --config mcp-tools-sql.toml
 [queries.get_orders_by_customer]
   sql     = EXPLAIN valid                  [OK]
   params  = customer_id (int, required)    [OK]
-  max_rows = 100                           [OK]
+  max_rows_default = 100                   [OK]
 
 [queries.get_inventory_levels]
   sql     = EXPLAIN valid                  [OK]
   params  = warehouse_id (int, required)   [OK]
-  max_rows = 50                            [OK]
+  max_rows_default = 50                    [OK]
 
 [updates.update_order_status]
   table   = dbo.Orders                     [OK] exists
@@ -725,7 +725,7 @@ Checks performed per section:
 | Config Section | Checks |
 |---------------|--------|
 | `[connection]` | Backend driver installed, connection succeeds, credentials resolve, read permission (`SELECT 1`) |
-| `[queries.*]` | SQL valid (via EXPLAIN), parameters well-formed, max_rows set |
+| `[queries.*]` | SQL valid (via EXPLAIN), parameters well-formed, max_rows_default set |
 | `[updates.*]` | Table exists, key column exists, all field columns exist (via INFORMATION_SCHEMA) |
 
 Use cases:
@@ -768,7 +768,7 @@ credential_env_var = "MSSQL_PASSWORD" # set this env var with your password
 #     WHERE Name LIKE :search_pattern
 #     ORDER BY Name
 # """
-# max_rows = 100
+# max_rows_default = 100
 #
 # [queries.get_customers.params.search_pattern]
 # type = "str"

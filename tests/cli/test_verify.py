@@ -661,14 +661,14 @@ def _open_sqlite_backend(db_path: Path) -> SQLiteBackend:
 
 
 def test_verify_queries_valid_sqlite(sqlite_db: Path) -> None:
-    """A query with valid SQL + matching params + max_rows>0 → all ok=True."""
+    """A query with valid SQL + matching params + max_rows_default>0 → all ok=True."""
     queries = {
         "list_customers": QueryConfig(
             sql="SELECT * FROM customers WHERE country = :country",
             params={
                 "country": QueryParamConfig(name="country", type="str"),
             },
-            max_rows=10,
+            max_rows_default=10,
         ),
     }
     backend = _open_sqlite_backend(sqlite_db)
@@ -679,7 +679,7 @@ def test_verify_queries_valid_sqlite(sqlite_db: Path) -> None:
 
     assert result["list_customers.sql"]["ok"] is True
     assert result["list_customers.params"]["ok"] is True
-    assert result["list_customers.max_rows"]["ok"] is True
+    assert result["list_customers.max_rows_default"]["ok"] is True
     assert result["overall_ok"] is True
 
 
@@ -689,7 +689,7 @@ def test_verify_queries_detects_invalid_sql(sqlite_db: Path) -> None:
         "broken": QueryConfig(
             sql="SELECT * FROMX badtable",
             params={},
-            max_rows=10,
+            max_rows_default=10,
         ),
     }
     backend = _open_sqlite_backend(sqlite_db)
@@ -711,7 +711,7 @@ def test_verify_queries_detects_param_mismatch(sqlite_db: Path) -> None:
             params={
                 "bar": QueryParamConfig(name="bar", type="str"),
             },
-            max_rows=10,
+            max_rows_default=10,
         ),
     }
     backend = _open_sqlite_backend(sqlite_db)
@@ -734,7 +734,7 @@ def test_verify_queries_detects_invalid_param_type(sqlite_db: Path) -> None:
             params={
                 "id": QueryParamConfig(name="id", type="bool"),
             },
-            max_rows=10,
+            max_rows_default=10,
         ),
     }
     backend = _open_sqlite_backend(sqlite_db)
@@ -762,7 +762,7 @@ def test_verify_queries_accepts_filter_and_max_rows_as_non_sql_params(
                     name="max_rows", type="int", required=False
                 ),
             },
-            max_rows=10,
+            max_rows_default=10,
         ),
     }
     backend = _open_sqlite_backend(sqlite_db)
@@ -775,13 +775,13 @@ def test_verify_queries_accepts_filter_and_max_rows_as_non_sql_params(
     assert result["overall_ok"] is True
 
 
-def test_verify_queries_detects_missing_max_rows(sqlite_db: Path) -> None:
-    """``QueryConfig(max_rows=0)`` → ok=False on ``<name>.max_rows`` row."""
+def test_verify_queries_detects_missing_max_rows_default(sqlite_db: Path) -> None:
+    """``QueryConfig(max_rows_default=0)`` → ok=False on ``<name>.max_rows_default`` row."""
     queries = {
         "no_max": QueryConfig(
             sql="SELECT * FROM customers",
             params={},
-            max_rows=0,
+            max_rows_default=0,
         ),
     }
     backend = _open_sqlite_backend(sqlite_db)
@@ -790,8 +790,8 @@ def test_verify_queries_detects_missing_max_rows(sqlite_db: Path) -> None:
     finally:
         backend.close()
 
-    assert result["no_max.max_rows"]["ok"] is False
-    assert "max_rows" in result["no_max.max_rows"]["error"]
+    assert result["no_max.max_rows_default"]["ok"] is False
+    assert "max_rows_default" in result["no_max.max_rows_default"]["error"]
     assert result["overall_ok"] is False
 
 
@@ -801,7 +801,7 @@ def test_verify_queries_unimplemented_backend_explain_fails_cleanly() -> None:
         "any": QueryConfig(
             sql="SELECT 1",
             params={},
-            max_rows=10,
+            max_rows_default=10,
         ),
     }
     conn = ConnectionConfig(backend="mssql", host="localhost", database="db")
@@ -934,7 +934,7 @@ def test_verify_full_run_with_queries_and_updates_returns_0(
         "\n"
         "[queries.list_customers]\n"
         'sql = "SELECT * FROM customers WHERE country = :country"\n'
-        "max_rows = 10\n"
+        "max_rows_default = 10\n"
         "\n"
         "[queries.list_customers.params.country]\n"
         'name = "country"\n'

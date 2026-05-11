@@ -34,7 +34,7 @@ connection = "mydb"
 [queries.get_users]
 description = "Find users by department"
 sql = "SELECT * FROM users WHERE dept = :dept"
-max_rows = 50
+max_rows_default = 50
 
 [queries.get_users.params.dept]
 name = "dept"
@@ -65,7 +65,7 @@ description = "New email address"
         assert isinstance(config, QueryFileConfig)
         assert config.connection == "mydb"
         assert "get_users" in config.queries
-        assert config.queries["get_users"].max_rows == 50
+        assert config.queries["get_users"].max_rows_default == 50
         assert config.queries["get_users"].params["dept"].type == "str"
         assert "update_email" in config.updates
         assert config.updates["update_email"].schema_name == "dbo"

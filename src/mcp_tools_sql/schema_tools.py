@@ -8,7 +8,7 @@ import tomllib
 from collections.abc import Callable
 from fnmatch import fnmatch
 from pathlib import Path
-from typing import TYPE_CHECKING, Annotated, Any, Optional
+from typing import TYPE_CHECKING, Annotated, Any, Optional, cast
 
 from pydantic import Field
 
@@ -92,7 +92,15 @@ def _build_tool_fn(
     sql_params = extract_sql_params(resolved_sql)
 
     async def _tool_fn(**kwargs: Any) -> str:
-        max_rows: int = kwargs.pop("max_rows", config.max_rows)
+        requested: int = kwargs.pop("max_rows", config.max_rows_default)
+        hard: int = cast(int, config.max_rows_hard)
+        note = ""
+        if requested > hard:
+            note = (
+                f"\n\nRequested max_rows={requested} exceeds hard limit "
+                f"{hard}; capped at {hard}."
+            )
+            requested = hard
         filter_pattern: str | None = kwargs.pop("filter", None)
 
         # Strip kwargs to only params referenced in resolved SQL
@@ -102,7 +110,7 @@ def _build_tool_fn(
             rows = backend.execute_query(resolved_sql, stripped or None)
             rows = _apply_filter(rows, filter_pattern)
             rec.record(rows=len(rows), cols=len(rows[0]) if rows else 0)
-            return format_rows(rows, max_rows)
+            return format_rows(rows, requested) + note
 
     # Build signature from config.params
     sig_params: list[inspect.Parameter] = []
@@ -111,7 +119,7 @@ def _build_tool_fn(
         desc = param_cfg.description
 
         if param_cfg.name == "max_rows":
-            # max_rows uses config.max_rows as default
+            # max_rows uses config.max_rows_default as default
             annotation: Any = (
                 Annotated[Optional[python_type], Field(description=desc)]  # noqa: UP007
                 if desc
@@ -121,7 +129,7 @@ def _build_tool_fn(
                 inspect.Parameter(
                     param_cfg.name,
                     kind=inspect.Parameter.POSITIONAL_OR_KEYWORD,
-                    default=config.max_rows,
+                    default=config.max_rows_default,
                     annotation=annotation,
                 )
             )

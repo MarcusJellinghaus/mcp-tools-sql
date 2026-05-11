@@ -39,7 +39,7 @@ LEFT JOIN INFORMATION_SCHEMA.KEY_COLUMN_USAGE kcu
 WHERE c.TABLE_SCHEMA = :schema AND c.TABLE_NAME = :table
 ORDER BY c.ORDINAL_POSITION
 """
-max_rows = 100
+max_rows_default = 100
 
 [queries.read_columns.params.schema]
 name = "schema"

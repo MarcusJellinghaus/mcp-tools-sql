@@ -36,7 +36,7 @@ def test_query_config_minimal() -> None:
     """QueryConfig only requires sql."""
     qc = QueryConfig(sql="SELECT 1")
     assert qc.sql == "SELECT 1"
-    assert qc.max_rows == 100
+    assert qc.max_rows_default == 100
 
 
 def test_update_config_minimal() -> None:

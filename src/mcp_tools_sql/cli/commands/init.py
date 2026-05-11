@@ -21,7 +21,7 @@ connection = "default"
 # [queries.get_user]
 # description = "Look up a user by id"
 # sql = "SELECT * FROM users WHERE id = :id"
-# max_rows = 1
+# max_rows_default = 1
 #
 # [queries.get_user.params.id]
 # name = "id"
