@@ -21,7 +21,7 @@ This tracks **Feature Implementation** consisting of multiple **Tasks**.
 
 ## Tasks
 
-- [ ] [Step 1 — Add `truncation_hint` parameter to `format_rows`](steps/step_1.md)
+- [x] [Step 1 — Add `truncation_hint` parameter to `format_rows`](steps/step_1.md)
 - [ ] [Step 2 — Rename `max_rows` → `max_rows_default`; add `max_rows_hard` clamp](steps/step_2.md)
 - [ ] [Step 3 — Create `tool_builder.py`; extract helpers; add layer](steps/step_3.md)
 - [ ] [Step 4 — Add `filter_column`; auto-inject `max_rows` and `<col>_filter` params](steps/step_4.md)

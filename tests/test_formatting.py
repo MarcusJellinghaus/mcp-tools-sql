@@ -74,3 +74,20 @@ class TestFormatRows:
         result = format_rows(rows)
         assert "col_a" in result
         assert "col_b" in result
+
+    def test_truncation_with_custom_hint(self) -> None:
+        """Custom truncation_hint replaces the default suffix."""
+        rows = [{"id": i} for i in range(20)]
+        result = format_rows(rows, max_rows=5, truncation_hint="Refine query.")
+        assert "Showing 5 of 20 rows" in result
+        assert "Refine query." in result
+        assert "Use filter to narrow" not in result
+
+    def test_truncation_with_empty_hint(self) -> None:
+        """Empty truncation_hint produces only the count line."""
+        rows = [{"id": i} for i in range(20)]
+        result = format_rows(rows, max_rows=5, truncation_hint="")
+        assert "Showing 5 of 20 rows." in result
+        last_line = result.strip().split("\n")[-1]
+        assert last_line.endswith("rows.")
+        assert "Use filter to narrow" not in result
