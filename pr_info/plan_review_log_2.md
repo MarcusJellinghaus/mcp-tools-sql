@@ -12,3 +12,10 @@ Round 1 (the previous supervisor run) closed 25 findings across 7 rounds; that l
 **User decisions**: F4 — user chose option C: document `max_rows=0`/negative as pass-through with no clamp/validation; add one confirming test in step_2.
 **Changes**: Applied edits to step_1.md (note only via step_5), step_2.md (design note + 1 test), step_4.md (1 test), step_5.md (note + 1 test), step_6.md (design note + strengthen 1 test + renumber server-side test block by +1 to close numbering gap).
 **Status**: pending commit
+
+## Round 2 — 2026-05-11
+**Findings**: 1 item — F1 step_5.md missed `tests/test_formatting.py` in the truncation_hint default flip (round-1 edit named only `test_schema_tools.py`; the breaking assertion is actually in `test_formatting.py::test_truncation_message_text`).
+**Decisions**: F1 accepted autonomously — concrete test-file-name fix.
+**User decisions**: none.
+**Changes**: step_5.md WHERE list + assertion-update sentence corrected to name `tests/test_formatting.py::test_truncation_message_text`.
+**Status**: pending commit

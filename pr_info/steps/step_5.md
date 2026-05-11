@@ -20,6 +20,9 @@
 - `src/mcp_tools_sql/tool_builder.py` — accept and pass through
   `truncation_hint` to `format_rows`
 - `tests/test_schema_tools.py` — adapt the `_make_mcp_with_tools` helper
+- `tests/test_formatting.py` — drop/rewrite the assertion in
+  `test_truncation_message_text` (default-call now yields no
+  `"Use filter to narrow"` suffix)
 - `tests/test_server.py` — verify built-in tools still register
 
 ## WHAT
@@ -52,7 +55,14 @@ that flows into the `format_rows` call inside the closure.
 
 Tighten `format_rows`'s `truncation_hint` default to `""` in this commit
 since every caller now passes it explicitly; update the affected existing
-assertion in `tests/test_schema_tools.py` in the same commit.
+assertion in `tests/test_formatting.py::test_truncation_message_text`
+(which currently asserts `'Use filter to narrow' in result` against a
+default call) — drop or rewrite that assertion since the default
+`truncation_hint` is now `''`. The equivalent assertion in
+`tests/test_schema_tools.py::TestSchemaToolsTruncation.test_wide_table_truncation`
+(line ~216) is routed through `SchemaTools`, which still passes
+`truncation_hint="Use filter to narrow."`, so it remains valid and
+unchanged.
 
 ## HOW
 
