@@ -19,3 +19,21 @@ Round 1 (the previous supervisor run) closed 25 findings across 7 rounds; that l
 **User decisions**: none.
 **Changes**: step_5.md WHERE list + assertion-update sentence corrected to name `tests/test_formatting.py::test_truncation_message_text`.
 **Status**: pending commit
+
+## Round 3 — 2026-05-11
+**Findings**: 0 — sanity-check pass found no new inconsistencies introduced by round 2; cross-step consistency, line-number citations, and call-site routing all verified against the codebase.
+**Decisions**: n/a — zero findings.
+**User decisions**: none.
+**Changes**: none.
+**Status**: no changes needed; loop exits.
+
+## Final Status
+
+Supervisor run #2 complete on 2026-05-11.
+
+- **Rounds**: 3 (2 produced plan edits, round 3 closed the loop with zero findings)
+- **Commits produced**: 2 on branch `5-dynamic-select-tool-registration`
+  - `2fc1f33` — round 1: 6 findings applied across step_2/4/5/6 + log
+  - `bacccb0` — round 2: step_5 corrected to name `tests/test_formatting.py`
+- **User decisions**: 1 — F4 (round 1): `max_rows=0` / negative documented as intentional pass-through (no clamp, no validation) — option C.
+- **Plan health**: ready for approval. All findings closed, cross-step types and test plans consistent, test numbering sequential in step_6 (1..14), `truncation_hint` propagation chain verified end-to-end.
