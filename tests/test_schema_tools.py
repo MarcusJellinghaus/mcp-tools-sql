@@ -15,60 +15,8 @@ from mcp_tools_sql.config.models import (
     ConnectionConfig,
     QueryConfig,
 )
-from mcp_tools_sql.schema_tools import (
-    _apply_filter,
-    _build_tool_fn,
-    extract_sql_params,
-    load_default_queries,
-    register_builtin_tools,
-)
-
-
-class TestExtractSqlParams:
-    """Tests for extract_sql_params."""
-
-    def test_single_param(self) -> None:
-        assert extract_sql_params("SELECT * WHERE x = :id") == {"id"}
-
-    def test_multiple_params(self) -> None:
-        assert extract_sql_params("WHERE a = :x AND b = :y") == {"x", "y"}
-
-    def test_no_params(self) -> None:
-        assert extract_sql_params("SELECT 'main' AS name") == set()
-
-    def test_duplicate_param(self) -> None:
-        assert extract_sql_params("WHERE a = :x OR b = :x") == {"x"}
-
-
-class TestApplyFilter:
-    """Tests for _apply_filter."""
-
-    def test_no_filter(self) -> None:
-        """None filter returns all rows."""
-        rows = [{"name": "a"}, {"name": "b"}]
-        assert _apply_filter(rows, None) == rows
-
-    def test_glob_match(self) -> None:
-        """Glob pattern filters rows by 'name' field."""
-        rows = [
-            {"name": "user_id"},
-            {"name": "user_name"},
-            {"name": "order_id"},
-        ]
-        result = _apply_filter(rows, "user_*")
-        assert result == [{"name": "user_id"}, {"name": "user_name"}]
-
-    def test_case_insensitive(self) -> None:
-        """Filter is case-insensitive."""
-        rows = [{"name": "User_ID"}, {"name": "order_id"}]
-        result = _apply_filter(rows, "user_*")
-        assert result == [{"name": "User_ID"}]
-
-    def test_no_match(self) -> None:
-        """No matching rows returns empty list."""
-        rows = [{"name": "a"}, {"name": "b"}]
-        assert _apply_filter(rows, "z*") == []
-
+from mcp_tools_sql.schema_tools import load_default_queries, register_builtin_tools
+from mcp_tools_sql.tool_builder import build_tool_fn
 
 # ---------------------------------------------------------------------------
 # Helper: create FastMCP with registered builtin tools against a SQLite DB
@@ -342,7 +290,7 @@ async def test_builtin_tool_logs_info_line(
     backend = SQLiteBackend(config)
     backend.connect()
     queries = load_default_queries()
-    fn = _build_tool_fn("read_tables", queries["read_tables"], backend, "sqlite")
+    fn = build_tool_fn("read_tables", queries["read_tables"], backend, "sqlite")
 
     await fn()
 
@@ -378,7 +326,7 @@ async def test_max_rows_clamped_to_hard_limit(sqlite_wide_db: Path) -> None:
         max_rows_default=5,
         max_rows_hard=10,
     )
-    fn = _build_tool_fn("clamp_test", qcfg, backend, "sqlite")
+    fn = build_tool_fn("clamp_test", qcfg, backend, "sqlite")
 
     text = await fn(table="wide_table", max_rows=500)
 
@@ -403,7 +351,7 @@ async def test_clamp_and_truncation_both_appear(sqlite_wide_db: Path) -> None:
         max_rows_default=5,
         max_rows_hard=10,
     )
-    fn = _build_tool_fn("clamp_trunc_test", qcfg, backend, "sqlite")
+    fn = build_tool_fn("clamp_trunc_test", qcfg, backend, "sqlite")
 
     text = await fn(table="wide_table", max_rows=500)
 
