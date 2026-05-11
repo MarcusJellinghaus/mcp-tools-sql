@@ -26,6 +26,6 @@ This tracks **Feature Implementation** consisting of multiple **Tasks**.
 - [x] [Step 3 — Create `tool_builder.py`; extract helpers; add layer](steps/step_3.md)
 - [x] [Step 4 — Add `filter_column`; auto-inject `max_rows` and `<col>_filter` params](steps/step_4.md)
 - [x] [Step 5 — Convert `register_builtin_tools` to `SchemaTools` class](steps/step_5.md)
-- [ ] [Step 6 — Implement `QueryTools` class; wire into `server.py`](steps/step_6.md)
+- [x] [Step 6 — Implement `QueryTools` class; wire into `server.py`](steps/step_6.md)
 
 ## Pull Request

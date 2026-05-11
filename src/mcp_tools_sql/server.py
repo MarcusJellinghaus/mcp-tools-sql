@@ -16,6 +16,7 @@ from mcp_tools_sql.config.loader import (
     load_query_config,
     resolve_connection,
 )
+from mcp_tools_sql.query_tools import QueryTools
 from mcp_tools_sql.schema_tools import SchemaTools, load_default_queries
 
 if TYPE_CHECKING:
@@ -49,8 +50,9 @@ class ToolServer:
         SchemaTools(self._backend, self._backend_name).register(self._mcp)
 
     def _register_configured_tools(self) -> None:
-        # TODO: issue #5
-        pass
+        QueryTools(self._backend, self._config.queries, self._backend_name).register(
+            self._mcp
+        )
 
     def run(self) -> None:
         """Start the MCP server event loop."""
