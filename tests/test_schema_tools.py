@@ -93,14 +93,14 @@ class TestSchemaToolsMcpProtocol:
             assert "country" in text
 
     async def test_read_columns_with_filter(self, sqlite_db: Path) -> None:
-        """call_tool('read_columns', {filter: 'na*'}) filters by glob."""
+        """call_tool('read_columns', {name_filter: 'na*'}) filters by glob."""
         mcp = _make_mcp_with_tools(str(sqlite_db))
         async with create_connected_server_and_client_session(
             mcp, raise_exceptions=True
         ) as client:
             result = await client.call_tool(
                 "read_columns",
-                {"schema": "main", "table": "customers", "filter": "na*"},
+                {"schema": "main", "table": "customers", "name_filter": "na*"},
             )
             text = result.content[0].text  # type: ignore[union-attr]
             assert "name" in text
@@ -114,7 +114,7 @@ class TestSchemaToolsMcpProtocol:
         ) as client:
             result = await client.call_tool(
                 "read_columns",
-                {"schema": "main", "table": "customers", "filter": "zzz*"},
+                {"schema": "main", "table": "customers", "name_filter": "zzz*"},
             )
             text = result.content[0].text  # type: ignore[union-attr]
             assert text == "No results found."

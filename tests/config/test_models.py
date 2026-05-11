@@ -147,6 +147,20 @@ class TestQueryConfigMaxRows:
         assert config.max_rows_hard == 50
 
 
+class TestQueryConfigFilterColumn:
+    """Tests for filter_column field."""
+
+    def test_filter_column_default_empty(self) -> None:
+        """filter_column defaults to empty string."""
+        config = QueryConfig(sql="SELECT 1")
+        assert config.filter_column == ""
+
+    def test_filter_column_explicit_value(self) -> None:
+        """Explicit filter_column is preserved."""
+        config = QueryConfig(sql="SELECT 1", filter_column="name")
+        assert config.filter_column == "name"
+
+
 class TestQueryConfigBackendsParsing:
     """Tests for parsing backends from nested dict (TOML structure)."""
 

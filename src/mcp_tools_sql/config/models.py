@@ -45,6 +45,7 @@ class QueryConfig(BaseModel):
     params: dict[str, QueryParamConfig] = {}
     max_rows_default: int = 100
     max_rows_hard: int | None = None
+    filter_column: str = ""
     backends: dict[str, BackendQueryConfig] = {}
 
     @model_validator(mode="after")

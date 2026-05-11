@@ -40,6 +40,7 @@ WHERE c.TABLE_SCHEMA = :schema AND c.TABLE_NAME = :table
 ORDER BY c.ORDINAL_POSITION
 """
 max_rows_default = 100
+filter_column = "name"
 
 [queries.read_columns.params.schema]
 name = "schema"
@@ -50,18 +51,6 @@ description = "Schema name"
 name = "table"
 type = "str"
 description = "Table name"
-
-[queries.read_columns.params.filter]
-name = "filter"
-type = "str"
-description = "Glob pattern to filter column names (e.g. 'user_*')"
-required = false
-
-[queries.read_columns.params.max_rows]
-name = "max_rows"
-type = "int"
-description = "Maximum rows to return (default 100)"
-required = false
 
 [queries.read_columns.backends.sqlite]
 sql = "SELECT name, type, NOT \"notnull\" AS nullable, dflt_value AS \"default\", pk > 0 AS is_primary_key FROM pragma_table_info(:table)"

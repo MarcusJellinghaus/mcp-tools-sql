@@ -451,7 +451,6 @@ def verify_connection(
 
 
 _VALID_PARAM_TYPES = {"str", "int", "float", "datetime"}
-_LEGITIMATE_NON_SQL_PARAMS = {"filter", "max_rows"}
 _DUMMY_BY_TYPE: dict[str, Any] = {
     "str": "",
     "int": 0,
@@ -500,7 +499,7 @@ def _check_params_well_formed(
     config_names = set(params.keys())
 
     missing_in_config = sql_names - config_names
-    extra_in_config = (config_names - sql_names) - _LEGITIMATE_NON_SQL_PARAMS
+    extra_in_config = config_names - sql_names
     bad_types = [
         (n, p.type) for n, p in params.items() if p.type not in _VALID_PARAM_TYPES
     ]

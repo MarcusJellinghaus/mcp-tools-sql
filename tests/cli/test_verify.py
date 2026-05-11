@@ -748,10 +748,14 @@ def test_verify_queries_detects_invalid_param_type(sqlite_db: Path) -> None:
     assert result["overall_ok"] is False
 
 
-def test_verify_queries_accepts_filter_and_max_rows_as_non_sql_params(
+def test_verify_queries_rejects_filter_and_max_rows_as_non_sql_params(
     sqlite_db: Path,
 ) -> None:
-    """``filter`` and ``max_rows`` config params are allow-listed as non-SQL params."""
+    """``filter`` and ``max_rows`` are no longer allow-listed as non-SQL params.
+
+    They are auto-injected by the tool builder, so declaring them in
+    ``[queries.<name>.params]`` is now a config error.
+    """
     queries = {
         "with_filter": QueryConfig(
             sql="SELECT * FROM customers WHERE country = :country",
@@ -771,8 +775,9 @@ def test_verify_queries_accepts_filter_and_max_rows_as_non_sql_params(
     finally:
         backend.close()
 
-    assert result["with_filter.params"]["ok"] is True
-    assert result["overall_ok"] is True
+    assert result["with_filter.params"]["ok"] is False
+    assert "not used in SQL" in result["with_filter.params"]["error"]
+    assert result["overall_ok"] is False
 
 
 def test_verify_queries_detects_missing_max_rows_default(sqlite_db: Path) -> None:
