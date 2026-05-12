@@ -22,7 +22,11 @@ if TYPE_CHECKING:
 
 
 def _validate_identifier(value: str, update_name: str) -> None:
-    """Raise ``ValueError`` when ``value`` is not a valid SQL identifier."""
+    """Raise ``ValueError`` when ``value`` is not a valid SQL identifier.
+
+    Raises:
+        ValueError: If ``value`` does not match the identifier whitelist.
+    """
     if not IDENTIFIER_PATTERN.match(value):
         raise ValueError(identifier_error(value, update_name))
 
@@ -34,6 +38,10 @@ def _build_update_sig_params(config: UpdateConfig) -> list[inspect.Parameter]:
     field parameter is ``KEYWORD_ONLY`` so required/optional fields can
     interleave freely without the "non-default argument follows default
     argument" restriction.
+
+    Returns:
+        The ordered list of ``inspect.Parameter`` objects describing the
+        tool's public signature.
     """
     assert config.key is not None
     sig_params: list[inspect.Parameter] = []
@@ -82,7 +90,12 @@ def _build_update_body(
     qualified: str,
     backend: DatabaseBackend,
 ) -> Callable[..., Awaitable[str]]:
-    """Build the async body closure that runs the UPDATE at call time."""
+    """Build the async body closure that runs the UPDATE at call time.
+
+    Returns:
+        An async callable that executes the UPDATE and returns the
+        formatted result string.
+    """
     assert config.key is not None
     key_field = config.key.field
     field_names = [f.field for f in config.fields]

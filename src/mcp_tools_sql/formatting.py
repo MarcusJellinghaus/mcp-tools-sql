@@ -52,7 +52,11 @@ def format_update_result(
     key_field: str,
     key_value: Any,
 ) -> str:
-    """Format the result of an update operation."""
+    """Format the result of an update operation.
+
+    Returns:
+        A human-readable message describing how many rows were affected.
+    """
     if affected_rows == 0:
         return f"No row found in {qualified_table} where " f"{key_field}={key_value!r}."
     if affected_rows == 1:
