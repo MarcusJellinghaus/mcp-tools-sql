@@ -188,3 +188,28 @@
     mention both exports (`IDENTIFIER_PATTERN` and `identifier_error`)
 
 **Status**: changes applied, awaiting commit
+
+## Final Status — 2026-05-12
+
+**Rounds run:** 3 review/update rounds + 1 final verification round (round 4 produced zero new findings worth applying — plan is stable).
+
+**Commits produced:**
+- `bba0764` — docs(pr_info): apply plan review round 1 to issue #6 steps
+- `6b8ff91` — docs(pr_info): apply plan review round 2 to issue #6 steps
+- `9f82f15` — docs(pr_info): apply plan review round 3 to issue #6 steps
+
+**Total findings resolved:** 28 (15 in round 1, 6 in round 2, 7 in round 3). Six were user-decided design questions; the rest were straightforward improvements (formatting, clarifications, additional tests, factual fixes).
+
+**User design decisions made:**
+- Round 1 — Sig ordering: keyword-only after key (avoids POSITIONAL_OR_KEYWORD ValueError).
+- Round 1 — Field/key clash: reject at registration with a clear error.
+- Round 1 — Error message share: shared helper module (`mcp_tools_sql.identifiers`).
+- Round 1 — `_UNSET` fallback trigger: by named test failures.
+- Round 3 — Verify row emit on table-fail: one row on table-fail (skip downstream rows).
+- Round 3 — Regex source: export `IDENTIFIER_PATTERN` from `mcp_tools_sql.identifiers` (single source for both pattern and error wording).
+
+**Outstanding (intentionally unaddressed):**
+- F1 (round 4): Dead "search the repo first; create if not present" wording in step_4/step_6 HOW sections. Borderline polish — left as-is per the strict ground rules; a careful reader still arrives at the right outcome.
+- N3-1 (round 3): Pre-existing `value=` asymmetry in `verify.py` (happy-path bare table vs. error-path qualified). Out of scope for #6.
+
+**Status:** Plan is ready for implementation approval.
