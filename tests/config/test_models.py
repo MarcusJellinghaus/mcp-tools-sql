@@ -132,6 +132,35 @@ class TestQueryConfigResolveSQL:
         assert config.resolve_sql("sqlite") == "DEFAULT"
 
 
+class TestQueryConfigMaxRows:
+    """Tests for max_rows_default / max_rows_hard validator behavior."""
+
+    def test_max_rows_hard_defaults_to_default(self) -> None:
+        """max_rows_hard defaults to max_rows_default when omitted."""
+        config = QueryConfig(sql="SELECT 1", max_rows_default=25)
+        assert config.max_rows_hard == 25
+
+    def test_max_rows_hard_explicit_value(self) -> None:
+        """Explicit max_rows_hard is preserved by validator."""
+        config = QueryConfig(sql="SELECT 1", max_rows_default=10, max_rows_hard=50)
+        assert config.max_rows_default == 10
+        assert config.max_rows_hard == 50
+
+
+class TestQueryConfigFilterColumn:
+    """Tests for filter_column field."""
+
+    def test_filter_column_default_empty(self) -> None:
+        """filter_column defaults to empty string."""
+        config = QueryConfig(sql="SELECT 1")
+        assert config.filter_column == ""
+
+    def test_filter_column_explicit_value(self) -> None:
+        """Explicit filter_column is preserved."""
+        config = QueryConfig(sql="SELECT 1", filter_column="name")
+        assert config.filter_column == "name"
+
+
 class TestQueryConfigBackendsParsing:
     """Tests for parsing backends from nested dict (TOML structure)."""
 

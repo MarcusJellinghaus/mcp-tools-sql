@@ -10,6 +10,7 @@ from tabulate import tabulate
 def format_rows(
     rows: list[dict[str, Any]],
     max_rows: int = 100,
+    truncation_hint: str = "",
 ) -> str:
     """Format query result rows as LLM-friendly tabular text.
 
@@ -17,6 +18,8 @@ def format_rows(
         rows: Query result rows as list of dicts.
         max_rows: Maximum rows to display. If len(rows) > max_rows,
                   output is truncated with a warning message.
+        truncation_hint: Optional suffix appended after the count line
+                  when truncation occurs. Empty string suppresses it.
 
     Returns:
         Formatted table string with column headers.
@@ -27,7 +30,8 @@ def format_rows(
     display_rows = rows[:max_rows]
     table: str = tabulate(display_rows, headers="keys", tablefmt="simple")
     if total > max_rows:
-        table += f"\n\nShowing {max_rows} of {total} rows. Use filter to narrow."
+        suffix = f" {truncation_hint}" if truncation_hint else ""
+        table += f"\n\nShowing {max_rows} of {total} rows.{suffix}"
     return table
 
 

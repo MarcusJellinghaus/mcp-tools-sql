@@ -10,7 +10,13 @@ from pathlib import Path
 
 import pytest
 
+from mcp_tools_sql.backends.base import create_backend
 from mcp_tools_sql.backends.sqlite import SQLiteBackend
+from mcp_tools_sql.config.loader import (
+    load_database_config,
+    load_query_config,
+    resolve_connection,
+)
 from mcp_tools_sql.server import ToolServer, run_server
 
 
@@ -148,3 +154,56 @@ def test_startup_info_log_line(
         )
     ]
     assert len(matching) == 1
+
+
+@pytest.mark.asyncio
+async def test_configured_query_registered_as_tool(tmp_path: Path) -> None:
+    """A configured `[queries.foo]` entry registers as `query_foo` on the server."""
+    from mcp.shared.memory import create_connected_server_and_client_session
+
+    db = tmp_path / "test.db"
+    conn = sqlite3.connect(str(db))
+    conn.execute("CREATE TABLE customers (id INTEGER PRIMARY KEY, name TEXT)")
+    conn.execute("INSERT INTO customers VALUES (1, 'Alice')")
+    conn.commit()
+    conn.close()
+
+    qcfg_path = tmp_path / "mcp-tools-sql.toml"
+    qcfg_path.write_text(
+        'connection = "default"\n'
+        "\n"
+        "[queries.foo]\n"
+        'description = "Foo query"\n'
+        'sql = "SELECT * FROM customers"\n'
+        "\n"
+        "[queries.foo.backends.sqlite]\n"
+        'sql = "SELECT * FROM customers"\n'
+    )
+    dbcfg_path = tmp_path / "db.toml"
+    dbcfg_path.write_text(
+        f'[connections.default]\nbackend = "sqlite"\npath = "{db.as_posix()}"\n'
+    )
+
+    qcfg = load_query_config(qcfg_path)
+    dbcfg = load_database_config(dbcfg_path)
+    conn_cfg = resolve_connection(qcfg, dbcfg)
+    backend = create_backend(conn_cfg)
+    server = ToolServer(qcfg, backend, conn_cfg.backend)
+    server._register_builtin_tools()  # pylint: disable=protected-access
+    server._register_configured_tools()  # pylint: disable=protected-access
+
+    try:
+        async with create_connected_server_and_client_session(
+            server.mcp, raise_exceptions=True
+        ) as client:
+            result = await client.list_tools()
+            names = {t.name for t in result.tools}
+            assert "query_foo" in names
+            assert {
+                "read_schemas",
+                "read_tables",
+                "read_columns",
+                "read_relations",
+            }.issubset(names)
+    finally:
+        backend.close()

@@ -28,7 +28,8 @@ from mcp_tools_sql.config.models import (
     QueryParamConfig,
     UpdateConfig,
 )
-from mcp_tools_sql.schema_tools import extract_sql_params, load_default_queries
+from mcp_tools_sql.schema_tools import load_default_queries
+from mcp_tools_sql.tool_builder import extract_sql_params
 
 logger = logging.getLogger(__name__)
 
@@ -450,7 +451,6 @@ def verify_connection(
 
 
 _VALID_PARAM_TYPES = {"str", "int", "float", "datetime"}
-_LEGITIMATE_NON_SQL_PARAMS = {"filter", "max_rows"}
 _DUMMY_BY_TYPE: dict[str, Any] = {
     "str": "",
     "int": 0,
@@ -499,7 +499,7 @@ def _check_params_well_formed(
     config_names = set(params.keys())
 
     missing_in_config = sql_names - config_names
-    extra_in_config = (config_names - sql_names) - _LEGITIMATE_NON_SQL_PARAMS
+    extra_in_config = config_names - sql_names
     bad_types = [
         (n, p.type) for n, p in params.items() if p.type not in _VALID_PARAM_TYPES
     ]
@@ -521,11 +521,11 @@ def verify_queries(
     backend_name: str,
     backend: DatabaseBackend,
 ) -> dict[str, Any]:
-    """Per-query validation: SQL EXPLAIN, params well-formed, max_rows > 0.
+    """Per-query validation: SQL EXPLAIN, params well-formed, max_rows_default > 0.
 
     Returns:
         Standard verifier result dict with three rows per query
-        (``<name>.sql``, ``<name>.params``, ``<name>.max_rows``) and an
+        (``<name>.sql``, ``<name>.params``, ``<name>.max_rows_default``) and an
         ``overall_ok`` flag.
     """
     result: dict[str, Any] = {}
@@ -546,11 +546,11 @@ def verify_queries(
             error=err,
         )
 
-        ok = qcfg.max_rows > 0
-        result[f"{name}.max_rows"] = _entry(
+        ok = qcfg.max_rows_default > 0
+        result[f"{name}.max_rows_default"] = _entry(
             ok=ok,
-            value=str(qcfg.max_rows),
-            error="" if ok else "max_rows must be > 0",
+            value=str(qcfg.max_rows_default),
+            error="" if ok else "max_rows_default must be > 0",
         )
     result["overall_ok"] = all(
         entry["ok"] for key, entry in result.items() if key != "overall_ok"

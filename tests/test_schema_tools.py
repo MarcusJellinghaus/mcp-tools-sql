@@ -10,61 +10,13 @@ from mcp.server.fastmcp import FastMCP
 from mcp.shared.memory import create_connected_server_and_client_session
 
 from mcp_tools_sql.backends.sqlite import SQLiteBackend
-from mcp_tools_sql.config.models import ConnectionConfig
-from mcp_tools_sql.schema_tools import (
-    _apply_filter,
-    _build_tool_fn,
-    extract_sql_params,
-    load_default_queries,
-    register_builtin_tools,
+from mcp_tools_sql.config.models import (
+    BackendQueryConfig,
+    ConnectionConfig,
+    QueryConfig,
 )
-
-
-class TestExtractSqlParams:
-    """Tests for extract_sql_params."""
-
-    def test_single_param(self) -> None:
-        assert extract_sql_params("SELECT * WHERE x = :id") == {"id"}
-
-    def test_multiple_params(self) -> None:
-        assert extract_sql_params("WHERE a = :x AND b = :y") == {"x", "y"}
-
-    def test_no_params(self) -> None:
-        assert extract_sql_params("SELECT 'main' AS name") == set()
-
-    def test_duplicate_param(self) -> None:
-        assert extract_sql_params("WHERE a = :x OR b = :x") == {"x"}
-
-
-class TestApplyFilter:
-    """Tests for _apply_filter."""
-
-    def test_no_filter(self) -> None:
-        """None filter returns all rows."""
-        rows = [{"name": "a"}, {"name": "b"}]
-        assert _apply_filter(rows, None) == rows
-
-    def test_glob_match(self) -> None:
-        """Glob pattern filters rows by 'name' field."""
-        rows = [
-            {"name": "user_id"},
-            {"name": "user_name"},
-            {"name": "order_id"},
-        ]
-        result = _apply_filter(rows, "user_*")
-        assert result == [{"name": "user_id"}, {"name": "user_name"}]
-
-    def test_case_insensitive(self) -> None:
-        """Filter is case-insensitive."""
-        rows = [{"name": "User_ID"}, {"name": "order_id"}]
-        result = _apply_filter(rows, "user_*")
-        assert result == [{"name": "User_ID"}]
-
-    def test_no_match(self) -> None:
-        """No matching rows returns empty list."""
-        rows = [{"name": "a"}, {"name": "b"}]
-        assert _apply_filter(rows, "z*") == []
-
+from mcp_tools_sql.schema_tools import SchemaTools, load_default_queries
+from mcp_tools_sql.tool_builder import build_tool_fn
 
 # ---------------------------------------------------------------------------
 # Helper: create FastMCP with registered builtin tools against a SQLite DB
@@ -77,7 +29,7 @@ def _make_mcp_with_tools(db_path: str) -> FastMCP:
     backend = SQLiteBackend(config)
     backend.connect()
     mcp = FastMCP("test-schema-tools")
-    register_builtin_tools(mcp, backend, "sqlite")
+    SchemaTools(backend, "sqlite").register(mcp)
     return mcp
 
 
@@ -141,14 +93,14 @@ class TestSchemaToolsMcpProtocol:
             assert "country" in text
 
     async def test_read_columns_with_filter(self, sqlite_db: Path) -> None:
-        """call_tool('read_columns', {filter: 'na*'}) filters by glob."""
+        """call_tool('read_columns', {name_filter: 'na*'}) filters by glob."""
         mcp = _make_mcp_with_tools(str(sqlite_db))
         async with create_connected_server_and_client_session(
             mcp, raise_exceptions=True
         ) as client:
             result = await client.call_tool(
                 "read_columns",
-                {"schema": "main", "table": "customers", "filter": "na*"},
+                {"schema": "main", "table": "customers", "name_filter": "na*"},
             )
             text = result.content[0].text  # type: ignore[union-attr]
             assert "name" in text
@@ -162,7 +114,7 @@ class TestSchemaToolsMcpProtocol:
         ) as client:
             result = await client.call_tool(
                 "read_columns",
-                {"schema": "main", "table": "customers", "filter": "zzz*"},
+                {"schema": "main", "table": "customers", "name_filter": "zzz*"},
             )
             text = result.content[0].text  # type: ignore[union-attr]
             assert text == "No results found."
@@ -338,7 +290,7 @@ async def test_builtin_tool_logs_info_line(
     backend = SQLiteBackend(config)
     backend.connect()
     queries = load_default_queries()
-    fn = _build_tool_fn("read_tables", queries["read_tables"], backend, "sqlite")
+    fn = build_tool_fn("read_tables", queries["read_tables"], backend, "sqlite")
 
     await fn()
 
@@ -350,3 +302,84 @@ async def test_builtin_tool_logs_info_line(
         and "duration_ms=" in r.getMessage()
     ]
     assert len(info_records) == 1
+
+
+# ---------------------------------------------------------------------------
+# max_rows hard-limit clamp tests
+# ---------------------------------------------------------------------------
+
+
+@pytest.mark.asyncio
+async def test_max_rows_clamped_to_hard_limit(sqlite_wide_db: Path) -> None:
+    """Caller passes max_rows above max_rows_hard → clamp + note appended."""
+    config = ConnectionConfig(backend="sqlite", path=str(sqlite_wide_db))
+    backend = SQLiteBackend(config)
+    backend.connect()
+
+    qcfg = QueryConfig(
+        sql="SELECT name FROM pragma_table_info(:table)",
+        backends={
+            "sqlite": BackendQueryConfig(
+                sql="SELECT name FROM pragma_table_info(:table)"
+            )
+        },
+        max_rows_default=5,
+        max_rows_hard=10,
+    )
+    fn = build_tool_fn("clamp_test", qcfg, backend, "sqlite")
+
+    text = await fn(table="wide_table", max_rows=500)
+
+    assert "Requested max_rows=500 exceeds hard limit 10" in text
+    assert "capped at 10" in text
+
+
+@pytest.mark.asyncio
+async def test_clamp_and_truncation_both_appear(sqlite_wide_db: Path) -> None:
+    """When caller exceeds hard limit AND result is still truncated, both notes appear."""
+    config = ConnectionConfig(backend="sqlite", path=str(sqlite_wide_db))
+    backend = SQLiteBackend(config)
+    backend.connect()
+
+    qcfg = QueryConfig(
+        sql="SELECT name FROM pragma_table_info(:table)",
+        backends={
+            "sqlite": BackendQueryConfig(
+                sql="SELECT name FROM pragma_table_info(:table)"
+            )
+        },
+        max_rows_default=5,
+        max_rows_hard=10,
+    )
+    fn = build_tool_fn(
+        "clamp_trunc_test",
+        qcfg,
+        backend,
+        "sqlite",
+        truncation_hint="Use filter to narrow.",
+    )
+
+    text = await fn(table="wide_table", max_rows=500)
+
+    assert "Showing 10 of 150 rows" in text
+    assert "Use filter to narrow" in text
+    assert "Requested max_rows=500 exceeds hard limit 10" in text
+
+
+# ---------------------------------------------------------------------------
+# Truncation-hint plumbing (regression guard)
+# ---------------------------------------------------------------------------
+
+
+@pytest.mark.asyncio
+async def test_truncation_hint_preserved(sqlite_wide_db: Path) -> None:
+    """SchemaTools routes ``truncation_hint`` through to format_rows output."""
+    mcp = _make_mcp_with_tools(str(sqlite_wide_db))
+    async with create_connected_server_and_client_session(
+        mcp, raise_exceptions=True
+    ) as client:
+        result = await client.call_tool(
+            "read_columns", {"schema": "main", "table": "wide_table"}
+        )
+        text = result.content[0].text  # type: ignore[union-attr]
+        assert "Use filter to narrow" in text

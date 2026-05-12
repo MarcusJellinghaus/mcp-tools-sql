@@ -2,9 +2,9 @@
 
 from __future__ import annotations
 
-from typing import Optional
+from typing import Optional, Self
 
-from pydantic import BaseModel, ConfigDict, Field
+from pydantic import BaseModel, ConfigDict, Field, model_validator
 
 
 class ConnectionConfig(BaseModel):
@@ -43,8 +43,16 @@ class QueryConfig(BaseModel):
     description: str = ""
     sql: str
     params: dict[str, QueryParamConfig] = {}
-    max_rows: int = 100
+    max_rows_default: int = 100
+    max_rows_hard: int | None = None
+    filter_column: str = ""
     backends: dict[str, BackendQueryConfig] = {}
+
+    @model_validator(mode="after")
+    def _default_max_rows_hard(self) -> Self:
+        if self.max_rows_hard is None:
+            self.max_rows_hard = self.max_rows_default
+        return self
 
     def resolve_sql(self, backend_name: str) -> str:
         """Return backend-specific SQL if override exists, else default sql."""

@@ -16,7 +16,8 @@ from mcp_tools_sql.config.loader import (
     load_query_config,
     resolve_connection,
 )
-from mcp_tools_sql.schema_tools import load_default_queries, register_builtin_tools
+from mcp_tools_sql.query_tools import QueryTools
+from mcp_tools_sql.schema_tools import SchemaTools, load_default_queries
 
 if TYPE_CHECKING:
     from mcp_tools_sql.backends.base import DatabaseBackend
@@ -46,11 +47,12 @@ class ToolServer:
 
     def _register_builtin_tools(self) -> None:
         """Register schema-exploration tools from default_queries.toml."""
-        register_builtin_tools(self._mcp, self._backend, self._backend_name)
+        SchemaTools(self._backend, self._backend_name).register(self._mcp)
 
     def _register_configured_tools(self) -> None:
-        # TODO: issue #5
-        pass
+        QueryTools(self._backend, self._config.queries, self._backend_name).register(
+            self._mcp
+        )
 
     def run(self) -> None:
         """Start the MCP server event loop."""

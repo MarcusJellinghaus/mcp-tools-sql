@@ -39,20 +39,17 @@ class TestDefaultQueriesLoading:
                 resolved != config.sql
             ), f"{name}: sqlite SQL should differ from default"
 
-    def test_read_columns_has_filter_param(self) -> None:
-        """read_columns has an optional 'filter' param."""
+    def test_read_columns_filter_column_is_name(self) -> None:
+        """read_columns sets filter_column = 'name' for implicit name_filter."""
         queries = load_default_queries()
         columns_config = queries["read_columns"]
-        assert "filter" in columns_config.params
-        assert columns_config.params["filter"].required is False
+        assert columns_config.filter_column == "name"
 
-    def test_read_columns_has_max_rows_param(self) -> None:
-        """read_columns has an optional 'max_rows' param and config.max_rows == 100."""
+    def test_read_columns_has_only_schema_and_table_params(self) -> None:
+        """read_columns user-declared params are exactly {schema, table}."""
         queries = load_default_queries()
         columns_config = queries["read_columns"]
-        assert "max_rows" in columns_config.params
-        assert columns_config.params["max_rows"].required is False
-        assert columns_config.max_rows == 100
+        assert set(columns_config.params.keys()) == {"schema", "table"}
 
 
 class TestSqlitePragmaBinding:
