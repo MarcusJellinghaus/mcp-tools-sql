@@ -28,6 +28,7 @@ from mcp_tools_sql.config.models import (
     QueryParamConfig,
     UpdateConfig,
 )
+from mcp_tools_sql.identifiers import IDENTIFIER_PATTERN, identifier_error
 from mcp_tools_sql.query_tools import extract_sql_params
 from mcp_tools_sql.schema_tools import load_default_queries
 
@@ -607,6 +608,19 @@ def verify_updates(
     """
     result: dict[str, Any] = {}
     for name, ucfg in updates.items():
+        bad_idents: list[str] = []
+        if not IDENTIFIER_PATTERN.match(ucfg.table):
+            bad_idents.append(ucfg.table)
+        if ucfg.schema_name and not IDENTIFIER_PATTERN.match(ucfg.schema_name):
+            bad_idents.append(ucfg.schema_name)
+        if bad_idents:
+            result[f"{name}.table"] = _entry(
+                ok=False,
+                value=ucfg.table,
+                error=identifier_error(value=bad_idents[0], update_name=name),
+            )
+            continue
+
         cols = _list_table_columns(backend, backend_name, ucfg.schema_name, ucfg.table)
 
         if cols is None:
@@ -629,6 +643,12 @@ def verify_updates(
             result[f"{name}.key_column"] = _entry(
                 ok=False, value="(none)", error="No key configured"
             )
+        elif not IDENTIFIER_PATTERN.match(key_field):
+            result[f"{name}.key_column"] = _entry(
+                ok=False,
+                value=key_field,
+                error=identifier_error(value=key_field, update_name=name),
+            )
         elif key_field not in cols:
             result[f"{name}.key_column"] = _entry(
                 ok=False,
@@ -638,17 +658,28 @@ def verify_updates(
         else:
             result[f"{name}.key_column"] = _entry(ok=True, value=key_field)
 
-        missing = [f.field for f in ucfg.fields if f.field not in cols]
-        if missing:
+        fields_value = ", ".join(
+            f"{f.field}(req)" if f.required else f.field for f in ucfg.fields
+        )
+        bad_fields = [
+            f.field for f in ucfg.fields if not IDENTIFIER_PATTERN.match(f.field)
+        ]
+        if bad_fields:
             result[f"{name}.fields"] = _entry(
                 ok=False,
-                value=", ".join(f.field for f in ucfg.fields),
-                error=f"Missing columns: {', '.join(missing)}",
+                value=fields_value,
+                error=identifier_error(value=bad_fields[0], update_name=name),
             )
         else:
-            result[f"{name}.fields"] = _entry(
-                ok=True, value=f"{len(ucfg.fields)} columns"
-            )
+            missing = [f.field for f in ucfg.fields if f.field not in cols]
+            if missing:
+                result[f"{name}.fields"] = _entry(
+                    ok=False,
+                    value=fields_value,
+                    error=f"Missing columns: {', '.join(missing)}",
+                )
+            else:
+                result[f"{name}.fields"] = _entry(ok=True, value=fields_value)
 
     result["overall_ok"] = all(
         entry["ok"] for key, entry in result.items() if key != "overall_ok"
