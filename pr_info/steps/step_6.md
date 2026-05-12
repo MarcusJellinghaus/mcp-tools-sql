@@ -1,0 +1,130 @@
+# Step 6 — Extend `verify_updates` (Identifier Regex + `required` Flag Visibility)
+
+## Goal
+
+Extend `verify_updates` so the three existing rows per update
+(`<name>.table`, `<name>.key_column`, `<name>.fields`) **also** surface:
+1. Identifier-regex failures on `table`, `schema_name` (when non-empty),
+   `key.field`, and each `fields[].field` — with the same intentional-whitelist
+   wording used at registration so users see the same explanation in both
+   places.
+2. The `required` flag for each field, inline in the `<name>.fields` row's
+   `value` text (e.g. `"name(req), country, email(req)"`).
+
+No new row types — everything folds into the existing three rows.
+
+## WHERE
+
+- `src/mcp_tools_sql/cli/commands/verify.py` — extend `verify_updates`
+- `tests/cli/test_verify.py` — new tests
+
+## WHAT
+
+`verify_updates`' signature is unchanged. A new module-level regex (same
+literal as `UpdateTools._NAME_RE`) is used locally:
+
+```python
+_IDENTIFIER_RE: re.Pattern[str] = re.compile(r"^[a-zA-Z_][a-zA-Z0-9_]*$")
+```
+
+A small private helper builds the rejection error message:
+
+```python
+def _identifier_error(value: str, update_name: str) -> str:
+    return (
+        f"Invalid identifier {value!r} for update {update_name!r}: "
+        f"must match ^[a-zA-Z_][a-zA-Z0-9_]*$ "
+        f"(SQL identifiers in mcp-tools-sql are intentionally restricted "
+        f"to a strict whitelist)"
+    )
+```
+
+## HOW
+
+- Add `import re` if not already present (it already is implicitly via
+  argparse; check before adding).
+- In `verify_updates`, for each `(name, ucfg)` pair:
+  - `.table` row: if `not _IDENTIFIER_RE.match(ucfg.table)` OR
+    (`ucfg.schema_name` non-empty AND not regex-matching), set ok=False
+    with `_identifier_error(...)`. Otherwise the existing
+    "table-exists" check runs as today.
+  - `.key_column` row: if key is present and `key.field` does not match
+    the regex, ok=False with the identifier error. Otherwise the existing
+    column-exists check runs.
+  - `.fields` row: build a value string `"name(req), country, ..."`
+    surfacing each field's `required` flag inline (`(req)` suffix on
+    required fields, no suffix on optional). If any field name fails the
+    regex, ok=False with the identifier error listing the offending names.
+    Otherwise the existing "columns exist" check runs and the value text
+    keeps the `(req)` annotations.
+
+Identifier failures short-circuit the existing column-lookup check — if
+the identifier is invalid, we don't try to query the database for it.
+
+## ALGORITHM
+
+```
+for name, ucfg in updates.items():
+    bad_idents = []
+    if not _IDENTIFIER_RE.match(ucfg.table): bad_idents.append(ucfg.table)
+    if ucfg.schema_name and not _IDENTIFIER_RE.match(ucfg.schema_name):
+        bad_idents.append(ucfg.schema_name)
+    if bad_idents:
+        result[f"{name}.table"] = _entry(ok=False, value=..., error=_identifier_error(...))
+        # skip table-exists / cols lookup; still emit key_column + fields rows
+        # with the appropriate skipped/identifier errors
+        continue
+
+    # ... existing table-exists / column-lookup logic, but:
+    #   - key_column row: if key.field present and !regex.match, ok=False + identifier_error
+    #   - fields row: value = ", ".join(f"{f.field}(req)" if f.required else f.field for f in ucfg.fields)
+    #                 if any f.field !regex.match, ok=False + identifier_error
+```
+
+## DATA
+
+`verify_updates` still returns `dict[str, dict[str, Any]]` with `overall_ok`.
+Row keys unchanged. Row `value` for `.fields` now includes `(req)` suffixes.
+
+## Tests
+
+TDD: add tests first in `tests/cli/test_verify.py`.
+
+- `test_verify_updates_rejects_invalid_table_identifier`:
+  `UpdateConfig(table="orders; DROP TABLE x", ...)` →
+  `result["bad.table"]["ok"] is False`; error string contains both
+  `"intentionally restricted"` and the offending value.
+- `test_verify_updates_rejects_invalid_schema_identifier`:
+  `UpdateConfig(table="customers", schema_name="bad schema", ...)` →
+  `.table` row ok=False with identifier error; empty `schema_name` still
+  passes (regression guard).
+- `test_verify_updates_rejects_invalid_key_field_identifier`:
+  `UpdateKeyConfig(field="id; DROP", ...)` → `.key_column` row ok=False
+  with identifier error.
+- `test_verify_updates_rejects_invalid_field_identifier`: one
+  `UpdateFieldConfig(field="bad-col")` → `.fields` row ok=False with
+  identifier error mentioning `bad-col`.
+- `test_verify_updates_surfaces_required_flag_inline`: two fields, one
+  with `required=True` and one without; `.fields` row's `value` string
+  contains both `"name(req)"` and `"country"` (no `(req)` suffix).
+- Regression guard: keep all existing `test_verify_updates_*` tests
+  green. The existing happy-path tests should produce unchanged
+  `result["<name>.table"]["ok"] is True` etc. but with the `(req)` /
+  bare suffix in `.fields` row's value when applicable.
+
+## LLM Prompt
+
+> Read `pr_info/steps/summary.md` (full file) and `pr_info/steps/step_6.md`.
+> Implement Step 6 only: extend `verify_updates` in
+> `src/mcp_tools_sql/cli/commands/verify.py` so its three existing rows
+> per update also report identifier-regex failures (with the same
+> "intentionally restricted to a strict whitelist" wording used by
+> `UpdateTools.register` from Step 4) and so the `.fields` row's value
+> surfaces each field's `required` flag inline (e.g. `"name(req),
+> country"`). Do not add new row types. Follow TDD: add the five test
+> cases described in this step to `tests/cli/test_verify.py` before
+> changing the implementation, and confirm all existing `verify_updates`
+> tests still pass. Run `mcp__tools-py__run_pylint_check`,
+> `mcp__tools-py__run_pytest_check` (with the fast unit-test marker
+> exclusion), and `mcp__tools-py__run_mypy_check`. Make exactly one commit
+> when green.
