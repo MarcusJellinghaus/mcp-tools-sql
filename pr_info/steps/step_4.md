@@ -19,7 +19,10 @@ implementation parallel to `QueryTools` / `SchemaTools`:
 ## WHERE
 
 - `src/mcp_tools_sql/update_tools.py` — full implementation
+- `src/mcp_tools_sql/identifiers.py` — new module (created in this step)
+  exposing `identifier_error(...)`
 - `tests/test_update_tools.py` — new test file with full coverage
+- `tests/test_identifiers.py` — small unit test for the new module
 
 ## WHAT
 
@@ -57,8 +60,8 @@ the shared `build_tool_fn(name, sig_params, body, doc)` from Step 1.
   `^[a-zA-Z_][a-zA-Z0-9_]*\$` or `Invalid identifier`). If an existing
   module exists, extend it; otherwise create
   `src/mcp_tools_sql/identifiers.py` exposing a single
-  `identifier_error(value: str, update_name: str) -> str` (or similar
-  signature) returning the canonical message:
+  `identifier_error(value: str, update_name: str) -> str` returning the
+  canonical message:
   `"Invalid identifier {value!r} for update {update_name!r}: must match
   ^[a-zA-Z_][a-zA-Z0-9_]*$ (SQL identifiers in mcp-tools-sql are
   intentionally restricted to a strict whitelist)"`.
@@ -97,6 +100,9 @@ Notes:
 - Description sourcing: both the closure's `__doc__` and
   `mcp.add_tool(..., description=...)` come from `cfg.description` — same
   string, single source. Mirrors `QueryTools.register`.
+- `cfg.description` may be empty (`""`); pass through verbatim —
+  `mcp.add_tool` accepts an empty description, and the closure's
+  `__doc__` will be `""`.
 
 ## ALGORITHM — sig_params builder
 
@@ -187,6 +193,10 @@ Decision #10.
 TDD: add tests first in `tests/test_update_tools.py`. Mirror
 `test_query_tools.py` for fixture style (`_sqlite_backend(sqlite_db)`,
 `@pytest.mark.asyncio`, `create_connected_server_and_client_session`).
+
+All calls in this suite go through the FastMCP tool dispatcher (kwargs
+only). Never invoke the closure positionally with field args — field
+params are KEYWORD_ONLY.
 
 ### Empty / name / prefix
 - `test_empty_updates_is_noop`: `UpdateTools(backend, {}, "sqlite").register(mcp)`
@@ -292,6 +302,11 @@ TDD: add tests first in `tests/test_update_tools.py`. Mirror
   (equivalently: both code paths import the same `identifier_error`
   helper). Pick the side of the test list (step 4 or step 6) where it
   fits the existing fixture style most cleanly.
+
+### `identifiers.py` unit test (separate file)
+- `tests/test_identifiers.py`: assert
+  `identifier_error("bad name", "set_status")` returns a string
+  containing both `"bad name"` and `"set_status"`.
 
 ## LLM Prompt
 

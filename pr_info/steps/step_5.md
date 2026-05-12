@@ -45,21 +45,19 @@ def create_server(
 - New import in `server.py`: `from mcp_tools_sql.update_tools import UpdateTools`.
 - `run_server` already loads `dbcfg = load_database_config(...)`; it reads
   `dbcfg.security.allow_updates` once and passes it to `ToolServer`.
-- `_register_configured_tools` keeps its existing `QueryTools` and
-  `SchemaTools` registrations; add a third `UpdateTools` registration
-  guarded by `self._allow_updates`:
+- `_register_configured_tools` today registers `QueryTools` only; add a
+  conditional `UpdateTools` registration after the existing `QueryTools`
+  line, guarded by `self._allow_updates`:
 
 ```python
 def _register_configured_tools(self) -> None:
     QueryTools(self._backend, self._config.queries, self._backend_name).register(self._mcp)
-    SchemaTools(self._backend, self._config.schemas, self._backend_name).register(self._mcp)
     if self._allow_updates:
         UpdateTools(self._backend, self._config.updates, self._backend_name).register(self._mcp)
 ```
 
-(The exact `SchemaTools(...)` constructor args mirror the current
-implementation — preserve them verbatim; only the new `UpdateTools` line
-is added.)
+`_register_builtin_tools` (which registers `SchemaTools` and other
+built-ins) is unchanged.
 
 - All existing `ToolServer(...)` call sites in tests must be updated to
   pass the new positional arg (`allow_updates=True` by default in tests
@@ -97,9 +95,10 @@ TDD: add tests first.
     starting with `"update_"` is present, while `query_*` tools (if any)
     and the builtin `read_schemas` etc. are still present.
   - **New** `test_run_server_reads_allow_updates_from_database_config`:
-    write a `db.toml` with `[security] allow_updates = false`; monkeypatch
-    `ToolServer.run` to capture the constructed instance; assert
-    `server._allow_updates is False`.
+    Patch `ToolServer.__init__` to a wrapper that records the received
+    `allow_updates` value and then delegates to the original `__init__`.
+    Run `run_server(...)` with a config that has `allow_updates: false`;
+    assert the recorded value is `False`.
 
 ## LLM Prompt
 

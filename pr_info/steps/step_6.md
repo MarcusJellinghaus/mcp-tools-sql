@@ -73,16 +73,28 @@ for name, ucfg in updates.items():
     if ucfg.schema_name and not _IDENTIFIER_RE.match(ucfg.schema_name):
         bad_idents.append(ucfg.schema_name)
     if bad_idents:
-        result[f"{name}.table"] = _entry(ok=False, value=..., error=identifier_error(...))
+        result[f"{name}.table"] = _entry(
+            ok=False,
+            value=...,
+            error=identifier_error(value=bad_idents[0], update_name=name),
+        )
         # skip table-exists / cols lookup; still emit key_column + fields rows
         # with the appropriate skipped/identifier errors
         continue
 
     # ... existing table-exists / column-lookup logic, but:
-    #   - key_column row: if key.field present and !regex.match, ok=False + identifier_error(...)
+    #   - key_column row: if key.field present and !regex.match, ok=False
+    #       + identifier_error(value=ucfg.key.field, update_name=name)
     #   - fields row: value = ", ".join(f"{f.field}(req)" if f.required else f.field for f in ucfg.fields)
-    #                 if any f.field !regex.match, ok=False + identifier_error(...)
+    #                 if any f.field !regex.match, ok=False
+    #                   + identifier_error(value=<offender>, update_name=name)
 ```
+
+Canonical call shape (matches `identifier_error(value: str,
+update_name: str) -> str` from Step 4): use
+`identifier_error(value=..., update_name=...)` (or the equivalent
+positional `identifier_error(bad_value, update_name)`) — explicitly so
+step 4 and step 6 call sites match.
 
 ## DATA
 

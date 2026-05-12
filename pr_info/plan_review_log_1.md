@@ -66,3 +66,53 @@
   - updated HOW and ALGORITHM references to call the shared helper
 
 **Status**: changes applied, awaiting commit
+
+## Round 2 — 2026-05-12
+
+**Findings**:
+- R2-1: Step 5 SchemaTools snippet was factually wrong (blocker)
+- R2-2: identifiers.py module creation not surfaced in summary
+- R2-3: clarify kwargs-only closure calls in tests
+- R2-4: pin identifier_error signature
+- R2-5: empty description handling
+- R2-6: clarify run_server test spy mechanism
+
+**Decisions**:
+- R2-1: accept (correct factual error)
+- R2-2: accept (surface new module in summary + step_4; add unit test)
+- R2-3: accept (one-sentence clarification)
+- R2-4: accept (pin signature)
+- R2-5: accept (one-line note, no test)
+- R2-6: accept (rewrite spy mechanism description)
+
+**User decisions**: none (all straightforward)
+
+**Changes**:
+- step_4.md:
+  - WHERE section now lists `src/mcp_tools_sql/identifiers.py` and
+    `tests/test_identifiers.py` explicitly
+  - Removed "or similar signature"; canonical signature
+    `identifier_error(value: str, update_name: str) -> str` is pinned
+  - Added one-line note: `cfg.description` may be empty (`""`) — passed
+    through verbatim to `mcp.add_tool` and the closure's `__doc__`
+  - Tests intro now states all closure calls go through FastMCP (kwargs
+    only); never call positionally because field params are KEYWORD_ONLY
+  - Added new `tests/test_identifiers.py` unit test stub asserting
+    `identifier_error("bad name", "set_status")` contains both inputs
+- step_5.md:
+  - Corrected `_register_configured_tools` snippet: it registers
+    `QueryTools` only today; this step adds only the conditional
+    `UpdateTools` line. Removed the bogus `SchemaTools(...)` line and
+    added a note that `_register_builtin_tools` (where `SchemaTools`
+    lives) is unchanged
+  - Rewrote `test_run_server_reads_allow_updates_from_database_config`
+    description to use an `__init__` wrapper that records and delegates,
+    not a `run` monkeypatch
+- step_6.md:
+  - Pinned canonical `identifier_error(value=..., update_name=...)` call
+    shape in the ALGORITHM block so step 4 and step 6 call sites match
+- summary.md:
+  - Added `src/mcp_tools_sql/identifiers.py` to "Created" with a
+    one-line description and surfaced `tests/test_identifiers.py`
+
+**Status**: changes applied, awaiting commit
