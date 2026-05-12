@@ -38,17 +38,28 @@ def create_server(
 
 ## HOW
 
+- **Before editing**: search the repo for all `ToolServer(` and
+  `create_server(` call sites (src + tests + docs) using
+  `mcp__mcp-workspace__search_files`. Update each call site to pass the
+  new `allow_updates` argument.
 - New import in `server.py`: `from mcp_tools_sql.update_tools import UpdateTools`.
 - `run_server` already loads `dbcfg = load_database_config(...)`; it reads
   `dbcfg.security.allow_updates` once and passes it to `ToolServer`.
-- `_register_configured_tools`:
+- `_register_configured_tools` keeps its existing `QueryTools` and
+  `SchemaTools` registrations; add a third `UpdateTools` registration
+  guarded by `self._allow_updates`:
 
 ```python
 def _register_configured_tools(self) -> None:
     QueryTools(self._backend, self._config.queries, self._backend_name).register(self._mcp)
+    SchemaTools(self._backend, self._config.schemas, self._backend_name).register(self._mcp)
     if self._allow_updates:
         UpdateTools(self._backend, self._config.updates, self._backend_name).register(self._mcp)
 ```
+
+(The exact `SchemaTools(...)` constructor args mirror the current
+implementation — preserve them verbatim; only the new `UpdateTools` line
+is added.)
 
 - All existing `ToolServer(...)` call sites in tests must be updated to
   pass the new positional arg (`allow_updates=True` by default in tests

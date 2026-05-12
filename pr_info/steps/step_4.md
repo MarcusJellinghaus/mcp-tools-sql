@@ -48,11 +48,22 @@ the shared `build_tool_fn(name, sig_params, body, doc)` from Step 1.
   `mcp_tools_sql.formatting`; `log_tool_call` from
   `mcp_tools_sql.tool_logging`; `resolve_python_type` from
   `mcp_tools_sql.utils.data_type_utility.type_mapping`;
+  `identifier_error` from the shared identifier module (see below);
   `DatabaseBackend`, `UpdateConfig` under `TYPE_CHECKING`.
-- Identifier-validation error wording (used at registration **and** matched
-  in tests): `"Invalid identifier {value!r} for update {name!r}: must match
+- Identifier-validation error wording is centralised in a shared helper
+  module (USER DECISION — shared helper module). Before implementing,
+  search the repo for existing identifier-validation code via
+  `mcp__mcp-workspace__search_files` (e.g. pattern
+  `^[a-zA-Z_][a-zA-Z0-9_]*\$` or `Invalid identifier`). If an existing
+  module exists, extend it; otherwise create
+  `src/mcp_tools_sql/identifiers.py` exposing a single
+  `identifier_error(value: str, update_name: str) -> str` (or similar
+  signature) returning the canonical message:
+  `"Invalid identifier {value!r} for update {update_name!r}: must match
   ^[a-zA-Z_][a-zA-Z0-9_]*$ (SQL identifiers in mcp-tools-sql are
   intentionally restricted to a strict whitelist)"`.
+- Both `update_tools.py` (this step) and `verify.py` (Step 6) import
+  this same helper — no parallel copies.
 
 ## ALGORITHM — `UpdateTools.register`
 
@@ -65,6 +76,14 @@ for name, cfg in self._updates.items():
     _validate_identifier(cfg.key.field, name)
     for f in cfg.fields: _validate_identifier(f.field, name)
 
+    # Reject field/key collisions at registration time (fail-fast).
+    for f in cfg.fields:
+        if f.field == cfg.key.field:
+            raise ValueError(
+                f"update {name!r}: field {f.field!r} conflicts with "
+                f"key column {cfg.key.field!r}"
+            )
+
     qualified = f"{cfg.schema_name}.{cfg.table}" if cfg.schema_name else cfg.table
     sig_params = _build_sig(cfg)            # key (required) + per-field (Optional[_UNSET])
     body = _build_body(name, cfg, qualified, self._backend)
@@ -72,24 +91,50 @@ for name, cfg in self._updates.items():
     mcp.add_tool(fn, name=f"update_{name}", description=cfg.description)
 ```
 
+Notes:
+- Key semantics: the key is unconditionally required at the SQL level —
+  no `required` flag on `UpdateKeyConfig` is needed or supported.
+- Description sourcing: both the closure's `__doc__` and
+  `mcp.add_tool(..., description=...)` come from `cfg.description` — same
+  string, single source. Mirrors `QueryTools.register`.
+
 ## ALGORITHM — sig_params builder
+
+Ordering rule (USER DECISION — keyword-only after key):
+- The key parameter is `POSITIONAL_OR_KEYWORD` (first, no default).
+- All field parameters are `KEYWORD_ONLY` (placed after a `*` marker in
+  the signature).
+- Rationale: MCP/FastMCP always passes kwargs, so keyword-only sidesteps
+  the "non-default argument follows default argument" `ValueError` and
+  makes TOML field order irrelevant to signature legality. Required and
+  optional fields can interleave freely.
 
 ```
 sig = []
-# Key — always required
-sig.append(Parameter(cfg.key.field, POSITIONAL_OR_KEYWORD,
-                     annotation=Annotated[resolve(cfg.key.type),
-                                          Field(description=cfg.key.description)]))
-# Fields — required if cfg.required, else Optional[T] with default=_UNSET
+# Key — always required, positional-or-keyword, first
+sig.append(inspect.Parameter(
+    cfg.key.field,
+    kind=inspect.Parameter.POSITIONAL_OR_KEYWORD,
+    annotation=Annotated[resolve(cfg.key.type),
+                         Field(description=cfg.key.description)],
+))
+# All field params — KEYWORD_ONLY (effectively after a `*` marker)
 for f in cfg.fields:
     T = resolve(f.type)
     if f.required:
-        sig.append(Parameter(f.field, POSITIONAL_OR_KEYWORD,
-                             annotation=Annotated[T, Field(description=f.description)]))
+        sig.append(inspect.Parameter(
+            f.field,
+            kind=inspect.Parameter.KEYWORD_ONLY,
+            annotation=Annotated[T, Field(description=f.description)],
+        ))
     else:
-        sig.append(Parameter(f.field, POSITIONAL_OR_KEYWORD, default=_UNSET,
-                             annotation=Annotated[Optional[T],
-                                                  Field(description=f.description)]))
+        sig.append(inspect.Parameter(
+            f.field,
+            kind=inspect.Parameter.KEYWORD_ONLY,
+            default=_UNSET,
+            annotation=Annotated[Optional[T],
+                                 Field(description=f.description)],
+        ))
 return sig
 ```
 
@@ -112,11 +157,20 @@ async def body(**kwargs):
         return format_update_result(affected, qualified, cfg.key.field, key_value)
 ```
 
-**Fallback note**: if Pydantic/FastMCP rejects `_UNSET` as a signature
-default during testing, replace each optional sig param's `default=_UNSET`
-with `default=None` and change the `field_values` comprehension to detect
-absence via `if f.field in kwargs` (membership) instead of identity. This
-is the documented fallback path from issue Decision #10.
+**Fallback trigger (USER DECISION — trigger by specific test failures)**:
+Determine whether the primary `_UNSET` path is rejected by running
+`test_json_schema_key_required_fields_optional` and
+`test_register_and_call_updates_row` against the `_UNSET` path first.
+Switch to the `default=None` fallback only if either test fails with a
+Pydantic schema-validation error referencing the sentinel default OR if
+`list_tools` JSON schema renders `"default": "<object object at ...>"`.
+Otherwise keep `_UNSET` as the default.
+
+If the fallback is triggered: replace each optional sig param's
+`default=_UNSET` with `default=None` and change the `field_values`
+comprehension to detect absence via `if f.field in kwargs` (membership)
+instead of identity. This is the documented fallback path from issue
+Decision #10.
 
 ## DATA
 
@@ -138,7 +192,8 @@ TDD: add tests first in `tests/test_update_tools.py`. Mirror
 - `test_empty_updates_is_noop`: `UpdateTools(backend, {}, "sqlite").register(mcp)`
   registers zero tools, no error.
 - `test_update_tool_name_is_prefixed`: `[updates.set_name]` registers as
-  `update_set_name` (and `set_name` is not present).
+  `update_set_name`. Assert `"update_set_name" in tool_names AND
+  "set_name" not in tool_names`.
 - `test_invalid_tool_name_raises`: name like `"bad-name"` raises
   `ValueError` mentioning the offending name.
 
@@ -190,15 +245,23 @@ TDD: add tests first in `tests/test_update_tools.py`. Mirror
   exist; assert `result.isError` is False, text contains `"No row found"`.
 
 ### >1 affected rows (warning)
-- `test_multiple_rows_returns_warning_token`: build a config where
-  key column is non-unique in the test data; call the tool; assert
-  the response text begins with `WARNING:` on its own line.
+- `test_multiple_rows_returns_warning_token`: create a non-unique-key
+  fixture: `CREATE TABLE multi_key_test (k TEXT, v TEXT)` with two rows
+  sharing `k='dup'`. Configure an update tool with `key.field='k'`. Call
+  it; assert the result format contains the stable `WARNING:` token and
+  reports `affected_rows=2`.
 
 ### SQL injection prevention via values
-- `test_sql_injection_blocked_via_values`: pass a payload like
-  `"x'; DROP TABLE customers; --"` as a field value; spy asserts the
-  payload appears in the params dict and NOT inlined in the SQL string;
-  the `customers` table still exists afterwards (run a SELECT count).
+- `test_sql_injection_blocked_via_values`: call the tool with a payload
+  like `"'); DROP TABLE customers; --"` as a field value. Assert (a) the
+  target row's column equals the payload literally, and (b)
+  `SELECT count(*) FROM customers` is still >= 1 — proving
+  parameterisation.
+- `test_sql_injection_blocked_via_key_value`: same shape but with the
+  payload passed as the key argument. Assert the call either matches
+  zero rows (because the literal payload string isn't a valid key) or
+  affects exactly one row containing that literal key value; in both
+  cases, the `customers` table still exists.
 
 ### Required field omitted → MCP protocol error
 - `test_required_field_omitted_errors`: declare `UpdateFieldConfig(field="x",
@@ -214,6 +277,21 @@ TDD: add tests first in `tests/test_update_tools.py`. Mirror
 - `test_query_and_update_same_base_name_coexist`: register a query named
   `foo` and an update named `foo`; both appear in `list_tools` as
   `query_foo` and `update_foo`.
+
+### Field/key collision (fail-fast at registration)
+- `test_field_name_clashes_with_key_raises_at_registration`: build a
+  config where one `fields[].field` reuses the value of `key.field`
+  (e.g. both `"id"`). Calling `UpdateTools(...).register(mcp)` must
+  raise `ValueError` whose message contains both names (the field name
+  and the key column name).
+
+### Shared identifier error message
+- `test_identifier_error_message_shared`: pass the same bad identifier
+  through both `UpdateTools.register` (this step) and `verify_updates`
+  (Step 6) and assert the resulting error string is identical
+  (equivalently: both code paths import the same `identifier_error`
+  helper). Pick the side of the test list (step 4 or step 6) where it
+  fits the existing fixture style most cleanly.
 
 ## LLM Prompt
 

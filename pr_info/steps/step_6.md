@@ -27,17 +27,20 @@ literal as `UpdateTools._NAME_RE`) is used locally:
 _IDENTIFIER_RE: re.Pattern[str] = re.compile(r"^[a-zA-Z_][a-zA-Z0-9_]*$")
 ```
 
-A small private helper builds the rejection error message:
+The rejection error message comes from the **shared** identifier helper
+created (or extended) in Step 4 (USER DECISION — shared helper module).
+Before implementing, search the repo for existing identifier-validation
+code via `mcp__mcp-workspace__search_files`; if Step 4 has already
+introduced `src/mcp_tools_sql/identifiers.py` (or extended an existing
+module), import its `identifier_error(value: str, update_name: str) -> str`
+function here too:
 
 ```python
-def _identifier_error(value: str, update_name: str) -> str:
-    return (
-        f"Invalid identifier {value!r} for update {update_name!r}: "
-        f"must match ^[a-zA-Z_][a-zA-Z0-9_]*$ "
-        f"(SQL identifiers in mcp-tools-sql are intentionally restricted "
-        f"to a strict whitelist)"
-    )
+from mcp_tools_sql.identifiers import identifier_error
 ```
+
+No parallel `_identifier_error` is defined in `verify.py` — there must
+be exactly one source of this string in the codebase.
 
 ## HOW
 
@@ -46,17 +49,17 @@ def _identifier_error(value: str, update_name: str) -> str:
 - In `verify_updates`, for each `(name, ucfg)` pair:
   - `.table` row: if `not _IDENTIFIER_RE.match(ucfg.table)` OR
     (`ucfg.schema_name` non-empty AND not regex-matching), set ok=False
-    with `_identifier_error(...)`. Otherwise the existing
-    "table-exists" check runs as today.
+    with `identifier_error(...)` (the shared helper). Otherwise the
+    existing "table-exists" check runs as today.
   - `.key_column` row: if key is present and `key.field` does not match
-    the regex, ok=False with the identifier error. Otherwise the existing
-    column-exists check runs.
+    the regex, ok=False with `identifier_error(...)`. Otherwise the
+    existing column-exists check runs.
   - `.fields` row: build a value string `"name(req), country, ..."`
     surfacing each field's `required` flag inline (`(req)` suffix on
     required fields, no suffix on optional). If any field name fails the
-    regex, ok=False with the identifier error listing the offending names.
-    Otherwise the existing "columns exist" check runs and the value text
-    keeps the `(req)` annotations.
+    regex, ok=False with `identifier_error(...)` listing the offending
+    names. Otherwise the existing "columns exist" check runs and the
+    value text keeps the `(req)` annotations.
 
 Identifier failures short-circuit the existing column-lookup check — if
 the identifier is invalid, we don't try to query the database for it.
@@ -70,15 +73,15 @@ for name, ucfg in updates.items():
     if ucfg.schema_name and not _IDENTIFIER_RE.match(ucfg.schema_name):
         bad_idents.append(ucfg.schema_name)
     if bad_idents:
-        result[f"{name}.table"] = _entry(ok=False, value=..., error=_identifier_error(...))
+        result[f"{name}.table"] = _entry(ok=False, value=..., error=identifier_error(...))
         # skip table-exists / cols lookup; still emit key_column + fields rows
         # with the appropriate skipped/identifier errors
         continue
 
     # ... existing table-exists / column-lookup logic, but:
-    #   - key_column row: if key.field present and !regex.match, ok=False + identifier_error
+    #   - key_column row: if key.field present and !regex.match, ok=False + identifier_error(...)
     #   - fields row: value = ", ".join(f"{f.field}(req)" if f.required else f.field for f in ucfg.fields)
-    #                 if any f.field !regex.match, ok=False + identifier_error
+    #                 if any f.field !regex.match, ok=False + identifier_error(...)
 ```
 
 ## DATA

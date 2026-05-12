@@ -8,6 +8,14 @@ assembler in a later step. Move query-specific helpers
 injection) directly into `query_tools.py`. Add a module-level `_UNSET`
 sentinel for update bodies to use later.
 
+Helpers live in `query_tools.py`, not a sibling module — `SchemaTools`
+already shares the same SELECT shape, so a direct import is simpler than
+a 3rd module. Revisit if a third consumer appears.
+
+`_UNSET` is in `tool_builder.py` (not `update_tools.py`) because future
+tool types (INSERT, DELETE) will also need the same sentinel — one
+canonical location avoids divergent sentinels.
+
 **No behaviour change** — every existing test in `test_tool_builder.py`,
 `test_query_tools.py`, `test_schema_tools.py`, `test_server.py`, and
 `cli/test_verify.py` continues to pass after this step.
