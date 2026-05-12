@@ -21,6 +21,55 @@ This tracks **Feature Implementation** consisting of multiple **Tasks**.
 
 ## Tasks
 
-<!-- Tasks populated from pr_info/steps/ by prepare_task_tracker -->
+### Step 1: Refactor `tool_builder.py` into a Pure Assembler
+
+See [step_1.md](./steps/step_1.md) for details.
+
+- [ ] Implementation (tests + production code)
+- [ ] Quality checks: pylint, pytest, mypy — fix all issues
+- [ ] Commit message prepared
+
+### Step 2: Add `required` Flag to `UpdateFieldConfig`
+
+See [step_2.md](./steps/step_2.md) for details.
+
+- [ ] Implementation (tests + production code)
+- [ ] Quality checks: pylint, pytest, mypy — fix all issues
+- [ ] Commit message prepared
+
+### Step 3: Implement `format_update_result`
+
+See [step_3.md](./steps/step_3.md) for details.
+
+- [ ] Implementation (tests + production code)
+- [ ] Quality checks: pylint, pytest, mypy — fix all issues
+- [ ] Commit message prepared
+
+### Step 4: Implement `UpdateTools` (Registration + SQL + Body)
+
+See [step_4.md](./steps/step_4.md) for details.
+
+- [ ] Implementation (tests + production code)
+- [ ] Quality checks: pylint, pytest, mypy — fix all issues
+- [ ] Commit message prepared
+
+### Step 5: Wire `UpdateTools` into the Server with `allow_updates` Switch
+
+See [step_5.md](./steps/step_5.md) for details.
+
+- [ ] Implementation (tests + production code)
+- [ ] Quality checks: pylint, pytest, mypy — fix all issues
+- [ ] Commit message prepared
+
+### Step 6: Extend `verify_updates` (Identifier Regex + `required` Flag Visibility)
+
+See [step_6.md](./steps/step_6.md) for details.
+
+- [ ] Implementation (tests + production code)
+- [ ] Quality checks: pylint, pytest, mypy — fix all issues
+- [ ] Commit message prepared
 
 ## Pull Request
+
+- [ ] PR review
+- [ ] PR summary
