@@ -72,6 +72,10 @@ dbcfg = load_database_config(args.database_config)
 ToolServer(qcfg, backend, conn.backend, dbcfg.security.allow_updates).run()
 ```
 
+`run_server` continues to call `ToolServer(...)` directly (unchanged
+dispatch). `create_server` is updated for external callers and tests
+that prefer the factory; it is not used by `run_server` itself.
+
 ## DATA
 
 - `ToolServer._allow_updates: bool` — stored attribute.
@@ -91,9 +95,12 @@ TDD: add tests first.
     `create_connected_server_and_client_session`, list tools and assert
     `"update_set_name"` is present.
   - **New** `test_update_tool_not_registered_when_allow_updates_false`:
-    same setup as above but `allow_updates=False`; assert no tool name
-    starting with `"update_"` is present, while `query_*` tools (if any)
-    and the builtin `read_schemas` etc. are still present.
+    Build the server twice — once with `allow_updates=True`, once with
+    `allow_updates=False`. Assert: (a) no tool name starting with
+    `update_` appears in the `allow_updates=False` registry; (b) the
+    set of non-`update_*` tools is identical in both cases (i.e. only
+    `update_*` tools differ). This makes the test resilient to
+    additions of new built-in tools.
   - **New** `test_run_server_reads_allow_updates_from_database_config`:
     Patch `ToolServer.__init__` to a wrapper that records the received
     `allow_updates` value and then delegates to the original `__init__`.

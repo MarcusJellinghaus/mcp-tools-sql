@@ -143,10 +143,11 @@ registration so users see the same explanation in both places.
 ### Created
 - `pr_info/steps/summary.md` — this file
 - `pr_info/steps/step_1.md` … `step_6.md` — per-step implementation prompts
-- `src/mcp_tools_sql/identifiers.py` — new module exposing
-  `identifier_error(value, update_name) -> str` — single source for
-  identifier-validation error messages used by both `update_tools.py` and
-  `verify.py`
+- `src/mcp_tools_sql/identifiers.py` — new module exposing both
+  `IDENTIFIER_PATTERN: re.Pattern[str]` (the whitelist regex) and
+  `identifier_error(value, update_name) -> str` (the error-message
+  helper) — single source for both the pattern and the error wording,
+  imported by `update_tools.py` and `verify.py` alike
 - `tests/test_update_tools.py` — full coverage for `UpdateTools`
 - `tests/test_identifiers.py` — unit test for the new `identifier_error`
   helper

@@ -116,3 +116,75 @@
     one-line description and surfaced `tests/test_identifiers.py`
 
 **Status**: changes applied, awaiting commit
+
+## Round 3 — 2026-05-12
+
+**Findings**:
+- N2-1: bad_idents[0] first-offender-wins — clarify
+- N2-2: test redundancy — no action
+- R3-3: step_6 ALGORITHM `continue` comment is misleading (medium)
+- R3-4: "implicitly via argparse" wording is wrong (very low)
+- R3-5: run_server vs create_server call path clarification (low)
+- R3-6: test hardcodes read_schemas — make delta-comparison (very low)
+- R3-7: regex pattern duplicated in two files (low)
+- R3-8: `.table` row value=... placeholder unresolved (low)
+
+**Decisions**:
+- N2-1: accept (one-line clarification, folded into R3-3 context)
+- N2-2: skip (no action)
+- R3-3: accept-via-user-decision (One row on table-fail — keep continue, fix comment)
+- R3-4: accept
+- R3-5: accept
+- R3-6: accept
+- R3-7: accept-via-user-decision (Export IDENTIFIER_PATTERN from identifiers.py)
+- R3-8: accept
+
+**User decisions**:
+- Verify row emit on table-fail: One row on table-fail
+- Regex source: Export pattern from identifiers.py
+
+**Changes**:
+- step_4.md:
+  - Removed `_NAME_RE` ClassVar from `UpdateTools` skeleton; added note
+    that the pattern is imported from `mcp_tools_sql.identifiers`
+  - Updated imports list: drop `re`/`ClassVar`; add `IDENTIFIER_PATTERN`
+    alongside `identifier_error` from `mcp_tools_sql.identifiers`
+  - Expanded `identifiers.py` module spec to export both
+    `IDENTIFIER_PATTERN` and `identifier_error`, with rationale that
+    a single source prevents drift between `update_tools.py` and
+    `verify.py`
+  - ALGORITHM: `_NAME_RE.match(name)` → `IDENTIFIER_PATTERN.match(name)`
+  - Tool-name validation uses the shared pattern (one-line note)
+  - `tests/test_identifiers.py` description now includes pattern
+    match/non-match assertions in addition to the error-message test
+- step_5.md:
+  - Added one-line clarification that `run_server` continues to call
+    `ToolServer(...)` directly; `create_server` is for external callers
+    and tests
+  - Rewrote `test_update_tool_not_registered_when_allow_updates_false`
+    as a delta-comparison: build twice (True/False); assert no
+    `update_*` in the False registry and identical non-`update_*` sets
+- step_6.md:
+  - WHAT: dropped module-level `_IDENTIFIER_RE` literal; import both
+    `IDENTIFIER_PATTERN` and `identifier_error` from
+    `mcp_tools_sql.identifiers`
+  - HOW: dropped misleading "implicitly via argparse" wording; noted
+    `verify.py` no longer needs `import re` directly
+  - HOW: `_IDENTIFIER_RE` → `IDENTIFIER_PATTERN` everywhere; added note
+    that on table/schema identifier failure only the `.table` row is
+    emitted (`.key_column` and `.fields` rows are skipped)
+  - ALGORITHM: `_IDENTIFIER_RE` → `IDENTIFIER_PATTERN`; replaced
+    misleading post-`continue` comment with explicit "bad
+    table/schema identifier blocks every downstream check" wording;
+    replaced `value=...` placeholder with `value=ucfg.table` (matches
+    happy-path shape from `verify.py`); added first-offender-wins
+    one-liner inline
+  - Tests: clarified that `test_verify_updates_rejects_invalid_table_identifier`
+    and `..._invalid_schema_identifier` must assert that
+    `.key_column` and `.fields` rows are NOT present for the
+    rejected update
+- summary.md:
+  - Updated `src/mcp_tools_sql/identifiers.py` one-line description to
+    mention both exports (`IDENTIFIER_PATTERN` and `identifier_error`)
+
+**Status**: changes applied, awaiting commit

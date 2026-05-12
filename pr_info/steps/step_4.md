@@ -28,8 +28,6 @@ implementation parallel to `QueryTools` / `SchemaTools`:
 
 ```python
 class UpdateTools:
-    _NAME_RE: ClassVar[re.Pattern[str]] = re.compile(r"^[a-zA-Z_][a-zA-Z0-9_]*$")
-
     def __init__(
         self,
         backend: DatabaseBackend,
@@ -40,39 +38,54 @@ class UpdateTools:
     def register(self, mcp: FastMCP) -> None: ...
 ```
 
+Identifier-pattern matching uses `IDENTIFIER_PATTERN` imported from
+`mcp_tools_sql.identifiers` (no local `_NAME_RE` ClassVar — the pattern
+lives in `identifiers.py` so it is shared with `verify.py`).
+
 `UpdateTools.register` builds sig_params + body for each entry and calls
 the shared `build_tool_fn(name, sig_params, body, doc)` from Step 1.
 
 ## HOW
 
-- Imports: `re`, `inspect`, `Annotated`, `Optional`, `Any`, `ClassVar`,
+- Imports: `inspect`, `Annotated`, `Optional`, `Any`,
   `Awaitable`, `Callable`; `Field` from `pydantic`; `build_tool_fn` and
   `_UNSET` from `mcp_tools_sql.tool_builder`; `format_update_result` from
   `mcp_tools_sql.formatting`; `log_tool_call` from
   `mcp_tools_sql.tool_logging`; `resolve_python_type` from
   `mcp_tools_sql.utils.data_type_utility.type_mapping`;
-  `identifier_error` from the shared identifier module (see below);
+  `IDENTIFIER_PATTERN` and `identifier_error` from
+  `mcp_tools_sql.identifiers` (the shared identifier module — see below);
   `DatabaseBackend`, `UpdateConfig` under `TYPE_CHECKING`.
-- Identifier-validation error wording is centralised in a shared helper
-  module (USER DECISION — shared helper module). Before implementing,
+- The whitelist pattern and its error-message helper are centralised in
+  a shared module (USER DECISION — shared helper module; USER DECISION
+  — export pattern from `identifiers.py`). Before implementing,
   search the repo for existing identifier-validation code via
   `mcp__mcp-workspace__search_files` (e.g. pattern
   `^[a-zA-Z_][a-zA-Z0-9_]*\$` or `Invalid identifier`). If an existing
   module exists, extend it; otherwise create
-  `src/mcp_tools_sql/identifiers.py` exposing a single
-  `identifier_error(value: str, update_name: str) -> str` returning the
-  canonical message:
-  `"Invalid identifier {value!r} for update {update_name!r}: must match
-  ^[a-zA-Z_][a-zA-Z0-9_]*$ (SQL identifiers in mcp-tools-sql are
-  intentionally restricted to a strict whitelist)"`.
+  `src/mcp_tools_sql/identifiers.py` exposing **both**:
+  - `IDENTIFIER_PATTERN: re.Pattern[str] = re.compile(r"^[a-zA-Z_][a-zA-Z0-9_]*$")`
+  - `identifier_error(value: str, update_name: str) -> str` returning the
+    canonical message:
+    `"Invalid identifier {value!r} for update {update_name!r}: must match
+    ^[a-zA-Z_][a-zA-Z0-9_]*$ (SQL identifiers in mcp-tools-sql are
+    intentionally restricted to a strict whitelist)"`.
+
+  Rationale: Single source for both the whitelist pattern and the error
+  message — prevents silent drift between `update_tools.py` and
+  `verify.py`.
 - Both `update_tools.py` (this step) and `verify.py` (Step 6) import
-  this same helper — no parallel copies.
+  this same module — no parallel copies of either the pattern or the
+  error wording.
+- Tool-name validation uses the same shared pattern: replace the old
+  `_NAME_RE` ClassVar with a direct `IDENTIFIER_PATTERN.match(name)`
+  check (the regex literal is identical).
 
 ## ALGORITHM — `UpdateTools.register`
 
 ```
 for name, cfg in self._updates.items():
-    if not _NAME_RE.match(name): raise ValueError(...)
+    if not IDENTIFIER_PATTERN.match(name): raise ValueError(...)
     if cfg.key is None: raise ValueError(f"update {name!r} requires a key field")
     _validate_identifier(cfg.table, name)
     if cfg.schema_name: _validate_identifier(cfg.schema_name, name)
@@ -304,9 +317,13 @@ params are KEYWORD_ONLY.
   fits the existing fixture style most cleanly.
 
 ### `identifiers.py` unit test (separate file)
-- `tests/test_identifiers.py`: assert
-  `identifier_error("bad name", "set_status")` returns a string
-  containing both `"bad name"` and `"set_status"`.
+- `tests/test_identifiers.py`:
+  - Pattern assertions: `IDENTIFIER_PATTERN.match("good_name_1")` is not
+    `None`; `IDENTIFIER_PATTERN.match("bad name")`,
+    `IDENTIFIER_PATTERN.match("1leading_digit")`, and
+    `IDENTIFIER_PATTERN.match("with-dash")` each return `None`.
+  - Error-message assertion: `identifier_error("bad name", "set_status")`
+    returns a string containing both `"bad name"` and `"set_status"`.
 
 ## LLM Prompt
 
