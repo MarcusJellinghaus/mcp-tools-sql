@@ -6,12 +6,12 @@ import asyncio
 import inspect
 from typing import Any
 
-from mcp_tools_sql.query_tools import apply_filter, extract_sql_params
+from mcp_tools_sql.query_helpers import apply_filter, extract_sql_params
 from mcp_tools_sql.tool_builder import _UNSET, build_tool_fn
 
 
 class TestExtractSqlParams:
-    """Tests for extract_sql_params (now lives in query_tools)."""
+    """Tests for extract_sql_params (now lives in query_helpers)."""
 
     def test_single_param(self) -> None:
         assert extract_sql_params("SELECT * WHERE x = :id") == {"id"}
@@ -27,7 +27,7 @@ class TestExtractSqlParams:
 
 
 class TestApplyFilter:
-    """Tests for apply_filter (now lives in query_tools)."""
+    """Tests for apply_filter (now lives in query_helpers)."""
 
     def test_no_filter(self) -> None:
         """None filter returns all rows."""

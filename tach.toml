@@ -31,6 +31,7 @@ depends_on = [
     { path = "mcp_tools_sql.config" },
     { path = "mcp_tools_sql.formatting" },
     { path = "mcp_tools_sql.tool_logging" },
+    { path = "mcp_tools_sql.query_helpers" },
     { path = "mcp_tools_sql.tool_builder" },
     { path = "mcp_tools_sql.utils" },
 ]
@@ -43,7 +44,19 @@ depends_on = [
     { path = "mcp_tools_sql.config" },
     { path = "mcp_tools_sql.formatting" },
     { path = "mcp_tools_sql.tool_logging" },
+    { path = "mcp_tools_sql.query_helpers" },
     { path = "mcp_tools_sql.tool_builder" },
+    { path = "mcp_tools_sql.utils" },
+]
+
+[[modules]]
+path = "mcp_tools_sql.query_helpers"
+layer = "tool_implementation"
+depends_on = [
+    { path = "mcp_tools_sql.backends" },
+    { path = "mcp_tools_sql.config" },
+    { path = "mcp_tools_sql.formatting" },
+    { path = "mcp_tools_sql.tool_logging" },
     { path = "mcp_tools_sql.utils" },
 ]
 
@@ -150,6 +163,7 @@ depends_on = [
     { path = "mcp_tools_sql.backends" },
     { path = "mcp_tools_sql.config" },
     { path = "mcp_tools_sql.schema_tools" },
+    { path = "mcp_tools_sql.query_helpers" },
     { path = "mcp_tools_sql.tool_builder" },
     { path = "mcp_tools_sql.formatting" },
     { path = "mcp_tools_sql.utils" },

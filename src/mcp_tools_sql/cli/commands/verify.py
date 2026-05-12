@@ -29,7 +29,7 @@ from mcp_tools_sql.config.models import (
     UpdateConfig,
 )
 from mcp_tools_sql.identifiers import IDENTIFIER_PATTERN, identifier_error
-from mcp_tools_sql.query_tools import extract_sql_params
+from mcp_tools_sql.query_helpers import extract_sql_params
 from mcp_tools_sql.schema_tools import load_default_queries
 
 logger = logging.getLogger(__name__)

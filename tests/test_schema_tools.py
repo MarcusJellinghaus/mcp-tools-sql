@@ -17,7 +17,7 @@ from mcp_tools_sql.config.models import (
     ConnectionConfig,
     QueryConfig,
 )
-from mcp_tools_sql.query_tools import _build_query_body, _build_query_sig_params
+from mcp_tools_sql.query_helpers import build_query_body, build_query_sig_params
 from mcp_tools_sql.schema_tools import SchemaTools, load_default_queries
 from mcp_tools_sql.tool_builder import build_tool_fn
 
@@ -30,8 +30,8 @@ def _assemble(
     truncation_hint: str = "",
 ) -> Callable[..., Any]:
     """Helper: build sig_params + body then call the assembler."""
-    sig_params = _build_query_sig_params(config)
-    body = _build_query_body(name, config, backend, backend_name, truncation_hint)
+    sig_params = build_query_sig_params(config)
+    body = build_query_body(name, config, backend, backend_name, truncation_hint)
     return build_tool_fn(name, sig_params, body, config.description)
 
 

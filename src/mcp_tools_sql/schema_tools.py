@@ -7,7 +7,7 @@ from pathlib import Path
 from typing import TYPE_CHECKING
 
 from mcp_tools_sql.config.models import QueryConfig
-from mcp_tools_sql.query_tools import _build_query_body, _build_query_sig_params
+from mcp_tools_sql.query_helpers import build_query_body, build_query_sig_params
 from mcp_tools_sql.tool_builder import build_tool_fn
 
 if TYPE_CHECKING:
@@ -46,8 +46,8 @@ class SchemaTools:
     def register(self, mcp: FastMCP) -> None:
         """Load default_queries.toml and register all schema tools on ``mcp``."""
         for name, config in load_default_queries().items():
-            sig_params = _build_query_sig_params(config)
-            body = _build_query_body(
+            sig_params = build_query_sig_params(config)
+            body = build_query_body(
                 name,
                 config,
                 self._backend,
