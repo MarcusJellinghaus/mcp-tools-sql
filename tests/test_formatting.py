@@ -2,7 +2,7 @@
 
 from __future__ import annotations
 
-from mcp_tools_sql.formatting import format_rows
+from mcp_tools_sql.formatting import format_rows, format_update_result
 
 
 class TestFormatRows:
@@ -98,3 +98,42 @@ class TestFormatRows:
         last_line = result.strip().split("\n")[-1]
         assert last_line.endswith("rows.")
         assert "Use filter to narrow" not in result
+
+
+class TestFormatUpdateResult:
+    """Tests for the format_update_result function."""
+
+    def test_zero_rows_returns_no_row_found_text(self) -> None:
+        """Zero affected rows produces a 'No row found' message."""
+        result = format_update_result(0, "customers", "id", 42)
+        assert "No row found" in result
+        assert "customers" in result
+        assert "42" in result
+        assert "WARNING:" not in result
+
+    def test_one_row_success_message(self) -> None:
+        """One affected row produces a success confirmation."""
+        result = format_update_result(1, "customers", "id", 42)
+        assert "1 row" in result
+        assert "customers" in result
+        assert "42" in result
+        assert "WARNING:" not in result
+
+    def test_multiple_rows_starts_with_warning_token(self) -> None:
+        """More than one affected row starts with WARNING: on its own line."""
+        result = format_update_result(3, "customers", "id", 42)
+        first_line = result.splitlines()[0]
+        assert first_line.startswith("WARNING:")
+        assert "3" in result
+        assert "customers" in result
+
+    def test_qualified_table_with_schema(self) -> None:
+        """A schema-qualified table name appears verbatim in the output."""
+        result = format_update_result(1, "dbo.customers", "id", 7)
+        assert "dbo.customers" in result
+
+    def test_qualified_table_without_schema(self) -> None:
+        """An unqualified table name appears verbatim in the output."""
+        result = format_update_result(1, "customers", "id", 7)
+        assert "customers" in result
+        assert "dbo." not in result

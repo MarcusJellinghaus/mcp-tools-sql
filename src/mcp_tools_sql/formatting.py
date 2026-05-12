@@ -48,10 +48,19 @@ def format_columns(
 
 def format_update_result(
     affected_rows: int,
-    table: str,
+    qualified_table: str,
+    key_field: str,
     key_value: Any,
 ) -> str:
     """Format the result of an update operation."""
-    # TODO: render confirmation message
-    _ = affected_rows, table, key_value
-    raise NotImplementedError
+    if affected_rows == 0:
+        return f"No row found in {qualified_table} where " f"{key_field}={key_value!r}."
+    if affected_rows == 1:
+        return (
+            f"Updated 1 row in {qualified_table} where " f"{key_field}={key_value!r}."
+        )
+    return (
+        f"WARNING: key was supposed to uniquely identify one row\n"
+        f"Updated {affected_rows} rows in {qualified_table} "
+        f"where {key_field}={key_value!r}."
+    )
