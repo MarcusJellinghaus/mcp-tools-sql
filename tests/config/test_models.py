@@ -13,6 +13,7 @@ from mcp_tools_sql.config.models import (
     QueryFileConfig,
     QueryParamConfig,
     UpdateConfig,
+    UpdateFieldConfig,
 )
 
 
@@ -159,6 +160,37 @@ class TestQueryConfigFilterColumn:
         """Explicit filter_column is preserved."""
         config = QueryConfig(sql="SELECT 1", filter_column="name")
         assert config.filter_column == "name"
+
+
+class TestUpdateFieldConfigRequired:
+    """Tests for UpdateFieldConfig.required attribute."""
+
+    def test_required_defaults_to_false(self) -> None:
+        """UpdateFieldConfig.required defaults to False (partial updates)."""
+        config = UpdateFieldConfig(field="x")
+        assert config.required is False
+
+    def test_required_override_true(self) -> None:
+        """UpdateFieldConfig honours required=True override."""
+        config = UpdateFieldConfig(field="x", required=True)
+        assert config.required is True
+
+    def test_required_parsed_from_toml_dict(self) -> None:
+        """UpdateConfig parses nested fields with required from dict."""
+        data = {
+            "updates": {
+                "foo": {
+                    "fields": [
+                        {"field": "x", "required": True},
+                        {"field": "y"},
+                    ]
+                }
+            }
+        }
+        config = QueryFileConfig.model_validate(data)
+        update = config.updates["foo"]
+        assert update.fields[0].required is True
+        assert update.fields[1].required is False
 
 
 class TestQueryConfigBackendsParsing:

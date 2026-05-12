@@ -67,6 +67,7 @@ class UpdateFieldConfig(BaseModel):
     field: str
     type: str = "str"
     description: str = ""
+    required: bool = False
 
 
 class UpdateKeyConfig(BaseModel):
