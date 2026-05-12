@@ -121,16 +121,14 @@ def build_tool_fn(
                 )
             )
 
-    # Implicit max_rows parameter
+    # Implicit max_rows parameter (plain int — null is rejected at protocol layer)
     max_rows_desc = "Maximum rows to return"
     sig_params.append(
         inspect.Parameter(
             "max_rows",
             kind=inspect.Parameter.POSITIONAL_OR_KEYWORD,
             default=config.max_rows_default,
-            annotation=Annotated[
-                Optional[int], Field(description=max_rows_desc)
-            ],  # noqa: UP007
+            annotation=Annotated[int, Field(description=max_rows_desc)],
         )
     )
 
