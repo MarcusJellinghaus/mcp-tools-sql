@@ -3,7 +3,9 @@
 from __future__ import annotations
 
 import logging
+from collections.abc import Callable
 from pathlib import Path
+from typing import Any
 
 import pytest
 from mcp.server.fastmcp import FastMCP
@@ -15,8 +17,23 @@ from mcp_tools_sql.config.models import (
     ConnectionConfig,
     QueryConfig,
 )
+from mcp_tools_sql.query_tools import _build_query_body, _build_query_sig_params
 from mcp_tools_sql.schema_tools import SchemaTools, load_default_queries
 from mcp_tools_sql.tool_builder import build_tool_fn
+
+
+def _assemble(
+    name: str,
+    config: QueryConfig,
+    backend: SQLiteBackend,
+    backend_name: str = "sqlite",
+    truncation_hint: str = "",
+) -> Callable[..., Any]:
+    """Helper: build sig_params + body then call the assembler."""
+    sig_params = _build_query_sig_params(config)
+    body = _build_query_body(name, config, backend, backend_name, truncation_hint)
+    return build_tool_fn(name, sig_params, body, config.description)
+
 
 # ---------------------------------------------------------------------------
 # Helper: create FastMCP with registered builtin tools against a SQLite DB
@@ -290,7 +307,7 @@ async def test_builtin_tool_logs_info_line(
     backend = SQLiteBackend(config)
     backend.connect()
     queries = load_default_queries()
-    fn = build_tool_fn("read_tables", queries["read_tables"], backend, "sqlite")
+    fn = _assemble("read_tables", queries["read_tables"], backend, "sqlite")
 
     await fn()
 
@@ -326,7 +343,7 @@ async def test_max_rows_clamped_to_hard_limit(sqlite_wide_db: Path) -> None:
         max_rows_default=5,
         max_rows_hard=10,
     )
-    fn = build_tool_fn("clamp_test", qcfg, backend, "sqlite")
+    fn = _assemble("clamp_test", qcfg, backend, "sqlite")
 
     text = await fn(table="wide_table", max_rows=500)
 
@@ -351,7 +368,7 @@ async def test_clamp_and_truncation_both_appear(sqlite_wide_db: Path) -> None:
         max_rows_default=5,
         max_rows_hard=10,
     )
-    fn = build_tool_fn(
+    fn = _assemble(
         "clamp_trunc_test",
         qcfg,
         backend,

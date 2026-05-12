@@ -28,8 +28,8 @@ from mcp_tools_sql.config.models import (
     QueryParamConfig,
     UpdateConfig,
 )
+from mcp_tools_sql.query_tools import extract_sql_params
 from mcp_tools_sql.schema_tools import load_default_queries
-from mcp_tools_sql.tool_builder import extract_sql_params
 
 logger = logging.getLogger(__name__)
 

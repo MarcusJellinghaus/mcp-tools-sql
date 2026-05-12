@@ -7,6 +7,7 @@ from pathlib import Path
 from typing import TYPE_CHECKING
 
 from mcp_tools_sql.config.models import QueryConfig
+from mcp_tools_sql.query_tools import _build_query_body, _build_query_sig_params
 from mcp_tools_sql.tool_builder import build_tool_fn
 
 if TYPE_CHECKING:
@@ -32,6 +33,8 @@ def load_default_queries() -> dict[str, QueryConfig]:
 class SchemaTools:
     """Registers built-in schema-exploration tools on an MCP server."""
 
+    _TRUNCATION_HINT = "Use filter to narrow."
+
     def __init__(
         self,
         backend: DatabaseBackend,
@@ -43,11 +46,13 @@ class SchemaTools:
     def register(self, mcp: FastMCP) -> None:
         """Load default_queries.toml and register all schema tools on ``mcp``."""
         for name, config in load_default_queries().items():
-            fn = build_tool_fn(
+            sig_params = _build_query_sig_params(config)
+            body = _build_query_body(
                 name,
                 config,
                 self._backend,
                 self._backend_name,
-                truncation_hint="Use filter to narrow.",
+                self._TRUNCATION_HINT,
             )
+            fn = build_tool_fn(name, sig_params, body, config.description)
             mcp.add_tool(fn)

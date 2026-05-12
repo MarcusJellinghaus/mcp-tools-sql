@@ -1,23 +1,17 @@
-"""Tests for tool_builder helper functions."""
+"""Tests for the tool_type-agnostic assembler in tool_builder."""
 
 from __future__ import annotations
 
 import asyncio
 import inspect
-from pathlib import Path
+from typing import Any
 
-from mcp_tools_sql.backends.sqlite import SQLiteBackend
-from mcp_tools_sql.config.models import (
-    BackendQueryConfig,
-    ConnectionConfig,
-    QueryConfig,
-    QueryParamConfig,
-)
-from mcp_tools_sql.tool_builder import apply_filter, build_tool_fn, extract_sql_params
+from mcp_tools_sql.query_tools import apply_filter, extract_sql_params
+from mcp_tools_sql.tool_builder import _UNSET, build_tool_fn
 
 
 class TestExtractSqlParams:
-    """Tests for extract_sql_params."""
+    """Tests for extract_sql_params (now lives in query_tools)."""
 
     def test_single_param(self) -> None:
         assert extract_sql_params("SELECT * WHERE x = :id") == {"id"}
@@ -33,7 +27,7 @@ class TestExtractSqlParams:
 
 
 class TestApplyFilter:
-    """Tests for apply_filter."""
+    """Tests for apply_filter (now lives in query_tools)."""
 
     def test_no_filter(self) -> None:
         """None filter returns all rows."""
@@ -67,100 +61,80 @@ class TestApplyFilter:
         assert apply_filter(rows, "missing", "a*") == []
 
 
-def _stub_backend() -> SQLiteBackend:
-    """Return an unconnected SQLite backend stub for signature-only checks."""
-    return SQLiteBackend(ConnectionConfig(backend="sqlite", path=":memory:"))
+class TestBuildToolFnAssembler:
+    """build_tool_fn wires name, doc, signature, and body together."""
 
+    def test_sets_name_doc_signature(self) -> None:
+        """__name__, __doc__, and __signature__ reflect the inputs."""
 
-class TestBuildFnImplicitParams:
-    """Tests for max_rows / <col>_filter auto-injection in built signatures."""
+        async def body(**_: Any) -> str:
+            return "ok"
 
-    def test_build_fn_injects_max_rows(self) -> None:
-        """Built signature always contains a max_rows param with the configured default."""
-        config = QueryConfig(
-            sql="SELECT * FROM t WHERE x = :x",
-            params={"x": QueryParamConfig(name="x", type="str")},
-            max_rows_default=42,
-        )
-        fn = build_tool_fn("t1", config, _stub_backend(), "sqlite")
-        sig = inspect.signature(fn)
-        assert "max_rows" in sig.parameters
-        assert sig.parameters["max_rows"].default == 42
-
-    def test_build_fn_injects_filter_when_set(self) -> None:
-        """filter_column='name' yields a name_filter param defaulting to None."""
-        config = QueryConfig(
-            sql="SELECT name FROM t",
-            filter_column="name",
-        )
-        fn = build_tool_fn("t2", config, _stub_backend(), "sqlite")
-        sig = inspect.signature(fn)
-        assert "name_filter" in sig.parameters
-        assert sig.parameters["name_filter"].default is None
-
-    def test_build_fn_no_filter_when_unset(self) -> None:
-        """Empty filter_column yields no implicit *_filter parameter."""
-        config = QueryConfig(sql="SELECT 1 AS x")
-        fn = build_tool_fn("t3", config, _stub_backend(), "sqlite")
-        sig = inspect.signature(fn)
-        assert not any(p.endswith("_filter") for p in sig.parameters)
-
-    def test_build_fn_filter_uses_custom_column_prefix(self) -> None:
-        """filter_column='family_name' yields a family_name_filter param."""
-        config = QueryConfig(
-            sql="SELECT family_name FROM t",
-            filter_column="family_name",
-        )
-        fn = build_tool_fn("t4", config, _stub_backend(), "sqlite")
-        sig = inspect.signature(fn)
-        assert "family_name_filter" in sig.parameters
-
-    def test_build_fn_does_not_declare_user_filter_or_max_rows(self) -> None:
-        """Only user-declared params + injected max_rows (+ optional *_filter) appear."""
-        config = QueryConfig(
-            sql="SELECT name FROM t WHERE schema = :schema",
-            params={"schema": QueryParamConfig(name="schema", type="str")},
-            filter_column="name",
-        )
-        fn = build_tool_fn("t5", config, _stub_backend(), "sqlite")
-        sig = inspect.signature(fn)
-        assert set(sig.parameters) == {"schema", "max_rows", "name_filter"}
-
-
-class TestBuildFnFilterBehavior:
-    """End-to-end behavior of filter_column applied at runtime."""
-
-    def test_apply_filter_uses_config_filter_column(self) -> None:
-        """When filter_column is set, apply_filter targets that exact column."""
-        rows = [
-            {"family_name": "Adams"},
-            {"family_name": "Brown"},
-            {"family_name": "Andrews"},
-        ]
-        assert apply_filter(rows, "family_name", "a*") == [
-            {"family_name": "Adams"},
-            {"family_name": "Andrews"},
-        ]
-
-
-def test_build_fn_runtime_uses_name_filter_kwarg(sqlite_db: Path) -> None:
-    """Calling the built fn with ``name_filter`` actually filters rows."""
-    backend = SQLiteBackend(ConnectionConfig(backend="sqlite", path=str(sqlite_db)))
-    backend.connect()
-    config = QueryConfig(
-        sql="SELECT name FROM pragma_table_info(:table)",
-        params={"table": QueryParamConfig(name="table", type="str")},
-        backends={
-            "sqlite": BackendQueryConfig(
-                sql="SELECT name FROM pragma_table_info(:table)"
+        sig_params = [
+            inspect.Parameter(
+                "x",
+                kind=inspect.Parameter.POSITIONAL_OR_KEYWORD,
+                annotation=int,
             )
-        },
-        filter_column="name",
-    )
-    fn = build_tool_fn("t_filter", config, backend, "sqlite")
-    try:
-        text = asyncio.run(fn(table="customers", name_filter="na*"))
-        assert "name" in text
-        assert "country" not in text
-    finally:
-        backend.close()
+        ]
+        fn = build_tool_fn("my_tool", sig_params, body, "tool docstring")
+        assert fn.__name__ == "my_tool"
+        assert fn.__doc__ == "tool docstring"
+        sig = inspect.signature(fn)
+        assert list(sig.parameters) == ["x"]
+        assert sig.parameters["x"].annotation is int
+
+    def test_body_round_trip(self) -> None:
+        """Calling the assembled fn awaits the body with the same kwargs."""
+        seen: dict[str, Any] = {}
+
+        async def body(**kwargs: Any) -> str:
+            seen.update(kwargs)
+            return "result-text"
+
+        sig_params = [
+            inspect.Parameter(
+                "name",
+                kind=inspect.Parameter.POSITIONAL_OR_KEYWORD,
+                annotation=str,
+            ),
+            inspect.Parameter(
+                "count",
+                kind=inspect.Parameter.POSITIONAL_OR_KEYWORD,
+                annotation=int,
+                default=1,
+            ),
+        ]
+        fn = build_tool_fn("echo", sig_params, body, "doc")
+        result = asyncio.run(fn(name="alice", count=2))
+        assert result == "result-text"
+        assert seen == {"name": "alice", "count": 2}
+
+    def test_empty_signature(self) -> None:
+        """build_tool_fn works with no parameters."""
+
+        async def body(**_: Any) -> str:
+            return "fixed"
+
+        fn = build_tool_fn("noop", [], body, "")
+        assert inspect.signature(fn).parameters == {}
+        assert asyncio.run(fn()) == "fixed"
+
+
+class TestUnsetSentinel:
+    """_UNSET is identity-comparable and distinct from None."""
+
+    def test_unset_is_not_none(self) -> None:
+        assert _UNSET is not None
+
+    def test_unset_identity(self) -> None:
+        from mcp_tools_sql.tool_builder import _UNSET as _UNSET_AGAIN
+
+        assert _UNSET is _UNSET_AGAIN
+
+    def test_unset_distinguishable_from_none_via_is(self) -> None:
+        """_UNSET can be used as a sentinel: ``value is _UNSET`` works."""
+        value: Any = _UNSET
+        assert value is _UNSET
+        value = None
+        assert value is not _UNSET
