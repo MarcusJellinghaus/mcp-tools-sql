@@ -79,11 +79,13 @@ class MSSQLBackend(DatabaseBackend):
         """Open a connection to SQL Server (lazy, idempotent, thread-safe).
 
         If pyodbc raises during ``connect()``, the password is redacted from
-        the error message and the original exception is preserved via
-        ``raise ... from exc``.
+        the error's ``args`` in place and the original exception is re-raised
+        (preserving its type, sqlstate, and traceback).
 
         Raises:
             RuntimeError: If the backend was already closed.
+            pyodbc.Error: Re-raised after redacting the password from
+                ``args`` (type, sqlstate, and traceback preserved).
         """
         if self._connection is not None and not self._closed:
             return
@@ -99,8 +101,11 @@ class MSSQLBackend(DatabaseBackend):
             try:
                 self._connection = pyodbc.connect(conn_str, autocommit=True)
             except pyodbc.Error as exc:
-                sanitized = _sanitize(str(exc), self._config.password)
-                raise type(exc)(sanitized) from exc
+                exc.args = tuple(
+                    _sanitize(a, self._config.password) if isinstance(a, str) else a
+                    for a in exc.args
+                )
+                raise
 
     def close(self) -> None:
         """Close the SQL Server connection (idempotent)."""

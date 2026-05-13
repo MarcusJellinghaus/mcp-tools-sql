@@ -23,7 +23,10 @@ from tests.conftest import MSSQLTestEnv
 def fake_pyodbc(monkeypatch: pytest.MonkeyPatch) -> Any:
     """Replace pyodbc with a fake module exposing connect() returning a Mock."""
     fake = types.ModuleType("pyodbc")
-    fake.Error = type("Error", (Exception,), {})  # type: ignore[attr-defined]
+    error_cls = type("Error", (Exception,), {})
+    operational_error_cls = type("OperationalError", (error_cls,), {})
+    fake.Error = error_cls  # type: ignore[attr-defined]
+    fake.OperationalError = operational_error_cls  # type: ignore[attr-defined]
     fake.connect = MagicMock(  # type: ignore[attr-defined]
         return_value=MagicMock(name="connection")
     )
@@ -330,14 +333,20 @@ class TestErrorSanitization:
     """Tests that the password is redacted in errors from pyodbc.connect."""
 
     def test_password_redacted_in_pyodbc_error(self, fake_pyodbc: Any) -> None:
-        fake_pyodbc.connect.side_effect = fake_pyodbc.Error(
-            "login failed for PWD=supersecret"
+        original = fake_pyodbc.OperationalError(
+            "08001", "Login failed; PWD=supersecret"
         )
+        fake_pyodbc.connect.side_effect = original
         b = MSSQLBackend(_cfg(password="supersecret"))
         with pytest.raises(fake_pyodbc.Error) as exc:
             b.connect()
+        # Secret removed, marker present.
         assert "supersecret" not in str(exc.value)
         assert "***" in str(exc.value)
+        # Same instance re-raised: preserves type and sqlstate tuple shape.
+        assert exc.value is original
+        assert isinstance(exc.value, fake_pyodbc.OperationalError)
+        assert exc.value.args[0] == "08001"
 
 
 @pytest.mark.mssql_integration

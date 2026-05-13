@@ -494,10 +494,9 @@ def _check_sql_explain(
     placeholders chosen per declared type: ``""`` / ``0`` / ``0.0`` /
     ``datetime(2000, 1, 1)``) and passes it to
     ``backend.explain(sql, dummy_params)`` so ``EXPLAIN QUERY PLAN`` can
-    compile the parameterized SQL. For MSSQL, calls ``backend.explain(sql)``
-    — currently raises :class:`NotImplementedError`, so this reports
-    ``[ERR]`` with the exception message; that's the intended behaviour
-    until the MSSQL backend lands (issues #5/#6).
+    compile the parameterized SQL. For MSSQL, also passes ``dummy`` params;
+    ``backend.explain`` translates them and wraps the query in
+    ``SET SHOWPLAN_TEXT ON/OFF``.
     """
     del backend_name  # Currently no per-backend branching is required.
     try:
