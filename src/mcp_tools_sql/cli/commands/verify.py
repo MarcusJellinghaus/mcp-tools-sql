@@ -253,7 +253,7 @@ def _verify_dependencies_mssql() -> dict[str, Any]:
     result: dict[str, Any] = {}
     pyodbc_module: Any = None
     try:
-        import pyodbc  # type: ignore[import-not-found]  # pylint: disable=import-outside-toplevel
+        import pyodbc  # pylint: disable=import-outside-toplevel
 
         pyodbc_module = pyodbc
         version = getattr(pyodbc, "version", "")
