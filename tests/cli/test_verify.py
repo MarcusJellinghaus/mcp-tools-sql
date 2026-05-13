@@ -1073,6 +1073,104 @@ def test_verify_updates_rejects_invalid_field_identifier(sqlite_db: Path) -> Non
     assert "bad-col" in result["bad.fields"]["error"]
 
 
+# ---------------------------------------------------------------------------
+# Kerberos check (Linux + mssql + trusted_connection)
+# ---------------------------------------------------------------------------
+
+
+@pytest.fixture
+def linux_platform(monkeypatch: pytest.MonkeyPatch) -> None:
+    """Force ``sys.platform`` to ``"linux"`` for the duration of the test."""
+    monkeypatch.setattr(sys, "platform", "linux")
+
+
+def _trusted_mssql() -> ConnectionConfig:
+    """Return an mssql ConnectionConfig with ``trusted_connection=True``."""
+    return ConnectionConfig(
+        backend="mssql",
+        host="h",
+        port=1433,
+        database="d",
+        trusted_connection=True,
+    )
+
+
+@pytest.fixture
+def stub_create_backend(monkeypatch: pytest.MonkeyPatch) -> MagicMock:
+    """Replace ``verify.create_backend`` so tests never touch real pyodbc.
+
+    Returns the factory mock; the backend it returns stubs ``connect``,
+    ``execute_query`` and ``close`` so ``verify_connection`` reaches the
+    Kerberos branch without errors.
+    """
+    backend = MagicMock(name="stub_backend")
+    backend.connect.return_value = None
+    backend.execute_query.return_value = [{"v": 1}]
+    backend.close.return_value = None
+    factory = MagicMock(return_value=backend)
+    monkeypatch.setattr("mcp_tools_sql.cli.commands.verify.create_backend", factory)
+    return factory
+
+
+def test_klist_zero_returns_ok(
+    monkeypatch: pytest.MonkeyPatch,
+    linux_platform: None,  # pylint: disable=unused-argument
+    stub_create_backend: MagicMock,  # pylint: disable=unused-argument
+) -> None:
+    """``klist -s`` exits 0 → kerberos_ticket row ok=True."""
+    proc = MagicMock(returncode=0)
+    monkeypatch.setattr("subprocess.run", MagicMock(return_value=proc))
+    result, _ = verify_cmd.verify_connection(_trusted_mssql())
+    assert result["kerberos_ticket"]["ok"] is True
+
+
+def test_klist_nonzero_returns_err(
+    monkeypatch: pytest.MonkeyPatch,
+    linux_platform: None,  # pylint: disable=unused-argument
+    stub_create_backend: MagicMock,  # pylint: disable=unused-argument
+) -> None:
+    """``klist -s`` exits non-zero → kerberos_ticket row ok=False."""
+    proc = MagicMock(returncode=1)
+    monkeypatch.setattr("subprocess.run", MagicMock(return_value=proc))
+    result, _ = verify_cmd.verify_connection(_trusted_mssql())
+    assert result["kerberos_ticket"]["ok"] is False
+    error = result["kerberos_ticket"]["error"].lower()
+    assert "kinit" in error or "ticket" in error
+
+
+def test_klist_missing_returns_err(
+    monkeypatch: pytest.MonkeyPatch,
+    linux_platform: None,  # pylint: disable=unused-argument
+    stub_create_backend: MagicMock,  # pylint: disable=unused-argument
+) -> None:
+    """``klist`` not installed → kerberos_ticket row ok=False."""
+    monkeypatch.setattr("subprocess.run", MagicMock(side_effect=FileNotFoundError()))
+    result, _ = verify_cmd.verify_connection(_trusted_mssql())
+    assert result["kerberos_ticket"]["ok"] is False
+
+
+def test_non_linux_platforms_skip_check(
+    monkeypatch: pytest.MonkeyPatch,
+    stub_create_backend: MagicMock,  # pylint: disable=unused-argument
+) -> None:
+    """On non-Linux platforms no kerberos_ticket row is added."""
+    monkeypatch.setattr(sys, "platform", "win32")
+    result, _ = verify_cmd.verify_connection(_trusted_mssql())
+    assert "kerberos_ticket" not in result
+
+
+def test_non_trusted_skips_check(
+    linux_platform: None,  # pylint: disable=unused-argument
+    stub_create_backend: MagicMock,  # pylint: disable=unused-argument
+) -> None:
+    """Password auth (no trusted_connection) → no kerberos_ticket row."""
+    conn = ConnectionConfig(
+        backend="mssql", host="h", port=1433, database="d", password="p"
+    )
+    result, _ = verify_cmd.verify_connection(conn)
+    assert "kerberos_ticket" not in result
+
+
 def test_verify_updates_surfaces_required_flag_inline(sqlite_db: Path) -> None:
     """Two fields (one required, one optional) → `.fields` value shows `(req)` inline."""
     updates = {

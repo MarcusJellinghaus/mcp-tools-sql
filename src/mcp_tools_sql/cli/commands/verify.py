@@ -6,6 +6,7 @@ import argparse
 import datetime
 import importlib.metadata
 import logging
+import subprocess
 import sys
 from pathlib import Path
 from typing import Any
@@ -358,6 +359,34 @@ def verify_builtin() -> dict[str, Any]:
     return result
 
 
+def _check_kerberos_ticket() -> tuple[bool, str, str]:
+    """Run ``klist -s`` to check for a cached Kerberos ticket.
+
+    Returns:
+        Tuple ``(ok, value, error)``. ``ok`` is True when ``klist -s``
+        exits zero. ``FileNotFoundError`` (no ``klist`` installed) and
+        ``subprocess.TimeoutExpired`` map to ``ok=False`` with a hint.
+    """
+    try:
+        proc = subprocess.run(
+            ["klist", "-s"],
+            check=False,
+            capture_output=True,
+            timeout=5,
+        )
+    except FileNotFoundError:
+        return (
+            False,
+            "klist not installed",
+            "Install Kerberos client tools (krb5-user / krb5-workstation)",
+        )
+    except subprocess.TimeoutExpired as exc:
+        return False, "klist timeout", str(exc)
+    if proc.returncode == 0:
+        return True, "cached ticket present", ""
+    return False, "no cached ticket", "Run `kinit` to obtain a Kerberos ticket"
+
+
 def verify_connection(
     connection: ConnectionConfig,
 ) -> tuple[dict[str, Any], DatabaseBackend | None]:
@@ -412,6 +441,14 @@ def verify_connection(
             value="(none)",
             error="No credentials configured",
         )
+
+    if (
+        connection.backend == "mssql"
+        and connection.trusted_connection
+        and sys.platform == "linux"
+    ):
+        ok, value, error = _check_kerberos_ticket()
+        result["kerberos_ticket"] = _entry(ok=ok, value=value, error=error)
 
     open_backend: DatabaseBackend | None = None
     backend: DatabaseBackend | None = None
