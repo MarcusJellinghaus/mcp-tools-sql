@@ -76,6 +76,13 @@ has raised.
 referenced only by the deleted `credential_env_var` branch). This is not
 optional — the import will be flagged by `pylint` / `ruff` if left behind.
 
+**Safety check before removal:** grep `cli/commands/verify.py` for any
+remaining `os.` references (e.g. `os.path.expanduser`, `os.environ` uses
+unrelated to `credential_env_var`). If any are found, **keep** the
+`import os` to avoid a `NameError` at runtime. The expectation is that
+after the `credential_env_var` branch is gone there are no residual `os.`
+uses, but verify with a grep before deleting the import.
+
 No new row needs to be added to the `verify` CONFIG section: the existing
 `database_config_parse` row already surfaces the loader's `ValueError`,
 which now includes the missing variable name in its message (see Option C
@@ -148,20 +155,14 @@ def test_expansion_present(monkeypatch, tmp_path):
     assert cfg.connections["default"].password == "secret"
 
 def test_expansion_unset_raises(monkeypatch, tmp_path):
-    monkeypatch.delenv("MISSING_VAR", raising=False)
-    write a config that references ${MISSING_VAR}
-    with pytest.raises(ValueError, match="MISSING_VAR"):
-        load_database_config(path)
-
-def test_expansion_unset_error_message_contains_var_name(monkeypatch, tmp_path):
     # Option C: error message must self-describe by including the missing
-    # variable name (in `${NAME}` form) so the `database_config_parse`
-    # verify row surfaces it directly.
+    # variable name in `${NAME}` form so the `database_config_parse`
+    # verify row surfaces it directly. The `match` regex asserts the full
+    # `${...}` format (raw string + escaped braces), not just the bare name.
     monkeypatch.delenv("MISSING_VAR", raising=False)
     write a config that references ${MISSING_VAR}
-    with pytest.raises(ValueError) as exc_info:
+    with pytest.raises(ValueError, match=r"\$\{MISSING_VAR\}"):
         load_database_config(path)
-    assert "${MISSING_VAR}" in str(exc_info.value)
 
 def test_expansion_multiple_substitutions_in_one_string(monkeypatch, tmp_path):
     # Partial / multiple substitutions within a single string value.

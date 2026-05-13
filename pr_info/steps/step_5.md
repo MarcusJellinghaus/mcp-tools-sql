@@ -78,8 +78,19 @@ def mssql_db():
         b.execute_update(f"CREATE SCHEMA {schema}")
         b.execute_update(f"CREATE TABLE {schema}.customers (id INT PRIMARY KEY, name NVARCHAR(50), country NVARCHAR(50))")
         b.execute_update(f"CREATE TABLE {schema}.orders (id INT PRIMARY KEY, customer_id INT, status NVARCHAR(20), total FLOAT)")
-        for row in SEED_CUSTOMERS: b.execute_update("INSERT INTO ...", row)
-        for row in SEED_ORDERS:    b.execute_update("INSERT INTO ...", row)
+        for row in SEED_CUSTOMERS:
+            b.execute_update(
+                f"INSERT INTO {schema}.customers (id, name, country) "
+                "VALUES (:id, :name, :country)",
+                {"id": row[0], "name": row[1], "country": row[2]},
+            )
+        for row in SEED_ORDERS:
+            b.execute_update(
+                f"INSERT INTO {schema}.orders (id, customer_id, status, total) "
+                "VALUES (:id, :customer_id, :status, :total)",
+                {"id": row[0], "customer_id": row[1],
+                 "status": row[2], "total": row[3]},
+            )
     env = MSSQLTestEnv(config=cfg_admin, schema=schema)
     try:
         yield env
