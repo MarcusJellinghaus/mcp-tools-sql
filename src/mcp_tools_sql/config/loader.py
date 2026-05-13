@@ -27,9 +27,6 @@ def _expand_env_vars(data: object) -> object:
 
     Returns:
         The same structure shape with strings rewritten.
-
-    Raises:
-        ValueError: If a ``${NAME}`` reference points to an unset env var.
     """
     if isinstance(data, dict):
         return {k: _expand_env_vars(v) for k, v in data.items()}

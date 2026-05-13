@@ -18,6 +18,9 @@ def _odbc_escape(value: str) -> str:
 
     Wraps the value in ``{...}`` if it contains ``;``, ``=``, ``{``, ``}``,
     or has surrounding whitespace; embedded ``}`` characters are doubled.
+
+    Returns:
+        The escaped value, braced if special characters were present.
     """
     if not value:
         return value
@@ -29,8 +32,10 @@ def _odbc_escape(value: str) -> str:
 def _build_connection_string(config: ConnectionConfig) -> str:
     """Build a pyodbc connection string from a ``ConnectionConfig``.
 
-    Returns a semicolon-joined ``key=value`` string with deterministic
-    ordering. ``port`` of 0 maps to the SQL Server default 1433.
+    ``port`` of 0 maps to the SQL Server default 1433.
+
+    Returns:
+        A semicolon-joined ``key=value`` string with deterministic ordering.
     """
     port = config.port or _DEFAULT_MSSQL_PORT
     parts = [
@@ -51,7 +56,11 @@ def _build_connection_string(config: ConnectionConfig) -> str:
 
 
 def _sanitize(msg: str, password: str) -> str:
-    """Redact the password from a connection-error message."""
+    """Redact the password from a connection-error message.
+
+    Returns:
+        The message with any occurrence of ``password`` replaced by ``***``.
+    """
     if password:
         return msg.replace(password, "***")
     return msg
@@ -69,11 +78,12 @@ class MSSQLBackend(DatabaseBackend):
     def connect(self) -> None:
         """Open a connection to SQL Server (lazy, idempotent, thread-safe).
 
+        If pyodbc raises during ``connect()``, the password is redacted from
+        the error message and the original exception is preserved via
+        ``raise ... from exc``.
+
         Raises:
             RuntimeError: If the backend was already closed.
-            pyodbc.Error: If pyodbc raises during ``connect()``; the password
-                is redacted from the error message and the original exception
-                is preserved via ``raise ... from exc``.
         """
         if self._connection is not None and not self._closed:
             return
@@ -100,7 +110,11 @@ class MSSQLBackend(DatabaseBackend):
         self._closed = True
 
     def _ensure_connected(self) -> Any:
-        """Lazily connect and return the live connection object."""
+        """Lazily connect and return the live connection object.
+
+        Returns:
+            The active pyodbc connection.
+        """
         self.connect()
         assert self._connection is not None
         return self._connection
