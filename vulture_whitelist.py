@@ -51,7 +51,8 @@ _.database
 _.username
 _.password
 _.trusted_connection
-_.credential_env_var
+_.encrypt
+_.trust_server_certificate
 _.name
 _.description
 _.required

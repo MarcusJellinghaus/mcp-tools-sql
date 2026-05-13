@@ -432,44 +432,29 @@ def test_verify_connection_unimplemented_backend_is_err() -> None:
             open_backend.close()
 
 
-def test_verify_connection_credential_env_var_missing(
-    monkeypatch: pytest.MonkeyPatch,
-) -> None:
-    """Env var unset → credentials row ok=False."""
-    monkeypatch.delenv("MY_VERIFY_TEST_VAR", raising=False)
+def test_verify_connection_credentials_password_set() -> None:
+    """Password resolved → credentials row ok=True."""
     conn = ConnectionConfig(
         backend="mssql",
-        host="localhost",
+        host="h",
         port=1433,
-        database="db",
-        credential_env_var="MY_VERIFY_TEST_VAR",
+        database="d",
+        password="resolved",
     )
     result, open_backend = verify_cmd.verify_connection(conn)
     try:
-        assert result["credentials"]["ok"] is False
-        assert "MY_VERIFY_TEST_VAR" in result["credentials"]["value"]
-        assert "<missing>" in result["credentials"]["value"]
+        assert result["credentials"]["ok"] is True
     finally:
         if open_backend is not None:
             open_backend.close()
 
 
-def test_verify_connection_credential_env_var_set(
-    monkeypatch: pytest.MonkeyPatch,
-) -> None:
-    """Env var set → credentials row ok=True."""
-    monkeypatch.setenv("MY_VERIFY_TEST_VAR", "secret")
-    conn = ConnectionConfig(
-        backend="mssql",
-        host="localhost",
-        port=1433,
-        database="db",
-        credential_env_var="MY_VERIFY_TEST_VAR",
-    )
+def test_verify_connection_credentials_missing_for_mssql() -> None:
+    """No password or trusted_connection for mssql → credentials row ok=False."""
+    conn = ConnectionConfig(backend="mssql", host="h", port=1433, database="d")
     result, open_backend = verify_cmd.verify_connection(conn)
     try:
-        assert result["credentials"]["ok"] is True
-        assert "<set>" in result["credentials"]["value"]
+        assert result["credentials"]["ok"] is False
     finally:
         if open_backend is not None:
             open_backend.close()

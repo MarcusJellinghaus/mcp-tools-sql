@@ -6,7 +6,6 @@ import argparse
 import datetime
 import importlib.metadata
 import logging
-import os
 import sys
 from pathlib import Path
 from typing import Any
@@ -403,21 +402,7 @@ def verify_connection(
             error="" if connection.database else "database must be set",
         )
 
-    if connection.credential_env_var:
-        env_value = os.environ.get(connection.credential_env_var)
-        result["credentials"] = _entry(
-            ok=env_value is not None,
-            value=(
-                f"env:{connection.credential_env_var}="
-                f"{'<set>' if env_value else '<missing>'}"
-            ),
-            error=(
-                ""
-                if env_value
-                else f"Environment variable {connection.credential_env_var} not set"
-            ),
-        )
-    elif connection.password or connection.trusted_connection:
+    if connection.password or connection.trusted_connection:
         result["credentials"] = _entry(ok=True, value="configured")
     elif connection.backend == "sqlite":
         result["credentials"] = _entry(ok=True, value="(not required for sqlite)")
