@@ -16,6 +16,7 @@ from mcp_tools_sql.backends.mssql import (
     _odbc_escape,
 )
 from mcp_tools_sql.config.models import ConnectionConfig
+from tests.conftest import MSSQLTestEnv
 
 
 @pytest.fixture
@@ -337,3 +338,49 @@ class TestErrorSanitization:
             b.connect()
         assert "supersecret" not in str(exc.value)
         assert "***" in str(exc.value)
+
+
+@pytest.mark.mssql_integration
+class TestMSSQLIntegration:
+    """Round-trip tests against a real SQL Server.
+
+    Skipped automatically when ``TEST_MSSQL_*`` env vars are missing
+    (handled by the ``mssql_db`` fixture).
+    """
+
+    def test_execute_query_real_round_trip(self, mssql_db: MSSQLTestEnv) -> None:
+        with MSSQLBackend(mssql_db.config) as b:
+            rows = b.execute_query(
+                f"SELECT name FROM {mssql_db.schema}.customers "
+                "WHERE country = :country",
+                {"country": "Germany"},
+            )
+        assert rows == [{"name": "Bank A"}]
+
+    def test_execute_update_real_round_trip(self, mssql_db: MSSQLTestEnv) -> None:
+        with MSSQLBackend(mssql_db.config) as b:
+            n = b.execute_update(
+                f"INSERT INTO {mssql_db.schema}.customers "
+                "VALUES (:id, :name, :country)",
+                {"id": 99, "name": "Bank Z", "country": "Spain"},
+            )
+        assert n == 1
+
+    def test_explain_returns_text_plan(self, mssql_db: MSSQLTestEnv) -> None:
+        with MSSQLBackend(mssql_db.config) as b:
+            plan = b.explain(
+                f"SELECT * FROM {mssql_db.schema}.customers WHERE id = :id",
+                {"id": 1},
+            )
+        assert isinstance(plan, str)
+        assert len(plan) > 0
+
+    def test_connect_close_lifecycle(self, mssql_db: MSSQLTestEnv) -> None:
+        b = MSSQLBackend(mssql_db.config)
+        b.connect()
+        b.connect()
+        b.execute_query("SELECT 1 AS one")
+        b.close()
+        b.close()
+        with pytest.raises(RuntimeError):
+            b.execute_query("SELECT 1")
