@@ -20,6 +20,9 @@ def _iter_placeholders(sql: str) -> Iterator[Token]:
     Quoted strings and comments are skipped because ``sqlparse`` tags
     placeholders with ``Name.Placeholder`` distinctly from string and
     comment tokens.
+
+    Yields:
+        Each ``Name.Placeholder`` token whose value begins with ``:``.
     """
     for stmt in sqlparse.parse(sql):
         for tok in stmt.flatten():  # type: ignore[no-untyped-call]
