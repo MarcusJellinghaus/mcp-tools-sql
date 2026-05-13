@@ -82,11 +82,30 @@ with self._connect_lock:
     try:
         self._connection = pyodbc.connect(cs, autocommit=True)
     except pyodbc.Error as exc:
-        raise type(exc)(_sanitize(str(exc), self._config.password)) from None
+        raise type(exc)(_sanitize(str(exc), self._config.password)) from exc
 ```
 
 `_sanitize(msg, pw)` returns `msg.replace(pw, "***")` only when `pw` is
 non-empty.
+
+**Note on traceback preservation:** the re-raise uses `from exc` (not
+`from None`) so the original pyodbc traceback is preserved in the chain.
+The sanitized message still hides the password, but operators retain full
+context (driver-level frames, ODBC SQLSTATE) for debugging.
+
+### Contract for `params is None`
+
+`execute_query` / `execute_update` / `explain` all accept `params=None`.
+The implementation substitutes `params = {}` internally before building
+the positional args list `[params[name] for name in ordered_names]`.
+
+- **No placeholders + `params=None`** → works (empty `ordered_names`,
+  empty args list, no `dict.__getitem__` ever invoked).
+- **Placeholders present + `params=None`** → raises `KeyError(name)` —
+  the natural result of looking up the first ordered name in the empty
+  dict. This is the documented contract: callers must pass a dict when
+  the SQL contains `:name` placeholders. No special pre-validation is
+  needed; the `KeyError` is clear enough.
 
 ## DATA
 
@@ -160,6 +179,26 @@ class TestQueries:
         cur.rowcount = 3
         b = MSSQLBackend(_cfg())
         assert b.execute_update("UPDATE t SET x=:x", {"x": 1}) == 3
+
+    def test_execute_query_no_params_no_placeholders(fake_pyodbc):
+        # params=None + SQL has no placeholders → must succeed.
+        # Guards against a regression where the impl does dict.__getitem__
+        # on None.
+        conn = fake_pyodbc.connect.return_value
+        cur = conn.cursor.return_value
+        cur.description = [("one",)]
+        cur.fetchall.return_value = [(1,)]
+        b = MSSQLBackend(_cfg())
+        rows = b.execute_query("SELECT 1")
+        assert rows == [{"one": 1}]
+
+    def test_execute_query_placeholders_but_none_params_raises(fake_pyodbc):
+        # Documented contract: SQL has :x but params=None → KeyError("x").
+        # This is the natural result of looking up the ordered name in the
+        # empty dict substituted for None. See ALGORITHM section.
+        b = MSSQLBackend(_cfg())
+        with pytest.raises(KeyError, match="x"):
+            b.execute_query("SELECT :x", None)
 
     def test_autocommit_passed_to_pyodbc(fake_pyodbc):
         MSSQLBackend(_cfg()).connect()

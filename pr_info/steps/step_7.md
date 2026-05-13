@@ -46,6 +46,9 @@ changes; no tests.
 - Use `mcp__workspace__read_file` to inspect the current text of each doc
   and `mcp__workspace__edit_file` for surgical replacements (one block at
   a time).
+- **Before editing:** grep for `credential_env_var` across
+  `mcp-tools-sql.md` and `docs/cli.md` to enumerate every occurrence —
+  ensures complete coverage and no stale reference slips through.
 - Keep prose minimal: 2-3 sentences per new subsection.
 
 ## DATA

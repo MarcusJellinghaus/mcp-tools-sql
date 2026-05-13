@@ -18,8 +18,15 @@ Exercise the full `MSSQLBackend` against a real SQL Server (the CI
 ### `tests/conftest.py` — new fixture
 
 ```python
+from dataclasses import dataclass
+
+@dataclass
+class MSSQLTestEnv:
+    config: ConnectionConfig
+    schema: str
+
 @pytest.fixture
-def mssql_db() -> Generator[ConnectionConfig, None, None]: ...
+def mssql_db() -> Generator[MSSQLTestEnv, None, None]: ...
 ```
 
 - Reads `TEST_MSSQL_HOST`, `TEST_MSSQL_PORT`, `TEST_MSSQL_USER`,
@@ -29,8 +36,15 @@ def mssql_db() -> Generator[ConnectionConfig, None, None]: ...
   encrypt=True, …)`.
 - Opens a temporary `MSSQLBackend`, creates `customers` and `orders` test
   tables in a unique schema (`test_<uuid8>`), seeds the same rows used by
-  the SQLite fixture, yields the `ConnectionConfig`, then drops the schema
-  in teardown.
+  the SQLite fixture, yields an `MSSQLTestEnv(config=..., schema=...)`,
+  then drops the schema in teardown.
+
+**Why a dataclass and not an attached attribute:** the earlier draft
+suggested attaching `_test_schema` as a private attribute on the
+`ConnectionConfig` Pydantic model. That would fail at runtime — Pydantic
+v2 `BaseModel` rejects arbitrary attribute assignment by default
+(`model_config["extra"] = "forbid"` is the project's posture). The
+dataclass is unambiguous and the only supported approach.
 
 ### `tests/backends/test_mssql.py` — new integration class
 
@@ -66,11 +80,11 @@ def mssql_db():
         b.execute_update(f"CREATE TABLE {schema}.orders (id INT PRIMARY KEY, customer_id INT, status NVARCHAR(20), total FLOAT)")
         for row in SEED_CUSTOMERS: b.execute_update("INSERT INTO ...", row)
         for row in SEED_ORDERS:    b.execute_update("INSERT INTO ...", row)
-    cfg_admin._test_schema = schema     # attach for test to read
+    env = MSSQLTestEnv(config=cfg_admin, schema=schema)
     try:
-        yield cfg_admin
+        yield env
     finally:
-        with MSSQLBackend(cfg_admin) as b:
+        with MSSQLBackend(env.config) as b:
             try: b.execute_update(f"DROP TABLE {schema}.orders")
             except Exception: pass
             try: b.execute_update(f"DROP TABLE {schema}.customers")
@@ -79,9 +93,8 @@ def mssql_db():
             except Exception: pass
 ```
 
-Simpler alternative: instead of attaching `_test_schema`, return a small
-dataclass `MSSQLTestEnv(config, schema)`. Either is fine — pick whichever
-is cleaner.
+The fixture yields `MSSQLTestEnv` so tests access `mssql_db.config` and
+`mssql_db.schema` (see the test snippets below).
 
 ## DATA
 

@@ -10,8 +10,14 @@ When `trusted_connection=true` is configured for `mssql` on **Linux**, run
 
 | Action | Path |
 |---|---|
-| Modify | `src/mcp_tools_sql/cli/commands/verify.py` |
+| Modify | `src/mcp_tools_sql/cli/commands/verify.py` (add `import subprocess`, add `_check_kerberos_ticket`, wire into `verify_connection`) |
 | Modify | `tests/cli/test_verify.py` |
+
+Imports to add to `cli/commands/verify.py`:
+
+- `import subprocess` (for `subprocess.run` + `subprocess.TimeoutExpired`)
+- `import sys` (already present in most likelihood — add if missing, for
+  the `sys.platform == "linux"` guard)
 
 ## WHAT
 
@@ -89,48 +95,71 @@ def _trusted_mssql() -> ConnectionConfig:
                              database="d", trusted_connection=True)
 
 
+@pytest.fixture
+def _stub_create_backend(monkeypatch):
+    """Replace `verify.create_backend` so tests never touch real pyodbc.
+
+    Returns a `MagicMock` whose returned backend stubs the methods that
+    `verify_connection` calls: `connect`, `execute_query`, `close`. Each
+    Kerberos test reuses this fixture instead of re-stubbing inline.
+    """
+    backend = MagicMock(name="stub_backend")
+    backend.connect.return_value = None
+    backend.execute_query.return_value = [{"v": 1}]
+    backend.close.return_value = None
+    factory = MagicMock(return_value=backend)
+    monkeypatch.setattr(
+        "mcp_tools_sql.cli.commands.verify.create_backend", factory
+    )
+    return factory
+
+
 class TestKerberosCheck:
-    def test_klist_zero_returns_ok(monkeypatch, linux_platform):
+    def test_klist_zero_returns_ok(
+        monkeypatch, linux_platform, _stub_create_backend
+    ):
         proc = MagicMock(returncode=0)
         monkeypatch.setattr("subprocess.run", MagicMock(return_value=proc))
-        # also patch out the actual pyodbc connect via create_backend
-        ... build connection, call verify_connection ...
+        result, _ = verify_cmd.verify_connection(_trusted_mssql())
         assert result["kerberos_ticket"]["ok"] is True
 
-    def test_klist_nonzero_returns_err(monkeypatch, linux_platform):
+    def test_klist_nonzero_returns_err(
+        monkeypatch, linux_platform, _stub_create_backend
+    ):
         proc = MagicMock(returncode=1)
         monkeypatch.setattr("subprocess.run", MagicMock(return_value=proc))
-        ...
+        result, _ = verify_cmd.verify_connection(_trusted_mssql())
         assert result["kerberos_ticket"]["ok"] is False
         assert "kinit" in result["kerberos_ticket"]["error"].lower() or \
                "ticket" in result["kerberos_ticket"]["error"].lower()
 
-    def test_klist_missing_returns_err(monkeypatch, linux_platform):
+    def test_klist_missing_returns_err(
+        monkeypatch, linux_platform, _stub_create_backend
+    ):
         monkeypatch.setattr("subprocess.run",
                             MagicMock(side_effect=FileNotFoundError()))
-        ...
+        result, _ = verify_cmd.verify_connection(_trusted_mssql())
         assert result["kerberos_ticket"]["ok"] is False
 
-    def test_non_linux_platforms_skip_check(monkeypatch):
+    def test_non_linux_platforms_skip_check(monkeypatch, _stub_create_backend):
         monkeypatch.setattr(sys, "platform", "win32")
-        ...
+        result, _ = verify_cmd.verify_connection(_trusted_mssql())
         assert "kerberos_ticket" not in result
 
-    def test_non_trusted_skips_check(linux_platform):
+    def test_non_trusted_skips_check(linux_platform, _stub_create_backend):
         # password auth on Linux — no kerberos row expected
         conn = ConnectionConfig(backend="mssql", host="h", port=1433,
                                 database="d", password="p")
-        ...
+        result, _ = verify_cmd.verify_connection(conn)
         assert "kerberos_ticket" not in result
 ```
 
-**Note**: in each test, `verify_connection` will try to connect with the
-real backend factory. To avoid touching pyodbc, monkeypatch
-`mcp_tools_sql.cli.commands.verify.create_backend` to return a stub backend
-whose `connect`/`execute_query`/`close` are no-ops — or use the existing
-SQLite-backed fixtures and substitute `backend="mssql"` into the config
-only inside the Kerberos-specific block. Keep these tests independent of
-real pyodbc.
+**Note**: the `_stub_create_backend` fixture replaces
+`mcp_tools_sql.cli.commands.verify.create_backend` so the tests never
+touch real pyodbc. Centralising this in one fixture (instead of
+duplicating the monkeypatch in each of the four Kerberos tests) keeps the
+test module readable and ensures all four tests share an identical stub
+contract.
 
 ## Checks
 

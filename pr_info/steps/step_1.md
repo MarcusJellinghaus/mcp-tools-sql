@@ -99,6 +99,12 @@ class TestTranslateNamedToQmark:
     def test_inside_comment_untouched(): "SELECT :a -- :b\nFROM t" →
         ("SELECT ? -- :b\nFROM t", ["a"])
     def test_no_placeholders(): roundtrip unchanged, empty list.
+    def test_translate_preserves_separator_in_multistatement():
+        # Round-trip "SELECT :a; SELECT :b" and confirm the `;` separator
+        # between statements is preserved byte-for-byte in the translated SQL.
+        sql_out, names = translate_named_to_qmark("SELECT :a; SELECT :b")
+        assert sql_out == "SELECT ?; SELECT ?"
+        assert names == ["a", "b"]
 ```
 
 `tests/test_query_tools.py` (or wherever `extract_sql_params` is exercised) — add:

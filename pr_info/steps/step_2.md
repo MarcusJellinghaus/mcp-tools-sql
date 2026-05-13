@@ -8,6 +8,10 @@ Replace the single-purpose `credential_env_var` field with general-purpose
 and `verify` to match. All-in-one commit because removing the field breaks
 every site that reads it.
 
+**Scope clarification:** `_expand_env_vars` walks the **entire raw
+`DatabaseConfig` dict recursively** (including the `[security]` section and
+any nested tables), not just `[connections.*]`. Matches issue Decision #6.
+
 ## WHERE
 
 | Action | Path |
@@ -68,7 +72,14 @@ connection.trusted_connection:` branch already covers the new world: by the
 time verify sees the connection, `${VAR}` has been expanded or the loader
 has raised.
 
-Drop the unused `import os` if no longer referenced (or keep — harmless).
+**Remove** the now-unused `import os` from `cli/commands/verify.py` (it is
+referenced only by the deleted `credential_env_var` branch). This is not
+optional — the import will be flagged by `pylint` / `ruff` if left behind.
+
+No new row needs to be added to the `verify` CONFIG section: the existing
+`database_config_parse` row already surfaces the loader's `ValueError`,
+which now includes the missing variable name in its message (see Option C
+clarification in the `_expand_env_vars` ALGORITHM section below).
 
 ## HOW
 
@@ -77,6 +88,13 @@ Drop the unused `import os` if no longer referenced (or keep — harmless).
   `_read_toml(path)` and `DatabaseConfig.model_validate(data)`.
 
 ## ALGORITHM (`_expand_env_vars`)
+
+**User decision (Option C):** unset env vars raise `ValueError` with a
+self-describing message that includes the missing variable name verbatim
+in the form `${NAME}`. The exact format is
+`f"Unset environment variable '${{{name}}}' referenced in config"`. The
+existing `database_config_parse` row in `verify`'s CONFIG section surfaces
+this message automatically — no new verify row needed.
 
 ```
 _VAR_RE = re.compile(r"\$\{([^}]+)\}")
@@ -88,11 +106,16 @@ def _expand_env_vars(data):
         def sub(m):
             name = m.group(1)
             if name not in os.environ:
-                raise ValueError(f"Environment variable '{name}' referenced in config is not set")
+                raise ValueError(
+                    f"Unset environment variable '${{{name}}}' referenced in config"
+                )
             return os.environ[name]
         return _VAR_RE.sub(sub, data)
     return data
 ```
+
+Recursion intentionally covers the **entire** `DatabaseConfig` dict — every
+section (`[connections.*]`, `[security]`, any future sections) is walked.
 
 ## DATA
 
@@ -130,6 +153,24 @@ def test_expansion_unset_raises(monkeypatch, tmp_path):
     with pytest.raises(ValueError, match="MISSING_VAR"):
         load_database_config(path)
 
+def test_expansion_unset_error_message_contains_var_name(monkeypatch, tmp_path):
+    # Option C: error message must self-describe by including the missing
+    # variable name (in `${NAME}` form) so the `database_config_parse`
+    # verify row surfaces it directly.
+    monkeypatch.delenv("MISSING_VAR", raising=False)
+    write a config that references ${MISSING_VAR}
+    with pytest.raises(ValueError) as exc_info:
+        load_database_config(path)
+    assert "${MISSING_VAR}" in str(exc_info.value)
+
+def test_expansion_multiple_substitutions_in_one_string(monkeypatch, tmp_path):
+    # Partial / multiple substitutions within a single string value.
+    monkeypatch.setenv("PREFIX", "foo")
+    monkeypatch.setenv("SUFFIX", "bar")
+    write `database = "${PREFIX}_${SUFFIX}"`
+    cfg = load_database_config(path)
+    assert cfg.connections["default"].database == "foo_bar"
+
 def test_expansion_int_coercion(monkeypatch, tmp_path):
     monkeypatch.setenv("MY_PORT", "1433")
     write `port = "${MY_PORT}"`  (string in TOML)
@@ -140,6 +181,15 @@ def test_query_config_is_not_expanded(tmp_path):
     # load_query_config does NOT call _expand_env_vars
     sql with literal "${NOPE}" loads unchanged.
 ```
+
+**Deliberate test updates** (also under `tests/config/test_loader.py`):
+
+- Any existing tests that assert `"credential_env_var" in _SENSITIVE_KEYS`
+  (or that exercise `_SENSITIVE_KEYS` membership for that key) must be
+  **updated or removed** — `credential_env_var` no longer exists, and the
+  set is reduced to `{"password"}`. Grep for `credential_env_var` and
+  `_SENSITIVE_KEYS` in the test module and remove obsolete assertions in
+  the same commit.
 
 ### `tests/cli/test_verify.py` — updates
 

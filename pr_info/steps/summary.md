@@ -27,7 +27,11 @@ PostgreSQL will need the same translation logic next.
 - `config.loader._expand_env_vars` is added; runs on the **raw TOML dict**
   inside `load_database_config` only (not inside `load_query_config` — SQL
   must never be subject to env-var expansion).
-- Unset `${VAR}` → `ValueError(name)`. No silent empty-string fallback.
+- Recursion walks the **entire** `DatabaseConfig` dict — every section
+  including `[connections.*]` and `[security]` — not just connection rows.
+- Unset `${VAR}` → `ValueError` whose message includes the missing variable
+  name in `${NAME}` form (Option C from supervisor review), so the existing
+  `database_config_parse` verify row surfaces it automatically.
 - Confined to `DatabaseConfig`, so Pydantic still coerces
   `port = "${MSSQL_PORT}"` → `int` naturally.
 - `credential_env_var` is also dropped from `_SENSITIVE_KEYS` in the loader
@@ -116,7 +120,7 @@ docs/cli.md                                     # docs
 | 2 | Credential mechanism migration | Remove `credential_env_var`, add `encrypt`/`trust_server_certificate`, add `${VAR}` expansion, update `init` templates and `verify`. |
 | 3 | MSSQL connection-string builder | Pure function `_build_connection_string(config) -> str` with full unit tests. |
 | 4 | MSSQL backend | Implement `MSSQLBackend` lifecycle + data methods with monkeypatched-`pyodbc` unit tests. |
-| 5 | MSSQL integration tests | Add `mssql_db` fixture + round-trip tests behind `@pytest.mark.mssql_integration`. |
+| 5 | MSSQL integration tests | Add `mssql_db` fixture yielding an `MSSQLTestEnv(config, schema)` dataclass + round-trip tests behind `@pytest.mark.mssql_integration`. |
 | 6 | Kerberos verify check | `klist -s` on Linux when `trusted_connection=true`; `[ERR]` if no ticket. |
 | 7 | Documentation | Update `mcp-tools-sql.md` and `docs/cli.md` for `${VAR}` syntax and TLS knobs. |
 
