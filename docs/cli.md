@@ -105,7 +105,7 @@ host = ""
 port = 1433
 database = ""
 username = ""
-credential_env_var = "MSSQL_PASSWORD"
+password = "${MSSQL_PASSWORD}"
 driver = "ODBC Driver 18 for SQL Server"
 ```
 
@@ -126,7 +126,7 @@ host = ""
 port = 5432
 database = ""
 username = ""
-credential_env_var = "POSTGRES_PASSWORD"
+password = "${POSTGRES_PASSWORD}"
 ```
 
 ### `verify` — validate setup without starting the server
@@ -147,7 +147,7 @@ Sections, in order:
 | `CONFIG` | Project query config and database config: resolved path, parse status, sensitive-key warning when credentials are detected in the project query config. |
 | `DEPENDENCIES` | Backend-conditional checks (e.g. `pyodbc` and an ODBC driver for `mssql`, `psycopg` for `postgresql`, none for `sqlite`). |
 | `BUILTIN` | Built-in default queries load successfully and have at least one tool registered. |
-| `CONNECTION` | Backend-shape checks (host/port/database/path/credentials), then `SELECT 1` against the configured database. |
+| `CONNECTION` | Backend-shape checks (host/port/database/path/credentials), then `SELECT 1` against the configured database. On Linux only, when the connection uses `backend = "mssql"` with `trusted_connection = true`, an extra `kerberos_ticket` row runs `klist -s` and reports `[ERR]` when no cached Kerberos ticket is found. |
 | `INSTALL INSTRUCTIONS` | Aggregated install hints from any failing `[ERR]` rows above (printed only when at least one row carries a hint). |
 | `QUERIES` | Per-configured-query: SQL `EXPLAIN`, well-formed parameters, `max_rows_default > 0`. Skipped when `CONNECTION` failed. |
 | `UPDATES` | Per-configured-update: table exists, key column exists, all field columns exist. Skipped when `CONNECTION` failed. |
@@ -156,9 +156,8 @@ Each row is one of three statuses:
 
 - `[OK]`  — check passed.
 - `[WARN]` — non-fatal issue; the most common case is detection of
-  sensitive keys (e.g. `password`, `credential_env_var`) in the
-  project query config, which still runs but should be moved to
-  `~/.mcp-tools-sql/config.toml`.
+  sensitive keys (e.g. `password`) in the project query config, which
+  still runs but should be moved to `~/.mcp-tools-sql/config.toml`.
 - `[ERR]` — check failed; the trailing summary line will include
   this in its error count and `verify` will exit with code 1.
 
