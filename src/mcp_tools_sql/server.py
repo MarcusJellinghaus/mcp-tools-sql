@@ -18,6 +18,7 @@ from mcp_tools_sql.config.loader import (
 )
 from mcp_tools_sql.query_tools import QueryTools
 from mcp_tools_sql.schema_tools import SchemaTools, load_default_queries
+from mcp_tools_sql.update_tools import UpdateTools
 
 if TYPE_CHECKING:
     from mcp_tools_sql.backends.base import DatabaseBackend
@@ -34,10 +35,12 @@ class ToolServer:
         config: QueryFileConfig,
         backend: DatabaseBackend,
         backend_name: str,
+        allow_updates: bool,
     ) -> None:
         self._config = config
         self._backend = backend
         self._backend_name = backend_name
+        self._allow_updates = allow_updates
         self._mcp = FastMCP("mcp-tools-sql")
 
     @property
@@ -53,6 +56,10 @@ class ToolServer:
         QueryTools(self._backend, self._config.queries, self._backend_name).register(
             self._mcp
         )
+        if self._allow_updates:
+            UpdateTools(
+                self._backend, self._config.updates, self._backend_name
+            ).register(self._mcp)
 
     def run(self) -> None:
         """Start the MCP server event loop."""
@@ -65,13 +72,19 @@ def create_server(
     config: QueryFileConfig,
     backend: DatabaseBackend,
     backend_name: str,
+    allow_updates: bool,
 ) -> ToolServer:
     """Factory: build and return a configured ToolServer.
 
     Returns:
         A configured ToolServer instance.
     """
-    return ToolServer(config=config, backend=backend, backend_name=backend_name)
+    return ToolServer(
+        config=config,
+        backend=backend,
+        backend_name=backend_name,
+        allow_updates=allow_updates,
+    )
 
 
 def run_server(args: argparse.Namespace) -> None:
@@ -98,6 +111,6 @@ def run_server(args: argparse.Namespace) -> None:
             qpath,
             n_builtin,
         )
-        ToolServer(qcfg, backend, conn.backend).run()
+        ToolServer(qcfg, backend, conn.backend, dbcfg.security.allow_updates).run()
     finally:
         backend.close()

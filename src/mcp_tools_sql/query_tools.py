@@ -5,6 +5,7 @@ from __future__ import annotations
 import re
 from typing import TYPE_CHECKING
 
+from mcp_tools_sql.query_helpers import build_query_body, build_query_sig_params
 from mcp_tools_sql.tool_builder import build_tool_fn
 
 if TYPE_CHECKING:
@@ -43,13 +44,15 @@ class QueryTools:
                     f"Invalid query name {name!r}: must match "
                     f"{self._NAME_RE.pattern}"
                 )
-            fn = build_tool_fn(
+            sig_params = build_query_sig_params(config)
+            body = build_query_body(
                 name,
                 config,
                 self._backend,
                 self._backend_name,
-                truncation_hint=self._TRUNCATION_HINT,
+                self._TRUNCATION_HINT,
             )
+            fn = build_tool_fn(name, sig_params, body, config.description)
             mcp.add_tool(
                 fn,
                 name=f"query_{name}",
