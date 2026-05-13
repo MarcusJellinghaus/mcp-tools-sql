@@ -7,7 +7,10 @@ from typing import Any
 
 from mcp_tools_sql.backends.base import DatabaseBackend
 from mcp_tools_sql.config.models import ConnectionConfig
-from mcp_tools_sql.utils.sql_placeholders import translate_named_to_qmark
+from mcp_tools_sql.utils.sql_placeholders import (
+    substitute_named_with_literals,
+    translate_named_to_qmark,
+)
 
 _NEEDS_BRACES = set(";={}")
 _DEFAULT_MSSQL_PORT = 1433
@@ -172,14 +175,24 @@ class MSSQLBackend(DatabaseBackend):
             cursor.close()
 
     def explain(self, sql: str, params: dict[str, Any] | None = None) -> str:
-        """Return the query execution plan via ``SET SHOWPLAN_TEXT ON``."""
+        """Return the query execution plan via ``SET SHOWPLAN_TEXT ON``.
+
+        Parameter values are substituted into the SQL as literals before
+        enabling SHOWPLAN_TEXT, because pyodbc's prepared-statement protocol
+        (used for parameter binding) does not return result rows when
+        SHOWPLAN_TEXT is on.
+
+        Returns:
+            Plain-text execution plan; empty string if MSSQL produces no
+            plan rows.
+        """
         conn = self._ensure_connected()
-        sql_q, args = self._params_for_pyodbc(sql, params)
+        explain_sql = substitute_named_with_literals(sql, params or {})
         cursor = conn.cursor()
         try:
             cursor.execute("SET SHOWPLAN_TEXT ON")
             try:
-                cursor.execute(sql_q, args)
+                cursor.execute(explain_sql)
                 rows = cursor.fetchall()
             finally:
                 cursor.execute("SET SHOWPLAN_TEXT OFF")

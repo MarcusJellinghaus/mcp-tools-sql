@@ -2,8 +2,14 @@
 
 from __future__ import annotations
 
+import datetime as dt
+from decimal import Decimal
+
+import pytest
+
 from mcp_tools_sql.utils.sql_placeholders import (
     extract_param_names,
+    substitute_named_with_literals,
     translate_named_to_qmark,
 )
 
@@ -70,3 +76,109 @@ class TestTranslateNamedToQmark:
         sql_out, names = translate_named_to_qmark("SELECT :a; SELECT :b")
         assert sql_out == "SELECT ?; SELECT ?"
         assert names == ["a", "b"]
+
+
+class TestSubstituteNamedWithLiterals:
+    """Tests for ``substitute_named_with_literals``."""
+
+    def test_int(self) -> None:
+        assert substitute_named_with_literals("SELECT :a", {"a": 1}) == "SELECT 1"
+
+    def test_negative_int(self) -> None:
+        assert substitute_named_with_literals("SELECT :a", {"a": -7}) == "SELECT -7"
+
+    def test_float(self) -> None:
+        assert substitute_named_with_literals("SELECT :a", {"a": 1.5}) == "SELECT 1.5"
+
+    def test_float_nan_raises(self) -> None:
+        with pytest.raises(ValueError, match="non-finite"):
+            substitute_named_with_literals("SELECT :a", {"a": float("nan")})
+
+    def test_float_inf_raises(self) -> None:
+        with pytest.raises(ValueError, match="non-finite"):
+            substitute_named_with_literals("SELECT :a", {"a": float("inf")})
+
+    def test_float_neg_inf_raises(self) -> None:
+        with pytest.raises(ValueError, match="non-finite"):
+            substitute_named_with_literals("SELECT :a", {"a": float("-inf")})
+
+    def test_bool_true_renders_as_one(self) -> None:
+        # bool must NOT be rendered through the int branch.
+        assert substitute_named_with_literals("SELECT :a", {"a": True}) == "SELECT 1"
+
+    def test_bool_false_renders_as_zero(self) -> None:
+        assert substitute_named_with_literals("SELECT :a", {"a": False}) == "SELECT 0"
+
+    def test_str_simple(self) -> None:
+        assert (
+            substitute_named_with_literals("SELECT :a", {"a": "hello"})
+            == "SELECT 'hello'"
+        )
+
+    def test_str_with_single_quote_escaped(self) -> None:
+        assert (
+            substitute_named_with_literals("SELECT :a", {"a": "O'Reilly"})
+            == "SELECT 'O''Reilly'"
+        )
+
+    def test_none_renders_null(self) -> None:
+        assert substitute_named_with_literals("SELECT :a", {"a": None}) == "SELECT NULL"
+
+    def test_date(self) -> None:
+        assert (
+            substitute_named_with_literals("SELECT :a", {"a": dt.date(2024, 1, 2)})
+            == "SELECT '2024-01-02'"
+        )
+
+    def test_datetime(self) -> None:
+        value = dt.datetime(2024, 1, 2, 3, 4, 5)
+        assert (
+            substitute_named_with_literals("SELECT :a", {"a": value})
+            == "SELECT '2024-01-02 03:04:05'"
+        )
+
+    def test_datetime_with_microseconds(self) -> None:
+        value = dt.datetime(2024, 1, 2, 3, 4, 5, 678901)
+        assert (
+            substitute_named_with_literals("SELECT :a", {"a": value})
+            == "SELECT '2024-01-02 03:04:05.678901'"
+        )
+
+    def test_decimal(self) -> None:
+        assert (
+            substitute_named_with_literals("SELECT :a", {"a": Decimal("3.14")})
+            == "SELECT 3.14"
+        )
+
+    def test_bytes(self) -> None:
+        assert (
+            substitute_named_with_literals("SELECT :a", {"a": b"\xde\xad\xbe\xef"})
+            == "SELECT 0xdeadbeef"
+        )
+
+    def test_unsupported_type_raises_typeerror(self) -> None:
+        with pytest.raises(TypeError, match="Unsupported SQL literal type"):
+            substitute_named_with_literals("SELECT :a", {"a": set()})
+
+    def test_placeholder_inside_string_not_substituted(self) -> None:
+        assert (
+            substitute_named_with_literals("SELECT ':name' AS x", {})
+            == "SELECT ':name' AS x"
+        )
+
+    def test_placeholder_inside_line_comment_not_substituted(self) -> None:
+        sql = "SELECT 1 -- :a\nFROM t"
+        assert substitute_named_with_literals(sql, {}) == sql
+
+    def test_placeholder_inside_block_comment_not_substituted(self) -> None:
+        sql = "SELECT 1 /* :a */ FROM t"
+        assert substitute_named_with_literals(sql, {}) == sql
+
+    def test_repeated_placeholder_substituted_both_times(self) -> None:
+        assert (
+            substitute_named_with_literals("SELECT :a + :a", {"a": 5}) == "SELECT 5 + 5"
+        )
+
+    def test_missing_key_raises_keyerror(self) -> None:
+        with pytest.raises(KeyError):
+            substitute_named_with_literals("SELECT :a", {})

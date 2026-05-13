@@ -296,7 +296,9 @@ class TestQueries:
         plan = b.explain("SELECT :a", {"a": 1})
         executed = [c.args[0] for c in cur.execute.call_args_list]
         assert executed[0] == "SET SHOWPLAN_TEXT ON"
-        assert "?" in executed[1]
+        assert executed[1] == "SELECT 1"  # literal substituted, no ?
+        # cursor.execute is called with no positional args beyond the SQL:
+        assert cur.execute.call_args_list[1].args == ("SELECT 1",)
         assert executed[-1] == "SET SHOWPLAN_TEXT OFF"
         assert plan == "plan-line"
 
