@@ -3,6 +3,8 @@
 from __future__ import annotations
 
 import logging
+import os
+import re
 import tomllib
 from pathlib import Path
 
@@ -12,8 +14,36 @@ from mcp_tools_sql.config.models import (
     QueryFileConfig,
 )
 
-_SENSITIVE_KEYS = {"password", "credential_env_var"}
+_SENSITIVE_KEYS = {"password"}
 _logger = logging.getLogger(__name__)
+_VAR_RE = re.compile(r"\$\{([^}]+)\}")
+
+
+def _expand_env_vars(data: object) -> object:
+    """Recursively expand ``${NAME}`` references in string values via os.environ.
+
+    Walks dicts and lists; leaves non-string scalars untouched. Raises
+    ``ValueError`` when a referenced variable is not set.
+
+    Returns:
+        The same structure shape with strings rewritten.
+    """
+    if isinstance(data, dict):
+        return {k: _expand_env_vars(v) for k, v in data.items()}
+    if isinstance(data, list):
+        return [_expand_env_vars(v) for v in data]
+    if isinstance(data, str):
+
+        def _sub(match: re.Match[str]) -> str:
+            name = match.group(1)
+            if name not in os.environ:
+                raise ValueError(
+                    f"Unset environment variable '${{{name}}}' referenced in config"
+                )
+            return os.environ[name]
+
+        return _VAR_RE.sub(_sub, data)
+    return data
 
 
 def _has_sensitive_keys(data: dict[str, object]) -> list[str]:
@@ -100,7 +130,8 @@ def load_database_config(path: Path | None = None) -> DatabaseConfig:
         return DatabaseConfig()
 
     data = _read_toml(path)
-    return DatabaseConfig.model_validate(data)
+    expanded = _expand_env_vars(data)
+    return DatabaseConfig.model_validate(expanded)
 
 
 def resolve_connection(

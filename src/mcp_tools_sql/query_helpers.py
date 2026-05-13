@@ -9,7 +9,6 @@ a sibling-to-sibling dependency.
 from __future__ import annotations
 
 import inspect
-import re
 from collections.abc import Awaitable, Callable
 from fnmatch import fnmatch
 from typing import TYPE_CHECKING, Annotated, Any, Optional, cast
@@ -19,6 +18,7 @@ from pydantic import Field
 from mcp_tools_sql.formatting import format_rows
 from mcp_tools_sql.tool_logging import log_tool_call
 from mcp_tools_sql.utils.data_type_utility.type_mapping import resolve_python_type
+from mcp_tools_sql.utils.sql_placeholders import extract_param_names
 
 if TYPE_CHECKING:
     from mcp_tools_sql.backends.base import DatabaseBackend
@@ -28,10 +28,12 @@ if TYPE_CHECKING:
 def extract_sql_params(sql: str) -> set[str]:
     """Scan SQL for :param_name references.
 
+    Placeholders inside quoted strings and comments are ignored.
+
     Returns:
         Set of parameter names found in the SQL string.
     """
-    return set(re.findall(r":(\w+)", sql))
+    return extract_param_names(sql)
 
 
 def apply_filter(

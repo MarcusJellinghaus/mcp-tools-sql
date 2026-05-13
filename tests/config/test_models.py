@@ -72,6 +72,18 @@ class TestModelValidation:
         """ConnectionConfig no longer exposes a connection_string field."""
         assert not hasattr(ConnectionConfig(), "connection_string")
 
+    def test_connection_config_no_credential_env_var(self) -> None:
+        """ConnectionConfig no longer exposes a credential_env_var field."""
+        assert not hasattr(ConnectionConfig(), "credential_env_var")
+
+    def test_connection_config_encrypt_default_true(self) -> None:
+        """ConnectionConfig.encrypt defaults to True (TLS on)."""
+        assert ConnectionConfig().encrypt is True
+
+    def test_connection_config_trust_server_certificate_default_false(self) -> None:
+        """ConnectionConfig.trust_server_certificate defaults to False."""
+        assert ConnectionConfig().trust_server_certificate is False
+
     def test_query_file_config_nested_parsing(self) -> None:
         """QueryFileConfig parses nested queries with params from dict."""
         data = {

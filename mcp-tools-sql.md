@@ -395,7 +395,34 @@ TOML for all three. Considered YAML but TOML is:
 |--------|------------------------|-------------|
 | **Trusted connection** (Windows Auth) | `trusted_connection = true` | Production / corporate. No password — uses Windows SSPI. Preferred for SQL Server. |
 | **Password in config.toml** | `password = "..."` | Dev machines. Acceptable because file is in `~/`, never committed. |
-| **Environment variable** | `credential_env_var = "DB_PASSWORD"` | CI/CD, Docker, shared machines. |
+| **Environment variable** | `password = "${DB_PASSWORD}"` | CI/CD, Docker, shared machines. |
+
+### Environment variable substitution
+
+The database config (`~/.mcp-tools-sql/config.toml`) supports `${VAR}`
+substitution in **any string field** of `[connections.*]` — including
+`password`, `host`, `username`, `database`, `driver`, and so on. The
+loader recursively walks the parsed TOML and rewrites string values
+from `os.environ`.
+
+- Substitution happens **only** in the database config — never in the
+  project query config and never in SQL.
+- Unset variables fail at load time with an explicit `ValueError`
+  identifying the missing `${NAME}` (surfaced by `verify` in the
+  `database_config_parse` row).
+
+### TLS / Encryption
+
+Two TLS fields are accepted under `[connections.*]` for `backend = "mssql"`:
+
+- `encrypt` (default `true`) — corresponds to the ODBC `Encrypt=` flag.
+- `trust_server_certificate` (default `false`) — corresponds to ODBC
+  `TrustServerCertificate=`.
+
+These defaults match ODBC Driver 18's secure defaults. Local SQL Server
+installations and the CI test container do not present a valid TLS
+certificate — set `trust_server_certificate = true` in those
+environments, or the driver will refuse the connection.
 
 ### Security Rules
 
@@ -757,7 +784,7 @@ host = "localhost"
 port = 1433
 database = "mydb"                    # ← change this
 username = "sa"                      # ← change this
-credential_env_var = "MSSQL_PASSWORD" # set this env var with your password
+password = "${MSSQL_PASSWORD}"        # set MSSQL_PASSWORD env var to your password
 
 # --- Example SELECT query (uncomment and adapt) ---
 # [queries.get_customers]

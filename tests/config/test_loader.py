@@ -256,6 +256,89 @@ class TestResolveConnection:
             resolve_connection(query_config, db_config)
 
 
+class TestEnvVarExpansion:
+    """Tests for ``${VAR}`` expansion in load_database_config."""
+
+    def test_expansion_present(
+        self, monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+    ) -> None:
+        """A ``${VAR}`` placeholder is replaced by os.environ[VAR]."""
+        monkeypatch.setenv("MY_PW", "secret")
+        config_file = tmp_path / "config.toml"
+        config_file.write_text(
+            "[connections.default]\n" 'backend = "mssql"\n' 'password = "${MY_PW}"\n',
+            encoding="utf-8",
+        )
+
+        cfg = load_database_config(config_file)
+
+        assert cfg.connections["default"].password == "secret"
+
+    def test_expansion_unset_raises(
+        self, monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+    ) -> None:
+        """Unset env var raises ValueError including the ``${NAME}`` form."""
+        monkeypatch.delenv("MISSING_VAR", raising=False)
+        config_file = tmp_path / "config.toml"
+        config_file.write_text(
+            "[connections.default]\n"
+            'backend = "mssql"\n'
+            'password = "${MISSING_VAR}"\n',
+            encoding="utf-8",
+        )
+
+        with pytest.raises(ValueError, match=r"\$\{MISSING_VAR\}"):
+            load_database_config(config_file)
+
+    def test_expansion_multiple_substitutions_in_one_string(
+        self, monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+    ) -> None:
+        """Multiple ``${VAR}`` placeholders in one value all expand."""
+        monkeypatch.setenv("PREFIX", "foo")
+        monkeypatch.setenv("SUFFIX", "bar")
+        config_file = tmp_path / "config.toml"
+        config_file.write_text(
+            "[connections.default]\n"
+            'backend = "mssql"\n'
+            'database = "${PREFIX}_${SUFFIX}"\n',
+            encoding="utf-8",
+        )
+
+        cfg = load_database_config(config_file)
+
+        assert cfg.connections["default"].database == "foo_bar"
+
+    def test_expansion_int_coercion(
+        self, monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+    ) -> None:
+        """Expanded string ``"1433"`` is coerced to int by Pydantic."""
+        monkeypatch.setenv("MY_PORT", "1433")
+        config_file = tmp_path / "config.toml"
+        config_file.write_text(
+            "[connections.default]\n" 'backend = "mssql"\n' 'port = "${MY_PORT}"\n',
+            encoding="utf-8",
+        )
+
+        cfg = load_database_config(config_file)
+
+        assert cfg.connections["default"].port == 1433
+
+    def test_query_config_is_not_expanded(self, tmp_path: Path) -> None:
+        """load_query_config does NOT call _expand_env_vars: literal preserved."""
+        config_file = tmp_path / "mcp-tools-sql.toml"
+        config_file.write_text(
+            'connection = "default"\n'
+            "\n"
+            "[queries.q]\n"
+            "sql = \"SELECT '${NOPE}' AS x\"\n",
+            encoding="utf-8",
+        )
+
+        cfg = load_query_config(config_file)
+
+        assert cfg.queries["q"].sql == "SELECT '${NOPE}' AS x"
+
+
 class TestDiscoverQueryConfig:
     """Tests for discover_query_config."""
 

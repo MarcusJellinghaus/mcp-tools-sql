@@ -16,6 +16,9 @@ Review this list periodically - items may become used or truly dead over time.
 _.pytestmark
 _.sqlite_db
 _.sqlite_memory_db
+_.side_effect
+_.linux_platform
+_.stub_create_backend
 
 # =============================================================================
 # DatabaseBackend ABC - abstract methods (implemented by subclasses)
@@ -51,7 +54,8 @@ _.database
 _.username
 _.password
 _.trusted_connection
-_.credential_env_var
+_.encrypt
+_.trust_server_certificate
 _.name
 _.description
 _.required

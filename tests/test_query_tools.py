@@ -18,7 +18,13 @@ from mcp_tools_sql.config.models import (
     QueryConfig,
     QueryParamConfig,
 )
+from mcp_tools_sql.query_helpers import extract_sql_params
 from mcp_tools_sql.query_tools import QueryTools
+
+
+def test_extract_sql_params_skips_string_literal() -> None:
+    """Delegation guarantee: placeholders inside string literals are ignored."""
+    assert extract_sql_params("SELECT ':foo' AS x WHERE id = :bar") == {"bar"}
 
 
 def _sqlite_backend(db_path: Path) -> SQLiteBackend:

@@ -69,7 +69,7 @@ host = ""
 port = 1433
 database = ""
 username = ""
-credential_env_var = "MSSQL_PASSWORD"
+password = "${MSSQL_PASSWORD}"
 driver = "ODBC Driver 18 for SQL Server"
 """
 
@@ -80,7 +80,7 @@ host = ""
 port = 5432
 database = ""
 username = ""
-credential_env_var = "POSTGRES_PASSWORD"
+password = "${POSTGRES_PASSWORD}"
 """
 
 

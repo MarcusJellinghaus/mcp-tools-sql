@@ -6,7 +6,7 @@ import argparse
 import datetime
 import importlib.metadata
 import logging
-import os
+import subprocess
 import sys
 from pathlib import Path
 from typing import Any
@@ -254,7 +254,7 @@ def _verify_dependencies_mssql() -> dict[str, Any]:
     result: dict[str, Any] = {}
     pyodbc_module: Any = None
     try:
-        import pyodbc  # type: ignore[import-not-found]  # pylint: disable=import-outside-toplevel
+        import pyodbc  # pylint: disable=import-outside-toplevel
 
         pyodbc_module = pyodbc
         version = getattr(pyodbc, "version", "")
@@ -359,6 +359,34 @@ def verify_builtin() -> dict[str, Any]:
     return result
 
 
+def _check_kerberos_ticket() -> tuple[bool, str, str]:
+    """Run ``klist -s`` to check for a cached Kerberos ticket.
+
+    Returns:
+        Tuple ``(ok, value, error)``. ``ok`` is True when ``klist -s``
+        exits zero. ``FileNotFoundError`` (no ``klist`` installed) and
+        ``subprocess.TimeoutExpired`` map to ``ok=False`` with a hint.
+    """
+    try:
+        proc = subprocess.run(
+            ["klist", "-s"],
+            check=False,
+            capture_output=True,
+            timeout=5,
+        )
+    except FileNotFoundError:
+        return (
+            False,
+            "klist not installed",
+            "Install Kerberos client tools (krb5-user / krb5-workstation)",
+        )
+    except subprocess.TimeoutExpired as exc:
+        return False, "klist timeout", str(exc)
+    if proc.returncode == 0:
+        return True, "cached ticket present", ""
+    return False, "no cached ticket", "Run `kinit` to obtain a Kerberos ticket"
+
+
 def verify_connection(
     connection: ConnectionConfig,
 ) -> tuple[dict[str, Any], DatabaseBackend | None]:
@@ -403,21 +431,7 @@ def verify_connection(
             error="" if connection.database else "database must be set",
         )
 
-    if connection.credential_env_var:
-        env_value = os.environ.get(connection.credential_env_var)
-        result["credentials"] = _entry(
-            ok=env_value is not None,
-            value=(
-                f"env:{connection.credential_env_var}="
-                f"{'<set>' if env_value else '<missing>'}"
-            ),
-            error=(
-                ""
-                if env_value
-                else f"Environment variable {connection.credential_env_var} not set"
-            ),
-        )
-    elif connection.password or connection.trusted_connection:
+    if connection.password or connection.trusted_connection:
         result["credentials"] = _entry(ok=True, value="configured")
     elif connection.backend == "sqlite":
         result["credentials"] = _entry(ok=True, value="(not required for sqlite)")
@@ -427,6 +441,14 @@ def verify_connection(
             value="(none)",
             error="No credentials configured",
         )
+
+    if (
+        connection.backend == "mssql"
+        and connection.trusted_connection
+        and sys.platform == "linux"
+    ):
+        ok, value, error = _check_kerberos_ticket()
+        result["kerberos_ticket"] = _entry(ok=ok, value=value, error=error)
 
     open_backend: DatabaseBackend | None = None
     backend: DatabaseBackend | None = None
@@ -472,10 +494,9 @@ def _check_sql_explain(
     placeholders chosen per declared type: ``""`` / ``0`` / ``0.0`` /
     ``datetime(2000, 1, 1)``) and passes it to
     ``backend.explain(sql, dummy_params)`` so ``EXPLAIN QUERY PLAN`` can
-    compile the parameterized SQL. For MSSQL, calls ``backend.explain(sql)``
-    — currently raises :class:`NotImplementedError`, so this reports
-    ``[ERR]`` with the exception message; that's the intended behaviour
-    until the MSSQL backend lands (issues #5/#6).
+    compile the parameterized SQL. For MSSQL, also passes ``dummy`` params;
+    ``backend.explain`` translates them and wraps the query in
+    ``SET SHOWPLAN_TEXT ON/OFF``.
     """
     del backend_name  # Currently no per-backend branching is required.
     try:

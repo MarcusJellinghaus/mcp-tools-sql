@@ -200,6 +200,15 @@ jobs:
       - name: Install dependencies
         run: uv pip install --system ".[dev,mssql]"
 
+      - name: ODBC diagnostics
+        run: |
+          echo "--- odbcinst -j ---"
+          odbcinst -j || true
+          echo "--- odbcinst -q -d (installed drivers) ---"
+          odbcinst -q -d || true
+          echo "--- pyodbc.drivers() ---"
+          python -c "import pyodbc; print(pyodbc.drivers())"
+
       - name: Run MSSQL integration tests
         env:
           TEST_MSSQL_HOST: localhost

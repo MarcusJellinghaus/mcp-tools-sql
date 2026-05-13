@@ -17,7 +17,8 @@ class ConnectionConfig(BaseModel):
     username: str = ""
     password: str = ""
     trusted_connection: bool = False
-    credential_env_var: str = ""
+    encrypt: bool = True
+    trust_server_certificate: bool = False
     driver: str = "ODBC Driver 18 for SQL Server"  # MSSQL only
     path: str = ""  # SQLite file path
 
