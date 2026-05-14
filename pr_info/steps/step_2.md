@@ -173,7 +173,7 @@ Step 2 tests register `ValidationTools(...)` manually on a fresh `FastMCP` insta
 - [ ] `DECLARE @x INT` → `Invalid SQL. ValidationError: DECLARE statements not supported`
 
 ### MSSQL `_explain` unit test (mocked)
-- [ ] Test `_explain()` MSSQL branch with a mocked `backend.get_isolated_connection()` returning a `MagicMock` cursor. Verify the call sequence is: `SET SHOWPLAN_TEXT ON` → `execute(sql, params)` → `fetchall()` → `SET SHOWPLAN_TEXT OFF` in a `finally:` block. Confirm OFF runs even when execute raises. No live MSSQL required.
+- [ ] Test `_explain()` MSSQL branch with a mocked `backend.get_isolated_connection()` returning a `MagicMock` cursor. Verify the call sequence is: `SET SHOWPLAN_TEXT ON` → `execute(explain_sql)` (the literal-substituted SQL from `substitute_named_with_literals`, no `params` argument) → `fetchall()` → `SET SHOWPLAN_TEXT OFF` in a `finally:` block. Confirm OFF runs even when execute raises. No live MSSQL required.
 
 ### Param handling
 - [ ] `params=None` + non-parameterised SQL → `Valid.`

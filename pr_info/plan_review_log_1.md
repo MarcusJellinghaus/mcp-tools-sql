@@ -55,3 +55,32 @@
 **Tooling note:** `mcp-workspace` MCP server was not available; engineer used native file tools as fallback per supervisor instructions.
 
 **Status:** changes applied; commit pending.
+
+## Round 2 — 2026-05-14
+
+**Findings** (from fresh engineer's `/plan_review`):
+- F1 — `step_2.md` mocked MSSQL `_explain` test bullet says `execute(sql, params)` but implementation calls `execute(explain_sql)` (params already substituted into the literal SQL)
+- F2 — `summary.md` and `step_3a.md` hedge with "or wherever `load_default_queries()` lives" / "or equivalent" — concrete paths should be resolved
+
+**Decisions** (supervisor triage):
+- F1 → accept (test-spec wording fix)
+- F2 → accept (resolve hedge to concrete paths)
+
+**User decisions:** none — no design questions.
+
+**Changes applied:**
+- C1 — `step_2.md`: mocked MSSQL `_explain` test bullet updated to `execute(explain_sql)` with a clarifying parenthetical (literal-substituted SQL via `substitute_named_with_literals`, no `params` argument). SHOWPLAN ON / fetchall / SHOWPLAN OFF in finally preserved.
+- C2 — `summary.md` + `step_3a.md`: hedges replaced with concrete paths discovered via `grep`:
+  - Module: `src/mcp_tools_sql/schema_tools.py` (hosts `load_default_queries()` at line 19)
+  - Test file: `tests/test_default_queries.py` (already exists)
+  - One-way-dep aside in `step_3a.md` corrected from `default_queries` to `schema_tools` (since the latter is the real module imported by `server`).
+
+**Files changed:**
+- `pr_info/steps/summary.md`
+- `pr_info/steps/step_2.md`
+- `pr_info/steps/step_3a.md`
+- `pr_info/plan_review_log_1.md` (this entry)
+
+**Tooling note:** `mcp-workspace` MCP server still not available; engineer used native tools.
+
+**Status:** changes applied; commit pending.

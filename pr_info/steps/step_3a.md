@@ -5,9 +5,9 @@ Wire `ValidationTools` into `ToolServer._register_builtin_tools`, add the `_PROG
 ## WHERE
 
 - `src/mcp_tools_sql/server.py` — register `ValidationTools`, add programmatic-builtin tuple, bump counter.
-- `src/mcp_tools_sql/default_queries.py` (or wherever `load_default_queries()` lives) — skip-with-warning for colliding names.
+- `src/mcp_tools_sql/schema_tools.py` — skip-with-warning for colliding names in `load_default_queries()`.
 - `tests/test_server.py` — assert `validate_sql` is among the registered tools; assert `builtin_tools=<N>` log.
-- `tests/test_default_queries.py` (or equivalent) — assert TOML collision is skipped with a warning.
+- `tests/test_default_queries.py` — assert TOML collision is skipped with a warning.
 
 ## WHAT
 
@@ -49,7 +49,7 @@ for name, spec in toml_queries.items():
     ...
 ```
 
-The import of `_PROGRAMMATIC_BUILTIN_TOOLS` from `server.py` is acceptable (one-way dependency: `default_queries` is already imported by `server`). If a cycle materialises, lift the tuple into a small shared module — but the simplest first cut is to define it once in `server.py` and import it where needed.
+The import of `_PROGRAMMATIC_BUILTIN_TOOLS` from `server.py` is acceptable (one-way dependency: `schema_tools` is already imported by `server`). If a cycle materialises, lift the tuple into a small shared module — but the simplest first cut is to define it once in `server.py` and import it where needed.
 
 ### `tests/test_server.py` additions
 

@@ -44,11 +44,11 @@ EXPLAIN never executes the statement on either backend, so validating UPDATE/INS
 - `src/mcp_tools_sql/backends/mssql.py` — implement fresh-connection `get_isolated_connection()`.
 - `src/mcp_tools_sql/validation_tools.py` — replace stub with full implementation.
 - `src/mcp_tools_sql/server.py` — wire `ValidationTools`, add `_PROGRAMMATIC_BUILTIN_TOOLS` tuple, bump `builtin_tools` counter.
-- `src/mcp_tools_sql/default_queries.py` (or equivalent module exposing `load_default_queries`) — skip-with-warning for TOML entries colliding with a programmatic builtin.
+- `src/mcp_tools_sql/schema_tools.py` — skip-with-warning in `load_default_queries()` for TOML entries colliding with a programmatic builtin.
 - `tests/backends/test_sqlite.py` — tests for SQLite isolation primitive.
 - `tests/backends/test_mssql.py` — tests for MSSQL isolation primitive (unit + integration).
 - `tests/test_server.py` — assert `validate_sql` is among registered tools.
-- `tests/test_default_queries.py` (or equivalent) — assert TOML collision skip emits a warning and does not register the colliding name.
+- `tests/test_default_queries.py` — assert TOML collision skip emits a warning and does not register the colliding name.
 
 **Created:**
 - `tests/test_validation_tools.py` — pre-flight, param handling, success, failure, integration (SQLite + MSSQL).
