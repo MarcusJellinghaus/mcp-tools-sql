@@ -1,6 +1,6 @@
 # Step 2 — `validate_sql` tool + `ValidationTools` (not yet wired)
 
-Replace the `validation_tools.py` stub with the full `validate_sql` implementation: pre-flight checks, exception ladder, SHOWPLAN dance using the Step 1 isolation primitive. Includes unit tests against a mocked backend plus SQLite integration tests. The tool is **not** yet registered with the server — that lands in Step 3.
+Replace the `validation_tools.py` stub with the full `validate_sql` implementation: pre-flight checks, exception ladder, SHOWPLAN dance using the Step 1 isolation primitive. Includes unit tests against a mocked backend plus SQLite integration tests. The tool is **not** yet registered with the server — that lands in Step 3a.
 
 ## WHERE
 
@@ -136,7 +136,8 @@ def _explain(
 
 - `_preflight` runs in order: empty → multi-statement → session-control first keyword → missing param names.
 - Empty rule applies to whitespace-only as well (`sql.strip() == ""`).
-- Missing-name verdict uses the deterministic min of missing names so the message is stable: `f"Invalid parameters. KeyError: '{min(missing)}'"`.
+- Pre-flight rejections use the synthetic `ValidationError:` prefix (no real Python exception is raised — pre-flight short-circuits before any code path that could raise). See Decision #9.
+- Missing-name verdict uses the deterministic min of missing names so the message is stable: `f"Invalid parameters. ValidationError: missing parameter: {min(missing)}"` (no quotes around the name).
 - `_count_statements` filters out whitespace-only statements so trailing newlines / `";"` do not falsely trigger multi-statement.
 - The exception ladder ordering is **specific → general**: `sqlite3.Error` + `pyodbc.Error` first, then `KeyError`/`TypeError`/`ValueError`, then `RuntimeError`, then `Exception`. Note: `sqlite3.Error` and `pyodbc.Error` both extend `Exception` only via `Warning`/`Exception` — they do NOT subclass `KeyError`/`TypeError`/`ValueError`, so ordering is safe.
 - `BLE001` (`blind-except`) is suppressed on the catch-all by design — Decision #8 (never re-raise to the LLM).
@@ -159,16 +160,20 @@ return "Valid." + (f"\nExecution plan:\n{plan}" if return_plan else "")
 
 ## Tests — `tests/test_validation_tools.py`
 
-Use a `FastMCP` + `create_connected_server_and_client_session` pattern matching `tests/test_query_tools.py`. Call the tool through the MCP client so registration is exercised end-to-end. (Even though server wiring lands in Step 3, the `ValidationTools(backend, "sqlite").register(mcp)` path is callable directly here.)
+Step 2 tests register `ValidationTools(...)` manually on a fresh `FastMCP` instance — no `server.py` change yet. Use a `FastMCP` + `create_connected_server_and_client_session` pattern matching `tests/test_query_tools.py`. Call the tool through the MCP client so registration is exercised end-to-end. (Server wiring via `_register_builtin_tools()` lands in Step 3a; the `ValidationTools(backend, "sqlite").register(mcp)` path is callable directly here.)
 
 ### Pre-flight (no DB round-trip — spy on `backend.explain` via `MagicMock` and assert `explain.call_count == 0`)
-- [ ] Empty SQL → `Invalid SQL. Error: empty SQL`
-- [ ] Whitespace-only SQL → `Invalid SQL. Error: empty SQL`
-- [ ] Missing param name → `Invalid parameters. KeyError: '<name>'`
-- [ ] Multi-statement (`SELECT 1; SELECT 2`) → `Invalid SQL. Error: multiple statements not supported`
-- [ ] `USE other_db` → `Invalid SQL. Error: USE statements not supported`
-- [ ] `SET QUOTED_IDENTIFIER ON` → `Invalid SQL. Error: SET statements not supported`
-- [ ] `DECLARE @x INT` → `Invalid SQL. Error: DECLARE statements not supported`
+- [ ] Empty SQL → `Invalid SQL. ValidationError: empty SQL`
+- [ ] Whitespace-only SQL → `Invalid SQL. ValidationError: empty SQL`
+- [ ] Missing param name with `params=None` against `"SELECT :x"` → `Invalid parameters. ValidationError: missing parameter: x`
+- [ ] Missing param name with `params={}` against `"SELECT :x"` → `Invalid parameters. ValidationError: missing parameter: x` (confirms both empty-cases hit the same pre-flight rejection)
+- [ ] Multi-statement (`SELECT 1; SELECT 2`) → `Invalid SQL. ValidationError: multiple statements not supported`
+- [ ] `USE other_db` → `Invalid SQL. ValidationError: USE statements not supported`
+- [ ] `SET QUOTED_IDENTIFIER ON` → `Invalid SQL. ValidationError: SET statements not supported`
+- [ ] `DECLARE @x INT` → `Invalid SQL. ValidationError: DECLARE statements not supported`
+
+### MSSQL `_explain` unit test (mocked)
+- [ ] Test `_explain()` MSSQL branch with a mocked `backend.get_isolated_connection()` returning a `MagicMock` cursor. Verify the call sequence is: `SET SHOWPLAN_TEXT ON` → `execute(sql, params)` → `fetchall()` → `SET SHOWPLAN_TEXT OFF` in a `finally:` block. Confirm OFF runs even when execute raises. No live MSSQL required.
 
 ### Param handling
 - [ ] `params=None` + non-parameterised SQL → `Valid.`
@@ -187,8 +192,8 @@ Use a `FastMCP` + `create_connected_server_and_client_session` pattern matching 
 - [ ] `return_plan=True` on invalid SQL → error verdict only, no `Execution plan:` substring
 - [ ] `RuntimeError` (backend closed via `backend.close()`) → starts with `Database connection error. RuntimeError: `
 
-### Mark MSSQL-specific failure tests as Step 3 work
-Unsupported-param-type and non-finite-float tests need the MSSQL path (`_sql_literal`); they live in Step 3.
+### Mark MSSQL-specific failure tests as Step 3b work
+Unsupported-param-type and non-finite-float tests need the MSSQL path (`_sql_literal`); they live in Step 3b.
 
 ## Commit & checks
 
@@ -204,4 +209,4 @@ All must pass.
 
 ## LLM prompt for this step
 
-> Implement Step 2 of issue #8 per `pr_info/steps/summary.md` and `pr_info/steps/step_2.md`. Replace the `validation_tools.py` stub with the full implementation: defensive `pyodbc` import, `_preflight` helper (4 checks), `_explain` helper that dispatches on `backend_name`, `ValidationTools` class with `validate_sql` async tool registered via `mcp.add_tool`. Use `log_tool_call` and `rec.record(rows=0, cols=0)`. Add `tests/test_validation_tools.py` with all pre-flight, param-handling, success and failure cases (SQLite path). Do NOT wire into `server.py` — that is Step 3. Run format / pytest / pylint / mypy and commit as one commit.
+> Implement Step 2 of issue #8 per `pr_info/steps/summary.md` and `pr_info/steps/step_2.md`. Replace the `validation_tools.py` stub with the full implementation: defensive `pyodbc` import, `_preflight` helper (4 checks), `_explain` helper that dispatches on `backend_name`, `ValidationTools` class with `validate_sql` async tool registered via `mcp.add_tool`. Use `log_tool_call` and `rec.record(rows=0, cols=0)`. Add `tests/test_validation_tools.py` with all pre-flight, param-handling, success and failure cases (SQLite path) — including the mocked MSSQL `_explain` SHOWPLAN-sequence unit test. Do NOT wire into `server.py` — that is Step 3a. Run format / pytest / pylint / mypy and commit as one commit.

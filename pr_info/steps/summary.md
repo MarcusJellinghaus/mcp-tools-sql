@@ -30,7 +30,7 @@ This is the smallest primitive that keeps validation policy out of the backend i
 
 ### Server wiring
 
-`ToolServer._register_builtin_tools` registers `ValidationTools(self._backend, self._backend_name).register(self._mcp)` after `SchemaTools`. `run_server` adds `_PROGRAMMATIC_BUILTIN_TOOLS = 1` to the `builtin_tools=<N>` startup log counter, which currently derives only from `len(load_default_queries())`.
+`ToolServer._register_builtin_tools` registers `ValidationTools(self._backend, self._backend_name).register(self._mcp)` after `SchemaTools`. `server.py` gains a module-scope `_PROGRAMMATIC_BUILTIN_TOOLS = ("validate_sql",)` tuple; `run_server` adds `len(_PROGRAMMATIC_BUILTIN_TOOLS)` to the `builtin_tools=<N>` startup log counter, which currently derives only from `len(load_default_queries())`. `load_default_queries()` is taught to skip (with a warning log) any TOML entry whose name collides with a programmatic builtin — names in the tuple are reserved.
 
 ### `validate_sql` is registered regardless of `allow_updates`
 
@@ -43,10 +43,12 @@ EXPLAIN never executes the statement on either backend, so validating UPDATE/INS
 - `src/mcp_tools_sql/backends/sqlite.py` — implement no-op `get_isolated_connection()`.
 - `src/mcp_tools_sql/backends/mssql.py` — implement fresh-connection `get_isolated_connection()`.
 - `src/mcp_tools_sql/validation_tools.py` — replace stub with full implementation.
-- `src/mcp_tools_sql/server.py` — wire `ValidationTools`, bump `builtin_tools` counter.
+- `src/mcp_tools_sql/server.py` — wire `ValidationTools`, add `_PROGRAMMATIC_BUILTIN_TOOLS` tuple, bump `builtin_tools` counter.
+- `src/mcp_tools_sql/default_queries.py` (or equivalent module exposing `load_default_queries`) — skip-with-warning for TOML entries colliding with a programmatic builtin.
 - `tests/backends/test_sqlite.py` — tests for SQLite isolation primitive.
 - `tests/backends/test_mssql.py` — tests for MSSQL isolation primitive (unit + integration).
 - `tests/test_server.py` — assert `validate_sql` is among registered tools.
+- `tests/test_default_queries.py` (or equivalent) — assert TOML collision skip emits a warning and does not register the colliding name.
 
 **Created:**
 - `tests/test_validation_tools.py` — pre-flight, param handling, success, failure, integration (SQLite + MSSQL).
@@ -57,6 +59,7 @@ EXPLAIN never executes the statement on either backend, so validating UPDATE/INS
 
 1. **Step 1** — Backend isolation primitive (foundation).
 2. **Step 2** — `validate_sql` implementation + unit tests + SQLite integration (depends on Step 1's primitive).
-3. **Step 3** — Server wiring + MSSQL integration & isolation tests (depends on Step 2).
+3. **Step 3a** — Wire `validate_sql` into `ToolServer` + programmatic-builtin tuple + TOML collision skip + server-registration unit test (depends on Step 2).
+4. **Step 3b** — MSSQL integration tests for `validate_sql` (depends on Step 3a).
 
 Each step ends with a passing `pylint` / `pytest` / `mypy` run and produces exactly one commit.
