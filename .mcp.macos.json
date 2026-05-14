@@ -17,7 +17,8 @@
       ],
       "env": {
         "PYTHONPATH": "${MCP_CODER_PROJECT_DIR}/src"
-      }
+      },
+      "alwaysLoad": true
     },
     "sql-prototype": {
       "type": "stdio",
@@ -42,13 +43,18 @@
         "--reference-project",
         "name=mcp-workspace,path=${HOME}/Documents/GitHub/mcp-workspace,url=https://github.com/MarcusJellinghaus/mcp-workspace",
         "--reference-project",
+        "name=mcp-config,path=${HOME}/Documents/GitHub/mcp-config,url=https://github.com/MarcusJellinghaus/mcp-config",
+        "--reference-project",
         "name=mcp-coder-utils,path=${HOME}/Documents/GitHub/mcp-coder-utils,url=https://github.com/MarcusJellinghaus/mcp-coder-utils",
         "--reference-project",
-        "name=mcp-tools-py,path=${HOME}/Documents/GitHub/mcp-tools-py,url=https://github.com/MarcusJellinghaus/mcp-tools-py"
+        "name=mcp-tools-py,path=${HOME}/Documents/GitHub/mcp-tools-py,url=https://github.com/MarcusJellinghaus/mcp-tools-py",
+        "--reference-project",
+        "name=obsidian-dev-wiki,path=${HOME}/Documents/GitHub/obsidian-dev-wiki,url=https://github.com/MarcusJellinghaus/obsidian-dev-wiki"
       ],
       "env": {
         "PYTHONPATH": "${MCP_CODER_VENV_DIR}/lib"
-      }
+      },
+      "alwaysLoad": true
     }
   }
 }
