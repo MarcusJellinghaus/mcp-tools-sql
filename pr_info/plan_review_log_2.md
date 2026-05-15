@@ -38,3 +38,36 @@ Second supervisor run. Plan was previously reviewed and updated across two round
 - `pr_info/steps/summary.md`
 
 **Status:** changes applied; commit pending.
+
+## Round 2 — 2026-05-15
+
+**Findings** (from fresh engineer's `/plan_review`): none — plan is ready.
+
+The round-1 fixes (C1–C6) all landed cleanly:
+- `_PROGRAMMATIC_BUILTIN_TOOLS` consistently described as living in `schema_tools.py` across `summary.md` and `step_3a.md`; `server.py` imports it from there; no circular import remains
+- `load_default_queries(path: Path | None = None)` signature is consistent; collision test uses `tmp_path` injection
+- Step 1's SQLite test bullet correctly states lazy `connect()` fires on `__enter__`
+- `_INVALID_SQL_EXC` module-level constant is defined and used in the exception ladder; HOW explains the rationale
+- Step 2 HOW correctly acknowledges pure-punctuation inputs fall through to the backend's syntax-error path
+- Step 3b's HOW and ALGORITHM correctly describe `mssql_db` as yielding `MSSQLTestEnv(config, schema)` with implementer-built backend
+
+Internal consistency checks pass: `ValidationTools(backend, backend_name)` constructor identical across files, registration order `SchemaTools` → `ValidationTools` matches between WHAT and ALGORITHM, test bullets agree with implementation snippets, seed-data invariants (customer id 999 absent) are valid.
+
+**Decisions:** none — no findings.
+
+**User decisions:** none.
+
+**Changes applied:** none.
+
+**Files changed:** none (only this log entry).
+
+**Status:** no plan changes needed.
+
+## Final Status
+
+Two rounds in this supervisor session.
+
+- **Round 1** — six findings, all autonomously triaged and applied (no user decisions required). Committed as `42e248f` — `docs(plan): apply round-2 plan-review fixes for validate_sql`.
+- **Round 2** — zero findings. Loop terminates.
+
+The plan is ready for implementation approval. No outstanding design questions; all decisions captured in `pr_info/steps/Decisions.md`. Steps are 1 → 2 → 3a → 3b, each producing exactly one commit and leaving the codebase with passing checks.
