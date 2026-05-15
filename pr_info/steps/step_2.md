@@ -44,7 +44,7 @@ if TYPE_CHECKING:
 ### Private helpers
 - `def _count_statements(sql: str) -> int` — `len([s for s in sqlparse.parse(sql) if any(not (t.is_whitespace or t.ttype in sqlparse.tokens.Comment) for t in s.flatten())])`.
 - `def _first_keyword(sql: str) -> str | None` — flatten tokens of the first parsed statement; return uppercased value of the first non-whitespace, non-comment, non-punctuation token, or `None` if none found.
-- `def _preflight(sql: str, params: dict[str, Any] | None) -> str | None` — returns an error verdict string if any pre-flight check fails, else `None`.
+- `def _preflight(sql: str, params: dict[str, Any] | None) -> str | None` — returns an error verdict string if any pre-flight check fails, else `None`. Missing param names are computed as `extract_param_names(sql) - (params or {}).keys()` (the `or {}` is required because the `params` argument may be `None`; this keeps the set-difference well-defined without a separate `None` branch).
 
 ### Tool description constant
 ```python
@@ -136,7 +136,7 @@ def _explain(
 
 ## HOW
 
-- `_preflight` runs in order: empty → multi-statement → session-control first keyword → missing param names. It catches the *common* obviously-bad inputs cheaply (no DB round-trip). Exotic edge cases — e.g. pure-punctuation strings like `";"` or `";;;"` where `_count_statements` returns 1 and `_first_keyword` filters all punctuation to `None` — fall through to the backend, which surfaces them as `Invalid SQL. OperationalError: ...` via the exception ladder. That fallback is the correct behaviour; pre-flight is not a guarantee of catching all junk.
+- `_preflight` runs in order: empty → multi-statement → session-control first keyword → missing param names. It catches the *common* obviously-bad inputs cheaply (no DB round-trip). Exotic edge cases — e.g. pure-punctuation strings like `";"` or `";;;"` where `_count_statements` returns 1 and `_first_keyword` filters all punctuation to `None` — fall through to the backend, which surfaces them as `Invalid SQL. OperationalError: ...` via the exception ladder. That fallback is the correct behaviour; pre-flight is not a guarantee of catching all junk. Note: `";;"` parses as two punctuation-only statements, so it returns `Invalid SQL. ValidationError: multiple statements not supported` rather than falling through to the backend. This is consistent with the multi-statement rejection and acceptable.
 - Empty rule applies to whitespace-only as well (`sql.strip() == ""`).
 - Pre-flight rejections use the synthetic `ValidationError:` prefix (no real Python exception is raised — pre-flight short-circuits before any code path that could raise). See Decision #9.
 - Missing-name verdict uses the deterministic min of missing names so the message is stable: `f"Invalid parameters. ValidationError: missing parameter: {min(missing)}"` (no quotes around the name).
@@ -182,6 +182,7 @@ Step 2 tests register `ValidationTools(...)` manually on a fresh `FastMCP` insta
 - [ ] `params=None` + non-parameterised SQL → `Valid.`
 - [ ] `params={}` + non-parameterised SQL → `Valid.` (symmetric)
 - [ ] Extra param names in `params` (not in SQL) are silently ignored — `Valid.`
+- [ ] SQL `SELECT :a` with `params={"a": 1, "b": 2}` (extra `b`) → `Valid.` (extras are tolerated alongside required params; exercises the `missing = used - provided` set-difference's tolerance for extra keys when the used set is non-empty)
 
 ### Success (via `sqlite_db` fixture)
 - [ ] Valid SELECT → `Valid.` (default)

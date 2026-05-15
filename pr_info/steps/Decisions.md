@@ -1,5 +1,7 @@
 # Design Decisions — `validate_sql` (issue #8)
 
+This file captures decisions added or refined during plan review (currently #8 and #9). Decisions #1–#7 and #10–#18 referenced from the step files live in the GitHub issue body for #8.
+
 Numbered decisions referenced from the step files. Each captures a choice made during plan review and the reason behind it. Decisions are listed in order of capture, not importance.
 
 ## Decision #8 — Never re-raise exceptions to the LLM

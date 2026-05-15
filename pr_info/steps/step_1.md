@@ -21,13 +21,15 @@ def get_isolated_connection(self) -> AbstractContextManager[Any]:
     SQLite yields the persistent connection (no-op isolation: EXPLAIN QUERY
     PLAN does not execute the statement). MSSQL yields a fresh pyodbc
     connection built from the same ConnectionConfig, closed on context exit.
+    Callers MUST NOT close the yielded connection; the backend owns its
+    lifecycle.
     """
 ```
 
 ### `SQLiteBackend.get_isolated_connection`
 ```python
 @contextmanager
-def get_isolated_connection(self) -> Iterator[Any]:
+def get_isolated_connection(self) -> AbstractContextManager[Any]:  # type: ignore[misc]
     self.connect()
     assert self._connection is not None
     yield self._connection
@@ -36,7 +38,7 @@ def get_isolated_connection(self) -> Iterator[Any]:
 ### `MSSQLBackend.get_isolated_connection`
 ```python
 @contextmanager
-def get_isolated_connection(self) -> Iterator[Any]:
+def get_isolated_connection(self) -> AbstractContextManager[Any]:  # type: ignore[misc]
     import pyodbc  # pylint: disable=import-error,import-outside-toplevel
     conn = pyodbc.connect(_build_connection_string(self._config), autocommit=True)
     try:
@@ -45,10 +47,13 @@ def get_isolated_connection(self) -> Iterator[Any]:
         conn.close()
 ```
 
+Note: the public return annotation is `AbstractContextManager[Any]` to match the abstract (Option A in HOW). `@contextmanager` wraps the generator into a `_GeneratorContextManager` (an `AbstractContextManager`); the `type: ignore[misc]` suppresses the mypy complaint about declaring a generator function's return as a non-`Iterator` type.
+
 ## HOW
 
 - `base.py`: add `from contextlib import AbstractContextManager` to imports; declare the method as `@abstractmethod`.
-- `sqlite.py` and `mssql.py`: add `from collections.abc import Iterator` and `from contextlib import contextmanager`; decorate each impl with `@contextmanager`.
+- `sqlite.py` and `mssql.py`: add `from contextlib import AbstractContextManager, contextmanager`; decorate each impl with `@contextmanager`. (No `Iterator` import is needed since the public return annotation is `AbstractContextManager[Any]` per Option A.)
+- Strict-mypy override-signature note: the abstract method's return type (`AbstractContextManager[Any]`) does not match the `@contextmanager`-decorated impls' generator signature (`Iterator[Any]`) under strict mypy. Resolution (Option A — no existing `@contextmanager` convention in `backends/base.py` to follow): declare the abstract method as a plain method (no `@contextmanager`) returning `AbstractContextManager[Any]`; concrete impls use `@contextmanager` but their public type annotation is also `AbstractContextManager[Any]` (typing the inner generator function's return as `Iterator[Any]` is fine internally). This keeps the override compatible under `--strict`.
 - MSSQL impl mirrors the lazy-import pattern already used in `MSSQLBackend.connect()` — `pyodbc` is imported inside the function so the SQLite-only install path stays unbroken.
 - No password-redaction wrapping is needed here: errors during `pyodbc.connect` already get the same treatment via the existing redaction logic only on the persistent connection's `connect()`. The isolated path is for validation only; if it fails, the calling tool catches it in the Step 2 exception ladder. Passwords in the connection string are not echoed because pyodbc errors don't include the connection string in their message text by default. (If a future audit reveals leakage, add the same `_sanitize` wrapping then — out of scope here.)
 
