@@ -71,7 +71,7 @@ MSSQL:   build conn_str, pyodbc.connect(autocommit=True),
 ### `tests/backends/test_sqlite.py`
 - [ ] `get_isolated_connection` yields the persistent connection: `with backend.get_isolated_connection() as conn: assert conn is backend._connection`.
 - [ ] After context exit, the persistent connection is still open and usable (verify by running a `SELECT 1` on `backend` afterwards).
-- [ ] Calling `get_isolated_connection()` on a fresh (unconnected) backend triggers lazy `connect()`.
+- [ ] Entering the `with` block on a fresh (unconnected) backend triggers lazy `connect()` — i.e. the body of the context manager runs on `__enter__`, not on the bare call.
 
 ### `tests/backends/test_mssql.py` — unit (no DB)
 - [ ] With `pyodbc.connect` monkeypatched to a `MagicMock`, `get_isolated_connection()` yields the mock and calls `.close()` on context exit. (Use `unittest.mock` against the inline `pyodbc` import — patch `pyodbc.connect` via `monkeypatch.setattr` after importing pyodbc inside the test.)

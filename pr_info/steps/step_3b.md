@@ -25,7 +25,7 @@ The `USE other_db` slipped-past-pre-flight scenario from the issue's test list i
 
 ## HOW
 
-- Reuse the existing `mssql_db` fixture and `mssql_integration` marker — no new conftest plumbing.
+- Reuse the existing `mssql_db` fixture (which yields an `MSSQLTestEnv(config, schema)` wrapper, not a bare backend) and the `mssql_integration` marker — no new conftest plumbing. The implementer constructs the backend in the test setup: `backend = MSSQLBackend(env.config)` and closes it in a `finally`.
 - Tests instantiate the tool via `ValidationTools(backend, "mssql").register(mcp)` against a fresh `FastMCP`, then drive it through `create_connected_server_and_client_session` (matching Step 2's pattern). Alternatively, if Step 3a's server wiring is already committed by the time these run, the tests can go through the full `ToolServer` — either is acceptable; the manual-register path is simpler and avoids extra setup.
 - The UPDATE-side-effect test guards against any future regression where MSSQL's SHOWPLAN path accidentally runs the statement. Pair it with a `SELECT COUNT(*) WHERE id = 999` before and after.
 - The session-state containment test calls `validate_sql` once, then calls `backend.execute_query("SELECT DB_NAME() AS db")` and asserts the configured DB name is returned — proving the persistent connection's session was not touched by the isolated SHOWPLAN dance.
@@ -34,7 +34,8 @@ The `USE other_db` slipped-past-pre-flight scenario from the issue's test list i
 
 ```
 For each MSSQL test:
-    arrange: mssql_db fixture → backend, schema
+    arrange: mssql_db fixture yields MSSQLTestEnv(config, schema)
+             backend = MSSQLBackend(env.config); construct in setup; close in finally
              FastMCP + ValidationTools(backend, "mssql").register(mcp)
     act:     await client.call_tool("validate_sql", {...})
     assert:  verdict prefix / equality per the bullet list

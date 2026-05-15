@@ -4,22 +4,31 @@ Wire `ValidationTools` into `ToolServer._register_builtin_tools`, add the `_PROG
 
 ## WHERE
 
-- `src/mcp_tools_sql/server.py` — register `ValidationTools`, add programmatic-builtin tuple, bump counter.
-- `src/mcp_tools_sql/schema_tools.py` — skip-with-warning for colliding names in `load_default_queries()`.
+- `src/mcp_tools_sql/schema_tools.py` — define `_PROGRAMMATIC_BUILTIN_TOOLS` tuple, add optional `path` parameter to `load_default_queries()`, skip-with-warning for colliding names.
+- `src/mcp_tools_sql/server.py` — register `ValidationTools`, import `_PROGRAMMATIC_BUILTIN_TOOLS`, bump counter.
 - `tests/test_server.py` — assert `validate_sql` is among the registered tools; assert `builtin_tools=<N>` log.
 - `tests/test_default_queries.py` — assert TOML collision is skipped with a warning.
 
 ## WHAT
 
-### `server.py` changes
+### `schema_tools.py` changes
 
 ```python
-from mcp_tools_sql.validation_tools import ValidationTools
-
 _PROGRAMMATIC_BUILTIN_TOOLS: tuple[str, ...] = ("validate_sql",)
 ```
 
-Defined at module scope. Future programmatic builtins are added by extending the tuple — no separate counter constant to update.
+Defined at module scope near `load_default_queries()`. Future programmatic builtins are added by extending the tuple — no separate counter constant to update. The tuple lives in `schema_tools.py` so the dependency stays one-way (`server` → `schema_tools`), avoiding any circular import.
+
+### `server.py` changes
+
+```python
+from mcp_tools_sql.schema_tools import (
+    SchemaTools,
+    load_default_queries,
+    _PROGRAMMATIC_BUILTIN_TOOLS,
+)
+from mcp_tools_sql.validation_tools import ValidationTools
+```
 
 In `ToolServer._register_builtin_tools`:
 ```python
@@ -36,20 +45,21 @@ n_builtin = len(load_default_queries()) + len(_PROGRAMMATIC_BUILTIN_TOOLS)
 
 ### `load_default_queries()` change
 
-When iterating TOML query entries, skip any entry whose name appears in `_PROGRAMMATIC_BUILTIN_TOOLS`. Emit a warning log line identifying the colliding name and that the programmatic builtin wins.
+Signature gains an optional `path: Path | None = None` parameter (defaulting to the current hard-coded `Path(__file__).parent / "default_queries.toml"` when `None`) so tests can inject a temporary TOML file. When iterating TOML query entries, skip any entry whose name appears in `_PROGRAMMATIC_BUILTIN_TOOLS` (defined in the same module — no cross-module import needed). Emit a warning log line identifying the colliding name and that the programmatic builtin wins.
 
 ```python
 # Pseudo:
-for name, spec in toml_queries.items():
-    if name in _PROGRAMMATIC_BUILTIN_TOOLS:
-        log.warning(
-            "Skipping TOML query %r — name reserved by programmatic builtin", name
-        )
-        continue
+def load_default_queries(path: Path | None = None) -> dict[str, ...]:
+    toml_path = path if path is not None else Path(__file__).parent / "default_queries.toml"
     ...
+    for name, spec in toml_queries.items():
+        if name in _PROGRAMMATIC_BUILTIN_TOOLS:
+            log.warning(
+                "Skipping TOML query %r — name reserved by programmatic builtin", name
+            )
+            continue
+        ...
 ```
-
-The import of `_PROGRAMMATIC_BUILTIN_TOOLS` from `server.py` is acceptable (one-way dependency: `schema_tools` is already imported by `server`). If a cycle materialises, lift the tuple into a small shared module — but the simplest first cut is to define it once in `server.py` and import it where needed.
 
 ### `tests/test_server.py` additions
 
@@ -60,7 +70,7 @@ Tests the production path via `_register_builtin_tools()` in `server.py` (after 
 
 ### `tests/test_default_queries.py` additions
 
-- [ ] Mock a TOML file containing `[queries.validate_sql]` (with arbitrary `sql` body). Call `load_default_queries()`. Assert:
+- [ ] Using the `tmp_path` fixture, write a temporary TOML file containing `[queries.validate_sql]` (with arbitrary `sql` body). Call `load_default_queries(tmp_path / "default_queries.toml")`. Assert:
   - The returned mapping does NOT contain `validate_sql`.
   - A warning is logged that mentions the reserved name.
 
@@ -74,14 +84,20 @@ Tests the production path via `_register_builtin_tools()` in `server.py` (after 
 ## ALGORITHM
 
 ```
-server.py module scope:
+schema_tools.py module scope:
     _PROGRAMMATIC_BUILTIN_TOOLS = ("validate_sql",)
+
+server.py imports:
+    from mcp_tools_sql.schema_tools import (
+        SchemaTools, load_default_queries, _PROGRAMMATIC_BUILTIN_TOOLS,
+    )
 
 ToolServer._register_builtin_tools:
     SchemaTools(...).register(mcp)
     ValidationTools(...).register(mcp)
 
-load_default_queries:
+load_default_queries(path=None):
+    toml_path = path or Path(__file__).parent / "default_queries.toml"
     for name, spec in toml:
         if name in _PROGRAMMATIC_BUILTIN_TOOLS:
             log.warning(...); continue
@@ -93,7 +109,7 @@ run_server:
 
 ## DATA
 
-- No return-value changes. `_PROGRAMMATIC_BUILTIN_TOOLS: tuple[str, ...]` constant added to `server.py`.
+- No return-value changes. `_PROGRAMMATIC_BUILTIN_TOOLS: tuple[str, ...]` constant added to `schema_tools.py` and re-imported by `server.py`. `load_default_queries()` gains an optional `path: Path | None = None` parameter for test injection (defaults preserve current behavior).
 
 ## Tests checklist for this step
 
@@ -118,4 +134,4 @@ All must pass.
 
 ## LLM prompt for this step
 
-> Implement Step 3a of issue #8 per `pr_info/steps/summary.md` and `pr_info/steps/step_3a.md`. In `src/mcp_tools_sql/server.py`: import `ValidationTools`, add `_PROGRAMMATIC_BUILTIN_TOOLS: tuple[str, ...] = ("validate_sql",)` at module scope, register `ValidationTools(self._backend, self._backend_name).register(self._mcp)` after `SchemaTools` in `_register_builtin_tools`, and update `n_builtin` in `run_server` to `len(load_default_queries()) + len(_PROGRAMMATIC_BUILTIN_TOOLS)`. Update the `_register_builtin_tools` docstring. In `load_default_queries()`, skip with a warning any TOML entry whose name is in `_PROGRAMMATIC_BUILTIN_TOOLS`. Add a `validate_sql`-registration test in `tests/test_server.py` (assert it appears in `mcp.list_tools()`; verify the counter log via `caplog` or fall back per the step file). Add a collision-skip test for `load_default_queries()`. Run format / pytest / pylint / mypy and commit as one commit.
+> Implement Step 3a of issue #8 per `pr_info/steps/summary.md` and `pr_info/steps/step_3a.md`. In `src/mcp_tools_sql/schema_tools.py`: add `_PROGRAMMATIC_BUILTIN_TOOLS: tuple[str, ...] = ("validate_sql",)` at module scope near `load_default_queries()`, give `load_default_queries()` an optional `path: Path | None = None` parameter (defaults to the existing hard-coded location), and skip with a warning any TOML entry whose name is in `_PROGRAMMATIC_BUILTIN_TOOLS`. In `src/mcp_tools_sql/server.py`: import `ValidationTools` and re-import `_PROGRAMMATIC_BUILTIN_TOOLS` from `schema_tools` alongside `SchemaTools`/`load_default_queries`, register `ValidationTools(self._backend, self._backend_name).register(self._mcp)` after `SchemaTools` in `_register_builtin_tools`, and update `n_builtin` in `run_server` to `len(load_default_queries()) + len(_PROGRAMMATIC_BUILTIN_TOOLS)`. Update the `_register_builtin_tools` docstring. Add a `validate_sql`-registration test in `tests/test_server.py` (assert it appears in `mcp.list_tools()`; verify the counter log via `caplog` or fall back per the step file). Add a collision-skip test in `tests/test_default_queries.py` that writes a temporary TOML via `tmp_path` and passes its path into `load_default_queries(...)`. Run format / pytest / pylint / mypy and commit as one commit.

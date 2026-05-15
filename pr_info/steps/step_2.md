@@ -32,6 +32,8 @@ try:
 except ImportError:
     _PYODBC_ERROR = ()
 
+_INVALID_SQL_EXC: tuple[type[BaseException], ...] = (sqlite3.Error, *_PYODBC_ERROR)
+
 _SESSION_KEYWORDS = frozenset({"USE", "SET", "DECLARE"})
 
 if TYPE_CHECKING:
@@ -86,7 +88,7 @@ class ValidationTools:
                     return verdict
                 try:
                     plan = _explain(backend, backend_name, sql, params)
-                except (sqlite3.Error, *_PYODBC_ERROR) as exc:
+                except _INVALID_SQL_EXC as exc:
                     return f"Invalid SQL. {type(exc).__name__}: {exc}"
                 except (KeyError, TypeError, ValueError) as exc:
                     return f"Invalid parameters. {type(exc).__name__}: {exc}"
@@ -134,12 +136,13 @@ def _explain(
 
 ## HOW
 
-- `_preflight` runs in order: empty → multi-statement → session-control first keyword → missing param names.
+- `_preflight` runs in order: empty → multi-statement → session-control first keyword → missing param names. It catches the *common* obviously-bad inputs cheaply (no DB round-trip). Exotic edge cases — e.g. pure-punctuation strings like `";"` or `";;;"` where `_count_statements` returns 1 and `_first_keyword` filters all punctuation to `None` — fall through to the backend, which surfaces them as `Invalid SQL. OperationalError: ...` via the exception ladder. That fallback is the correct behaviour; pre-flight is not a guarantee of catching all junk.
 - Empty rule applies to whitespace-only as well (`sql.strip() == ""`).
 - Pre-flight rejections use the synthetic `ValidationError:` prefix (no real Python exception is raised — pre-flight short-circuits before any code path that could raise). See Decision #9.
 - Missing-name verdict uses the deterministic min of missing names so the message is stable: `f"Invalid parameters. ValidationError: missing parameter: {min(missing)}"` (no quotes around the name).
 - `_count_statements` filters out whitespace-only statements so trailing newlines / `";"` do not falsely trigger multi-statement.
 - The exception ladder ordering is **specific → general**: `sqlite3.Error` + `pyodbc.Error` first, then `KeyError`/`TypeError`/`ValueError`, then `RuntimeError`, then `Exception`. Note: `sqlite3.Error` and `pyodbc.Error` both extend `Exception` only via `Warning`/`Exception` — they do NOT subclass `KeyError`/`TypeError`/`ValueError`, so ordering is safe.
+- The module-level `_INVALID_SQL_EXC` constant exists so the splatted-tuple pattern (`except (sqlite3.Error, *_PYODBC_ERROR)`) never appears in `except` clauses — cleaner and safer under strict static checks (lint/mypy) which dislike empty-tuple unpacking inline.
 - `BLE001` (`blind-except`) is suppressed on the catch-all by design — Decision #8 (never re-raise to the LLM).
 - `rec.record(rows=0, cols=0)` is set once at the top of the body so the success INFO log line always carries zeros (validate_sql returns a string verdict, not tabular data).
 

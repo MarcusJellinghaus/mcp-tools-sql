@@ -30,7 +30,7 @@ This is the smallest primitive that keeps validation policy out of the backend i
 
 ### Server wiring
 
-`ToolServer._register_builtin_tools` registers `ValidationTools(self._backend, self._backend_name).register(self._mcp)` after `SchemaTools`. `server.py` gains a module-scope `_PROGRAMMATIC_BUILTIN_TOOLS = ("validate_sql",)` tuple; `run_server` adds `len(_PROGRAMMATIC_BUILTIN_TOOLS)` to the `builtin_tools=<N>` startup log counter, which currently derives only from `len(load_default_queries())`. `load_default_queries()` is taught to skip (with a warning log) any TOML entry whose name collides with a programmatic builtin — names in the tuple are reserved.
+`ToolServer._register_builtin_tools` registers `ValidationTools(self._backend, self._backend_name).register(self._mcp)` after `SchemaTools`. `schema_tools.py` gains a module-scope `_PROGRAMMATIC_BUILTIN_TOOLS = ("validate_sql",)` tuple (defined alongside `load_default_queries()` to keep the `server` → `schema_tools` dependency one-way and avoid any circular import); `server.py` imports the tuple from there. `run_server` adds `len(_PROGRAMMATIC_BUILTIN_TOOLS)` to the `builtin_tools=<N>` startup log counter, which currently derives only from `len(load_default_queries())`. `load_default_queries()` gains an optional `path: Path | None = None` parameter (defaulting to the current hard-coded location) so tests can inject a temporary TOML file, and is taught to skip (with a warning log) any TOML entry whose name collides with a programmatic builtin — names in the tuple are reserved.
 
 ### `validate_sql` is registered regardless of `allow_updates`
 
@@ -43,8 +43,8 @@ EXPLAIN never executes the statement on either backend, so validating UPDATE/INS
 - `src/mcp_tools_sql/backends/sqlite.py` — implement no-op `get_isolated_connection()`.
 - `src/mcp_tools_sql/backends/mssql.py` — implement fresh-connection `get_isolated_connection()`.
 - `src/mcp_tools_sql/validation_tools.py` — replace stub with full implementation.
-- `src/mcp_tools_sql/server.py` — wire `ValidationTools`, add `_PROGRAMMATIC_BUILTIN_TOOLS` tuple, bump `builtin_tools` counter.
-- `src/mcp_tools_sql/schema_tools.py` — skip-with-warning in `load_default_queries()` for TOML entries colliding with a programmatic builtin.
+- `src/mcp_tools_sql/server.py` — wire `ValidationTools`, import `_PROGRAMMATIC_BUILTIN_TOOLS` from `schema_tools`, bump `builtin_tools` counter.
+- `src/mcp_tools_sql/schema_tools.py` — define `_PROGRAMMATIC_BUILTIN_TOOLS` tuple, give `load_default_queries()` an optional `path: Path | None = None` parameter for test injection, and skip-with-warning for TOML entries colliding with a programmatic builtin.
 - `tests/backends/test_sqlite.py` — tests for SQLite isolation primitive.
 - `tests/backends/test_mssql.py` — tests for MSSQL isolation primitive (unit + integration).
 - `tests/test_server.py` — assert `validate_sql` is among registered tools.
