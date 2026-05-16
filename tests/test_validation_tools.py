@@ -10,9 +10,11 @@ import pytest
 from mcp.server.fastmcp import FastMCP
 from mcp.shared.memory import create_connected_server_and_client_session
 
+from mcp_tools_sql.backends.mssql import MSSQLBackend
 from mcp_tools_sql.backends.sqlite import SQLiteBackend
 from mcp_tools_sql.config.models import ConnectionConfig
 from mcp_tools_sql.validation_tools import ValidationTools, _explain
+from tests.conftest import MSSQLTestEnv
 
 
 def _sqlite_backend(db_path: Path) -> SQLiteBackend:
@@ -411,3 +413,171 @@ async def test_runtime_error_after_close(sqlite_db: Path) -> None:
     ) as client:
         text = await _call_validate(client, "SELECT 1")
     assert text.startswith("Database connection error. RuntimeError: ")
+
+
+# ---------------------------------------------------------------------------
+# MSSQL integration (skipped automatically when TEST_MSSQL_* env vars are missing)
+# ---------------------------------------------------------------------------
+
+
+@pytest.mark.mssql_integration
+@pytest.mark.asyncio
+async def test_mssql_valid_select(mssql_db: MSSQLTestEnv) -> None:
+    """A valid SELECT against the seeded schema returns ``Valid.``."""
+    backend = MSSQLBackend(mssql_db.config)
+    try:
+        mcp = FastMCP("test-mssql-valid-select")
+        ValidationTools(backend, "mssql").register(mcp)
+        async with create_connected_server_and_client_session(
+            mcp, raise_exceptions=True
+        ) as client:
+            text = await _call_validate(
+                client, f"SELECT * FROM {mssql_db.schema}.customers"
+            )
+        assert text == "Valid."
+    finally:
+        backend.close()
+
+
+@pytest.mark.mssql_integration
+@pytest.mark.asyncio
+async def test_mssql_valid_select_return_plan(mssql_db: MSSQLTestEnv) -> None:
+    """``return_plan=True`` appends a non-empty execution plan on success."""
+    backend = MSSQLBackend(mssql_db.config)
+    try:
+        mcp = FastMCP("test-mssql-valid-select-plan")
+        ValidationTools(backend, "mssql").register(mcp)
+        async with create_connected_server_and_client_session(
+            mcp, raise_exceptions=True
+        ) as client:
+            text = await _call_validate(
+                client,
+                f"SELECT * FROM {mssql_db.schema}.customers",
+                return_plan=True,
+            )
+        assert text.startswith("Valid.\nExecution plan:\n")
+        plan_text = text[len("Valid.\nExecution plan:\n") :]
+        assert plan_text.strip() != ""
+    finally:
+        backend.close()
+
+
+@pytest.mark.mssql_integration
+@pytest.mark.asyncio
+async def test_mssql_syntax_error(mssql_db: MSSQLTestEnv) -> None:
+    """Invalid syntax returns ``Invalid SQL. ...``."""
+    backend = MSSQLBackend(mssql_db.config)
+    try:
+        mcp = FastMCP("test-mssql-syntax-error")
+        ValidationTools(backend, "mssql").register(mcp)
+        async with create_connected_server_and_client_session(
+            mcp, raise_exceptions=True
+        ) as client:
+            text = await _call_validate(
+                client, f"SELEKT * FROM {mssql_db.schema}.customers"
+            )
+        assert text.startswith("Invalid SQL. ")
+    finally:
+        backend.close()
+
+
+@pytest.mark.mssql_integration
+@pytest.mark.asyncio
+async def test_mssql_unknown_table(mssql_db: MSSQLTestEnv) -> None:
+    """Unknown table returns ``Invalid SQL. ...``."""
+    backend = MSSQLBackend(mssql_db.config)
+    try:
+        mcp = FastMCP("test-mssql-unknown-table")
+        ValidationTools(backend, "mssql").register(mcp)
+        async with create_connected_server_and_client_session(
+            mcp, raise_exceptions=True
+        ) as client:
+            text = await _call_validate(
+                client, f"SELECT * FROM {mssql_db.schema}.no_such_table"
+            )
+        assert text.startswith("Invalid SQL. ")
+    finally:
+        backend.close()
+
+
+@pytest.mark.mssql_integration
+@pytest.mark.asyncio
+async def test_mssql_unsupported_param_type(mssql_db: MSSQLTestEnv) -> None:
+    """``set()`` is rejected with ``Invalid parameters. TypeError: ...``."""
+    backend = MSSQLBackend(mssql_db.config)
+    try:
+        mcp = FastMCP("test-mssql-unsupported-param")
+        ValidationTools(backend, "mssql").register(mcp)
+        async with create_connected_server_and_client_session(
+            mcp, raise_exceptions=True
+        ) as client:
+            text = await _call_validate(client, "SELECT :x", params={"x": set()})
+        assert text.startswith("Invalid parameters. TypeError: ")
+    finally:
+        backend.close()
+
+
+@pytest.mark.mssql_integration
+@pytest.mark.asyncio
+async def test_mssql_non_finite_float(mssql_db: MSSQLTestEnv) -> None:
+    """``float('inf')`` is rejected with ``Invalid parameters. ValueError: ...``."""
+    backend = MSSQLBackend(mssql_db.config)
+    try:
+        mcp = FastMCP("test-mssql-non-finite-float")
+        ValidationTools(backend, "mssql").register(mcp)
+        async with create_connected_server_and_client_session(
+            mcp, raise_exceptions=True
+        ) as client:
+            text = await _call_validate(client, "SELECT :x", params={"x": float("inf")})
+        assert text.startswith("Invalid parameters. ValueError: ")
+    finally:
+        backend.close()
+
+
+@pytest.mark.mssql_integration
+@pytest.mark.asyncio
+async def test_mssql_valid_update_does_not_execute(mssql_db: MSSQLTestEnv) -> None:
+    """A valid UPDATE returns ``Valid.`` without running on MSSQL."""
+    backend = MSSQLBackend(mssql_db.config)
+    try:
+        mcp = FastMCP("test-mssql-valid-update")
+        ValidationTools(backend, "mssql").register(mcp)
+        rows_before = backend.execute_query(
+            f"SELECT COUNT(*) AS n FROM {mssql_db.schema}.customers WHERE id = 999"
+        )
+        assert rows_before == [{"n": 0}]
+        async with create_connected_server_and_client_session(
+            mcp, raise_exceptions=True
+        ) as client:
+            text = await _call_validate(
+                client,
+                f"UPDATE {mssql_db.schema}.customers " "SET name = 'X' WHERE id = 999",
+            )
+        assert text == "Valid."
+        rows_after = backend.execute_query(
+            f"SELECT COUNT(*) AS n FROM {mssql_db.schema}.customers WHERE id = 999"
+        )
+        assert rows_after == [{"n": 0}]
+    finally:
+        backend.close()
+
+
+@pytest.mark.mssql_integration
+@pytest.mark.asyncio
+async def test_mssql_session_state_containment(mssql_db: MSSQLTestEnv) -> None:
+    """The persistent connection's ``DB_NAME()`` is unchanged across validate_sql."""
+    backend = MSSQLBackend(mssql_db.config)
+    try:
+        mcp = FastMCP("test-mssql-session-state")
+        ValidationTools(backend, "mssql").register(mcp)
+        async with create_connected_server_and_client_session(
+            mcp, raise_exceptions=True
+        ) as client:
+            text = await _call_validate(
+                client, f"SELECT * FROM {mssql_db.schema}.customers"
+            )
+        assert text == "Valid."
+        rows = backend.execute_query("SELECT DB_NAME() AS db")
+        assert rows == [{"db": mssql_db.config.database}]
+    finally:
+        backend.close()
