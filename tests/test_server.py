@@ -18,7 +18,7 @@ from mcp_tools_sql.config.loader import (
     resolve_connection,
 )
 from mcp_tools_sql.schema_tools import (
-    _PROGRAMMATIC_BUILTIN_TOOLS,
+    PROGRAMMATIC_BUILTIN_TOOLS,
     load_default_queries,
 )
 from mcp_tools_sql.server import ToolServer, run_server
@@ -246,7 +246,7 @@ def test_startup_builtin_tools_counter_includes_programmatic_builtins(
     args = _write_sqlite_configs(tmp_path)
     monkeypatch.setattr(ToolServer, "run", lambda self: None)
 
-    expected = len(load_default_queries()) + len(_PROGRAMMATIC_BUILTIN_TOOLS)
+    expected = len(load_default_queries()) + len(PROGRAMMATIC_BUILTIN_TOOLS)
 
     with caplog.at_level(logging.INFO, logger="mcp_tools_sql.server"):
         run_server(args)

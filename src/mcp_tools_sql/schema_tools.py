@@ -18,7 +18,7 @@ if TYPE_CHECKING:
 
 logger = logging.getLogger(__name__)
 
-_PROGRAMMATIC_BUILTIN_TOOLS: tuple[str, ...] = ("validate_sql",)
+PROGRAMMATIC_BUILTIN_TOOLS: tuple[str, ...] = ("validate_sql",)
 
 
 def load_default_queries(path: Path | None = None) -> dict[str, QueryConfig]:
@@ -30,7 +30,7 @@ def load_default_queries(path: Path | None = None) -> dict[str, QueryConfig]:
 
     Returns:
         Dict mapping query name to QueryConfig. Entries whose names collide
-        with :data:`_PROGRAMMATIC_BUILTIN_TOOLS` are skipped with a warning.
+        with :data:`PROGRAMMATIC_BUILTIN_TOOLS` are skipped with a warning.
     """
     toml_path = (
         path if path is not None else Path(__file__).parent / "default_queries.toml"
@@ -39,7 +39,7 @@ def load_default_queries(path: Path | None = None) -> dict[str, QueryConfig]:
         data = tomllib.load(f)
     result: dict[str, QueryConfig] = {}
     for name, cfg in data["queries"].items():
-        if name in _PROGRAMMATIC_BUILTIN_TOOLS:
+        if name in PROGRAMMATIC_BUILTIN_TOOLS:
             logger.warning(
                 "Skipping TOML query %r — name reserved by programmatic builtin",
                 name,

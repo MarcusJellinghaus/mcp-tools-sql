@@ -156,7 +156,7 @@ class ValidationTools:
                 except (KeyError, TypeError, ValueError) as exc:
                     return f"Invalid parameters. {type(exc).__name__}: {exc}"
                 except RuntimeError as exc:
-                    return f"Database connection error. " f"{type(exc).__name__}: {exc}"
+                    return f"Database connection error. {type(exc).__name__}: {exc}"
                 except Exception as exc:  # noqa: BLE001
                     return f"Unexpected error. {type(exc).__name__}: {exc}"
                 if return_plan:

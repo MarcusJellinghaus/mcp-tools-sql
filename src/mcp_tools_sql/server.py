@@ -18,7 +18,7 @@ from mcp_tools_sql.config.loader import (
 )
 from mcp_tools_sql.query_tools import QueryTools
 from mcp_tools_sql.schema_tools import (
-    _PROGRAMMATIC_BUILTIN_TOOLS,
+    PROGRAMMATIC_BUILTIN_TOOLS,
     SchemaTools,
     load_default_queries,
 )
@@ -108,7 +108,7 @@ def run_server(args: argparse.Namespace) -> None:
     conn = resolve_connection(qcfg, dbcfg)
     backend = create_backend(conn)
     try:
-        n_builtin = len(load_default_queries()) + len(_PROGRAMMATIC_BUILTIN_TOOLS)
+        n_builtin = len(load_default_queries()) + len(PROGRAMMATIC_BUILTIN_TOOLS)
         logger.info(
             "starting MCP server backend=%s connection=%s "
             "query_config=%s builtin_tools=%d",
