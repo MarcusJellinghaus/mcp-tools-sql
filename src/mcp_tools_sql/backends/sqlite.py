@@ -4,6 +4,8 @@ from __future__ import annotations
 
 import sqlite3
 import threading
+from collections.abc import Iterator
+from contextlib import contextmanager
 from typing import Any
 
 from mcp_tools_sql.backends.base import DatabaseBackend
@@ -86,3 +88,15 @@ class SQLiteBackend(DatabaseBackend):
         cursor = self._connection.execute(f"EXPLAIN QUERY PLAN {sql}", params or {})
         rows = cursor.fetchall()
         return "\n".join(row["detail"] for row in rows)
+
+    @contextmanager
+    def get_isolated_connection(self) -> Iterator[Any]:
+        """Yield the persistent connection (no-op isolation for SQLite).
+
+        ``EXPLAIN QUERY PLAN`` does not execute the statement, so reusing the
+        persistent connection is safe. Callers MUST NOT close the yielded
+        connection.
+        """
+        self.connect()
+        assert self._connection is not None
+        yield self._connection

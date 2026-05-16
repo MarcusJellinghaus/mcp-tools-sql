@@ -3,6 +3,8 @@
 from __future__ import annotations
 
 import threading
+from collections.abc import Iterator
+from contextlib import contextmanager
 from typing import Any
 
 from mcp_tools_sql.backends.base import DatabaseBackend
@@ -173,6 +175,22 @@ class MSSQLBackend(DatabaseBackend):
             return int(cursor.rowcount)
         finally:
             cursor.close()
+
+    @contextmanager
+    def get_isolated_connection(self) -> Iterator[Any]:
+        """Yield a fresh pyodbc connection, closed on context exit.
+
+        Builds a new connection from the same ``ConnectionConfig`` used by the
+        persistent connection. The fresh connection is closed on context exit
+        (success or exception). Callers MUST NOT close the yielded connection.
+        """
+        import pyodbc  # pylint: disable=import-error,import-outside-toplevel
+
+        conn = pyodbc.connect(_build_connection_string(self._config), autocommit=True)
+        try:
+            yield conn
+        finally:
+            conn.close()
 
     def explain(self, sql: str, params: dict[str, Any] | None = None) -> str:
         """Return the query execution plan via ``SET SHOWPLAN_TEXT ON``.

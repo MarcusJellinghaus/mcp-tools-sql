@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 from abc import ABC, abstractmethod
+from contextlib import AbstractContextManager
 from types import TracebackType
 from typing import Any, Self
 
@@ -44,6 +45,17 @@ class DatabaseBackend(ABC):
 
         Implies connected: backends MUST connect lazily on first call. After
         ``close()``, further calls raise ``RuntimeError``.
+        """
+
+    @abstractmethod
+    def get_isolated_connection(self) -> AbstractContextManager[Any]:
+        """Yield a single-use connection.
+
+        SQLite yields the persistent connection (no-op isolation: EXPLAIN QUERY
+        PLAN does not execute the statement). MSSQL yields a fresh pyodbc
+        connection built from the same ConnectionConfig, closed on context exit.
+        Callers MUST NOT close the yielded connection; the backend owns its
+        lifecycle.
         """
 
     def __enter__(self) -> Self:

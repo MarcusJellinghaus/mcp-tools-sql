@@ -17,8 +17,13 @@ from mcp_tools_sql.config.loader import (
     resolve_connection,
 )
 from mcp_tools_sql.query_tools import QueryTools
-from mcp_tools_sql.schema_tools import SchemaTools, load_default_queries
+from mcp_tools_sql.schema_tools import (
+    PROGRAMMATIC_BUILTIN_TOOLS,
+    SchemaTools,
+    load_default_queries,
+)
 from mcp_tools_sql.update_tools import UpdateTools
+from mcp_tools_sql.validation_tools import ValidationTools
 
 if TYPE_CHECKING:
     from mcp_tools_sql.backends.base import DatabaseBackend
@@ -49,8 +54,9 @@ class ToolServer:
         return self._mcp
 
     def _register_builtin_tools(self) -> None:
-        """Register schema-exploration tools from default_queries.toml."""
+        """Register schema-exploration tools from default_queries.toml and built-in validation tools."""
         SchemaTools(self._backend, self._backend_name).register(self._mcp)
+        ValidationTools(self._backend, self._backend_name).register(self._mcp)
 
     def _register_configured_tools(self) -> None:
         QueryTools(self._backend, self._config.queries, self._backend_name).register(
@@ -102,7 +108,7 @@ def run_server(args: argparse.Namespace) -> None:
     conn = resolve_connection(qcfg, dbcfg)
     backend = create_backend(conn)
     try:
-        n_builtin = len(load_default_queries())
+        n_builtin = len(load_default_queries()) + len(PROGRAMMATIC_BUILTIN_TOOLS)
         logger.info(
             "starting MCP server backend=%s connection=%s "
             "query_config=%s builtin_tools=%d",

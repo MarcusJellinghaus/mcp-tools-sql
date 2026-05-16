@@ -28,6 +28,7 @@ _.close
 _.execute_query
 _.execute_update
 _.explain
+_.get_isolated_connection
 _.read_schemas
 _.read_tables
 _.read_columns
@@ -85,6 +86,12 @@ ValidationTools
 # =============================================================================
 _.__signature__
 _.__doc__
+
+# =============================================================================
+# Context-manager protocol on test mocks (invoked by `with` statements)
+# =============================================================================
+_.__enter__
+_.__exit__
 
 # =============================================================================
 # Stub functions - will be used when implemented
