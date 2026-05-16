@@ -1,7 +1,10 @@
 """Tests for default_queries.toml loading and SQLite pragma binding."""
 
+import logging
 import sqlite3
 from pathlib import Path
+
+import pytest
 
 from mcp_tools_sql.schema_tools import load_default_queries
 
@@ -50,6 +53,32 @@ class TestDefaultQueriesLoading:
         queries = load_default_queries()
         columns_config = queries["read_columns"]
         assert set(columns_config.params.keys()) == {"schema", "table"}
+
+
+class TestProgrammaticBuiltinCollision:
+    """Verify TOML entries colliding with programmatic builtins are skipped."""
+
+    def test_collision_skipped_with_warning(
+        self, tmp_path: Path, caplog: pytest.LogCaptureFixture
+    ) -> None:
+        """A `[queries.validate_sql]` TOML entry is skipped with a warning."""
+        toml_path = tmp_path / "default_queries.toml"
+        toml_path.write_text(
+            "[queries.validate_sql]\n"
+            'description = "Should be skipped"\n'
+            'sql = "SELECT 1"\n'
+        )
+
+        with caplog.at_level(logging.WARNING, logger="mcp_tools_sql.schema_tools"):
+            queries = load_default_queries(toml_path)
+
+        assert "validate_sql" not in queries
+        assert any(
+            "validate_sql" in rec.getMessage()
+            and rec.levelno == logging.WARNING
+            and rec.name == "mcp_tools_sql.schema_tools"
+            for rec in caplog.records
+        )
 
 
 class TestSqlitePragmaBinding:

@@ -17,6 +17,10 @@ from mcp_tools_sql.config.loader import (
     load_query_config,
     resolve_connection,
 )
+from mcp_tools_sql.schema_tools import (
+    _PROGRAMMATIC_BUILTIN_TOOLS,
+    load_default_queries,
+)
 from mcp_tools_sql.server import ToolServer, run_server
 
 
@@ -207,6 +211,54 @@ async def test_configured_query_registered_as_tool(tmp_path: Path) -> None:
             }.issubset(names)
     finally:
         backend.close()
+
+
+@pytest.mark.asyncio
+async def test_validate_sql_registered_as_builtin_tool(tmp_path: Path) -> None:
+    """`_register_builtin_tools()` registers `validate_sql` on the MCP server."""
+    from mcp.shared.memory import create_connected_server_and_client_session
+
+    args = _write_sqlite_configs(tmp_path)
+    qcfg = load_query_config(args.config)
+    dbcfg = load_database_config(args.database_config)
+    conn_cfg = resolve_connection(qcfg, dbcfg)
+    backend = create_backend(conn_cfg)
+    server = ToolServer(qcfg, backend, conn_cfg.backend, allow_updates=False)
+    server._register_builtin_tools()  # pylint: disable=protected-access
+
+    try:
+        async with create_connected_server_and_client_session(
+            server.mcp, raise_exceptions=True
+        ) as client:
+            result = await client.list_tools()
+            names = {t.name for t in result.tools}
+            assert "validate_sql" in names
+    finally:
+        backend.close()
+
+
+def test_startup_builtin_tools_counter_includes_programmatic_builtins(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+    caplog: pytest.LogCaptureFixture,
+) -> None:
+    """`builtin_tools=N` counter equals TOML count + programmatic builtin count."""
+    args = _write_sqlite_configs(tmp_path)
+    monkeypatch.setattr(ToolServer, "run", lambda self: None)
+
+    expected = len(load_default_queries()) + len(_PROGRAMMATIC_BUILTIN_TOOLS)
+
+    with caplog.at_level(logging.INFO, logger="mcp_tools_sql.server"):
+        run_server(args)
+
+    matching = [
+        rec
+        for rec in caplog.records
+        if rec.name == "mcp_tools_sql.server"
+        and rec.levelno == logging.INFO
+        and re.search(rf"builtin_tools={expected}\b", rec.getMessage())
+    ]
+    assert len(matching) == 1
 
 
 def _write_update_configs(tmp_path: Path, allow_updates: bool) -> argparse.Namespace:

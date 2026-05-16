@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import logging
 import tomllib
 from pathlib import Path
 from typing import TYPE_CHECKING
@@ -15,19 +16,37 @@ if TYPE_CHECKING:
 
     from mcp_tools_sql.backends.base import DatabaseBackend
 
+logger = logging.getLogger(__name__)
 
-def load_default_queries() -> dict[str, QueryConfig]:
+_PROGRAMMATIC_BUILTIN_TOOLS: tuple[str, ...] = ("validate_sql",)
+
+
+def load_default_queries(path: Path | None = None) -> dict[str, QueryConfig]:
     """Load built-in schema queries from default_queries.toml.
 
+    Args:
+        path: Optional path to the TOML file. Defaults to the bundled
+            ``default_queries.toml`` next to this module.
+
     Returns:
-        Dict mapping query name to QueryConfig.
+        Dict mapping query name to QueryConfig. Entries whose names collide
+        with :data:`_PROGRAMMATIC_BUILTIN_TOOLS` are skipped with a warning.
     """
-    toml_path = Path(__file__).parent / "default_queries.toml"
+    toml_path = (
+        path if path is not None else Path(__file__).parent / "default_queries.toml"
+    )
     with open(toml_path, "rb") as f:
         data = tomllib.load(f)
-    return {
-        name: QueryConfig.model_validate(cfg) for name, cfg in data["queries"].items()
-    }
+    result: dict[str, QueryConfig] = {}
+    for name, cfg in data["queries"].items():
+        if name in _PROGRAMMATIC_BUILTIN_TOOLS:
+            logger.warning(
+                "Skipping TOML query %r — name reserved by programmatic builtin",
+                name,
+            )
+            continue
+        result[name] = QueryConfig.model_validate(cfg)
+    return result
 
 
 class SchemaTools:
