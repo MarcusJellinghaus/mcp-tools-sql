@@ -1,0 +1,170 @@
+# Step 2 — Storage + listing helpers
+
+**Prompt for LLM:**
+> Read `pr_info/steps/summary.md` and then implement `pr_info/steps/step_2.md`.
+> Step 1 is already merged — the builders exist. TDD: write the new tests
+> first, run them red, then implement the storage/listing helpers, run them
+> green. Finish by running pylint, mypy, ruff, tach, and import-linter — all
+> must be clean. One commit.
+
+---
+
+## WHERE
+
+- **Modify (impl):** `src/mcp_tools_sql/config/authoring.py` — append the new
+  public functions below the Step 1 builders.
+- **Modify (tests):** append to `tests/config/test_authoring.py`.
+
+## WHAT
+
+Public functions:
+
+```python
+def add_query(
+    doc: tomlkit.TOMLDocument,
+    name: str,
+    qcfg: QueryConfig,
+    *,
+    include_defaults: bool = False,
+) -> None: ...
+
+def add_update(
+    doc: tomlkit.TOMLDocument,
+    name: str,
+    ucfg: UpdateConfig,
+    *,
+    include_defaults: bool = False,
+) -> None: ...
+
+def remove_query(doc: tomlkit.TOMLDocument, name: str) -> None: ...
+def remove_update(doc: tomlkit.TOMLDocument, name: str) -> None: ...
+
+def list_configured_tools(
+    doc: tomlkit.TOMLDocument,
+) -> dict[str, list[str]]: ...
+```
+
+Plus two private shared helpers (KISS — one logic path per direction):
+
+```python
+def _add_entry(
+    doc: tomlkit.TOMLDocument,
+    parent_key: str,        # "queries" or "updates"
+    name: str,
+    payload: dict[str, Any],
+) -> None: ...
+
+def _remove_entry(
+    doc: tomlkit.TOMLDocument,
+    parent_key: str,
+    name: str,
+) -> None: ...
+```
+
+## HOW
+
+- Imports: `tomlkit`, plus the pydantic models already imported in Step 1.
+- All mutations are in place on the supplied `TOMLDocument`. File I/O is the
+  caller's problem.
+- `add_*` raises `ValueError` on duplicate name; the parent `[queries]` or
+  `[updates]` table is auto-created when absent.
+- `remove_*` raises `KeyError` on missing name **or** missing parent section;
+  if the removal empties the parent table, the parent table is deleted too.
+- `list_configured_tools` returns `{"queries": [...], "updates": [...]}` —
+  missing sections become empty lists (silent valid empty).
+
+## ALGORITHM
+
+`add_query(doc, name, qcfg, *, include_defaults)`:
+```
+payload = qcfg.model_dump(by_alias=True, exclude_defaults=not include_defaults)
+if not include_defaults and payload.get("max_rows_hard") == qcfg.max_rows_default:
+    payload.pop("max_rows_hard", None)
+_add_entry(doc, "queries", name, payload)
+```
+
+`add_update(doc, name, ucfg, *, include_defaults)`:
+```
+payload = ucfg.model_dump(by_alias=True, exclude_defaults=not include_defaults)
+_add_entry(doc, "updates", name, payload)
+```
+
+`_add_entry(doc, parent_key, name, payload)`:
+```
+parent = doc.get(parent_key)
+if parent is None:
+    parent = tomlkit.table()
+    doc[parent_key] = parent
+if name in parent:
+    raise ValueError(f"{parent_key}.{name} already exists")
+entry = tomlkit.table()
+for k, v in payload.items():
+    if k == "fields" and isinstance(v, list):       # AoT for [[updates.<n>.fields]]
+        aot = tomlkit.aot()
+        for item in v:
+            sub = tomlkit.table()
+            for ik, iv in item.items():
+                sub[ik] = iv
+            aot.append(sub)
+        entry[k] = aot
+    else:                                           # dict / scalar → tomlkit handles it
+        entry[k] = v
+parent[name] = entry
+```
+
+`_remove_entry(doc, parent_key, name)`:
+```
+parent = doc.get(parent_key)
+if parent is None or name not in parent:
+    raise KeyError(f"{parent_key}.{name}")
+del parent[name]
+if len(parent) == 0:
+    del doc[parent_key]
+```
+
+`list_configured_tools(doc)`:
+```
+queries = doc.get("queries") or {}
+updates = doc.get("updates") or {}
+return {"queries": list(queries.keys()), "updates": list(updates.keys())}
+```
+
+## DATA
+
+- `add_*` / `remove_*` return `None`; their effect is the mutation of `doc`.
+- `list_configured_tools` returns `dict[str, list[str]]` with keys exactly
+  `"queries"` and `"updates"`.
+
+## Tests (parametrize where noted)
+
+Append to `tests/config/test_authoring.py`:
+
+1. **`add_query` happy path round-trip.** Build via `build_query_config`, add
+   to empty doc, `tomlkit.dumps` → `tomllib.loads` → reconstruct
+   `QueryConfig`, assert equal to original.
+2. **`add_query` lean output suppresses defaults.** Build with no
+   `filter_column`, `max_rows_hard=None`, empty `description`, no `backends`.
+   After `add_query` (default `include_defaults=False`) and `tomlkit.dumps`:
+   asserted TOML does NOT contain the keys `max_rows_hard`, `filter_column`,
+   `backends`, `description`.
+3. **`add_query` with `include_defaults=True`** emits all of the above keys.
+4. **Parametrize: `add_query` with zero / one / multiple params.**
+   - 0: `params` section absent from emitted TOML.
+   - 1: single `[queries.<n>.params.<key>]` sub-table.
+   - 3: three sub-tables in insertion order.
+5. **`add_query` rejects duplicate name** with `ValueError`.
+6. **`add_query` creates `[queries]` section when absent** (fresh empty doc).
+7. **`add_update` happy path round-trip** with key + 2 fields. Assert AoT
+   structure (parsed `fields` is `list[dict]`, not inline `[{...},{...}]`).
+   Pragmatic check: re-parsed `UpdateConfig` equals built one.
+8. **`add_update` rejects duplicate name** with `ValueError`.
+9. **Parametrize: `remove_query` / `remove_update` happy path** then
+   re-`list_configured_tools` shows it gone.
+10. **Parametrize: `remove_*` raises `KeyError` on missing name AND on
+    missing section** (matrix: 2 functions × 2 conditions = 4 cases).
+11. **`remove_*` prunes empty parent.** Add one entry, remove it, assert
+    `"queries"` / `"updates"` key is no longer in the doc (`"queries" not in doc`).
+12. **Parametrize: `list_configured_tools` four cases** (empty / queries
+    only / updates only / both). Empty doc returns `{"queries": [], "updates": []}`.
+
+Run gates: same as Step 1.
