@@ -200,6 +200,20 @@ def test_mssql_explain_showplan_sequence() -> None:
     cursor.close.assert_called_once()
 
 
+def test_mssql_explain_non_finite_float_raises_value_error() -> None:
+    """Non-finite floats surface as ``ValueError`` from ``substitute_named_with_literals``.
+
+    Lives at the unit layer (not MSSQL integration) because the ValueError
+    is raised by ``_sql_literal`` before any DB connection is opened, and
+    ``float('inf')`` cannot survive the JSON serialisation used by the MCP
+    transport — so this code path is unreachable via the MCP client.
+    """
+    backend = MagicMock()
+    with pytest.raises(ValueError, match="non-finite"):
+        _explain(backend, "mssql", "SELECT :x", {"x": float("inf")})
+    backend.get_isolated_connection.assert_not_called()
+
+
 def test_mssql_explain_showplan_off_runs_on_execute_failure() -> None:
     """``SET SHOWPLAN_TEXT OFF`` still runs when the explained statement raises."""
     cursor = MagicMock()
@@ -513,23 +527,6 @@ async def test_mssql_unsupported_param_type(mssql_db: MSSQLTestEnv) -> None:
         ) as client:
             text = await _call_validate(client, "SELECT :x", params={"x": set()})
         assert text.startswith("Invalid parameters. TypeError: ")
-    finally:
-        backend.close()
-
-
-@pytest.mark.mssql_integration
-@pytest.mark.asyncio
-async def test_mssql_non_finite_float(mssql_db: MSSQLTestEnv) -> None:
-    """``float('inf')`` is rejected with ``Invalid parameters. ValueError: ...``."""
-    backend = MSSQLBackend(mssql_db.config)
-    try:
-        mcp = FastMCP("test-mssql-non-finite-float")
-        ValidationTools(backend, "mssql").register(mcp)
-        async with create_connected_server_and_client_session(
-            mcp, raise_exceptions=True
-        ) as client:
-            text = await _call_validate(client, "SELECT :x", params={"x": float("inf")})
-        assert text.startswith("Invalid parameters. ValueError: ")
     finally:
         backend.close()
 
