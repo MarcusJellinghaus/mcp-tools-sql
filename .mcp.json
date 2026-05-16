@@ -44,11 +44,25 @@
         "--reference-project",
         "name=mcp-coder-utils,path=${USERPROFILE}\\Documents\\GitHub\\mcp-coder-utils,url=https://github.com/MarcusJellinghaus/mcp-coder-utils",
         "--reference-project",
-        "name=mcp-tools-py,path=${USERPROFILE}\\Documents\\GitHub\\mcp-tools-py,url=https://github.com/MarcusJellinghaus/mcp-tools-py"
+        "name=mcp-tools-py,path=${USERPROFILE}\\Documents\\GitHub\\mcp-tools-py,url=https://github.com/MarcusJellinghaus/mcp-tools-py",
+        "--reference-project",
+        "name=obsidian-dev-wiki,path=${USERPROFILE}\\Documents\\GitHub\\obsidian-dev-wiki,url=https://github.com/MarcusJellinghaus/obsidian-dev-wiki"
       ],
       "env": {
         "PYTHONPATH": "${MCP_CODER_VENV_DIR}\\Lib\\"
       }
+    },
+    "obsidian-wiki": {
+      "type": "stdio",
+      "command": "cmd",
+      "args": [
+        "/c",
+        "npx",
+        "-y",
+        "obsidian-mcp",
+        "${USERPROFILE}\\Documents\\GitHub\\obsidian-dev-wiki"
+      ],
+      "env": {}
     }
   }
 }
