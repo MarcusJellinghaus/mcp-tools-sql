@@ -74,17 +74,17 @@ MSSQL:   build conn_str, pyodbc.connect(autocommit=True),
 ## Tests
 
 ### `tests/backends/test_sqlite.py`
-- [ ] `get_isolated_connection` yields the persistent connection: `with backend.get_isolated_connection() as conn: assert conn is backend._connection`.
-- [ ] After context exit, the persistent connection is still open and usable (verify by running a `SELECT 1` on `backend` afterwards).
-- [ ] Entering the `with` block on a fresh (unconnected) backend triggers lazy `connect()` — i.e. the body of the context manager runs on `__enter__`, not on the bare call.
+- [x] `get_isolated_connection` yields the persistent connection: `with backend.get_isolated_connection() as conn: assert conn is backend._connection`.
+- [x] After context exit, the persistent connection is still open and usable (verify by running a `SELECT 1` on `backend` afterwards).
+- [x] Entering the `with` block on a fresh (unconnected) backend triggers lazy `connect()` — i.e. the body of the context manager runs on `__enter__`, not on the bare call.
 
 ### `tests/backends/test_mssql.py` — unit (no DB)
-- [ ] With `pyodbc.connect` monkeypatched to a `MagicMock`, `get_isolated_connection()` yields the mock and calls `.close()` on context exit. (Use `unittest.mock` against the inline `pyodbc` import — patch `pyodbc.connect` via `monkeypatch.setattr` after importing pyodbc inside the test.)
-- [ ] On an exception inside the `with` block, the mock's `.close()` is still called.
+- [x] With `pyodbc.connect` monkeypatched to a `MagicMock`, `get_isolated_connection()` yields the mock and calls `.close()` on context exit. (Use `unittest.mock` against the inline `pyodbc` import — patch `pyodbc.connect` via `monkeypatch.setattr` after importing pyodbc inside the test.)
+- [x] On an exception inside the `with` block, the mock's `.close()` is still called.
 
 ### `tests/backends/test_mssql.py` — integration (`@pytest.mark.mssql_integration`)
-- [ ] `with backend.get_isolated_connection() as conn:` followed by `cursor = conn.cursor(); cursor.execute("SELECT 1"); cursor.fetchone()` returns `(1,)`.
-- [ ] After context exit, `backend.execute_query("SELECT 1 AS x")` on the persistent connection still works (proves the isolated close did not affect the backend's persistent connection).
+- [x] `with backend.get_isolated_connection() as conn:` followed by `cursor = conn.cursor(); cursor.execute("SELECT 1"); cursor.fetchone()` returns `(1,)`.
+- [x] After context exit, `backend.execute_query("SELECT 1 AS x")` on the persistent connection still works (proves the isolated close did not affect the backend's persistent connection).
 
 ## Commit & checks
 

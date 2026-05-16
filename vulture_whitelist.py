@@ -28,6 +28,7 @@ _.close
 _.execute_query
 _.execute_update
 _.explain
+_.get_isolated_connection
 _.read_schemas
 _.read_tables
 _.read_columns

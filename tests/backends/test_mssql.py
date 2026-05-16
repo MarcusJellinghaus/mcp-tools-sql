@@ -312,6 +312,35 @@ class TestQueries:
         assert executed[-1] == "SET SHOWPLAN_TEXT OFF"
 
 
+class TestIsolatedConnection:
+    """Tests for ``MSSQLBackend.get_isolated_connection``."""
+
+    def test_yields_fresh_connection_and_closes(self, fake_pyodbc: Any) -> None:
+        fresh_conn = MagicMock(name="fresh_connection")
+        fake_pyodbc.connect.return_value = fresh_conn
+        b = MSSQLBackend(_cfg())
+        with b.get_isolated_connection() as conn:
+            assert conn is fresh_conn
+            fresh_conn.close.assert_not_called()
+        fresh_conn.close.assert_called_once()
+
+    def test_closes_on_exception(self, fake_pyodbc: Any) -> None:
+        fresh_conn = MagicMock(name="fresh_connection")
+        fake_pyodbc.connect.return_value = fresh_conn
+        b = MSSQLBackend(_cfg())
+        with pytest.raises(RuntimeError, match="boom"):
+            with b.get_isolated_connection():
+                raise RuntimeError("boom")
+        fresh_conn.close.assert_called_once()
+
+    def test_autocommit_passed_for_isolated_connection(self, fake_pyodbc: Any) -> None:
+        b = MSSQLBackend(_cfg())
+        with b.get_isolated_connection():
+            pass
+        kwargs = fake_pyodbc.connect.call_args.kwargs
+        assert kwargs.get("autocommit") is True
+
+
 class TestConcurrency:
     """Thread-safety tests for lazy-connect."""
 
@@ -395,3 +424,23 @@ class TestMSSQLIntegration:
         b.close()
         with pytest.raises(RuntimeError):
             b.execute_query("SELECT 1")
+
+    def test_isolated_connection_round_trip(self, mssql_db: MSSQLTestEnv) -> None:
+        with MSSQLBackend(mssql_db.config) as b:
+            with b.get_isolated_connection() as conn:
+                cursor = conn.cursor()
+                try:
+                    cursor.execute("SELECT 1")
+                    row = cursor.fetchone()
+                finally:
+                    cursor.close()
+            assert tuple(row) == (1,)
+
+    def test_isolated_connection_does_not_affect_persistent(
+        self, mssql_db: MSSQLTestEnv
+    ) -> None:
+        with MSSQLBackend(mssql_db.config) as b:
+            with b.get_isolated_connection():
+                pass
+            rows = b.execute_query("SELECT 1 AS x")
+        assert rows == [{"x": 1}]

@@ -199,6 +199,39 @@ class TestErrorHandling:
 
 
 # ---------------------------------------------------------------------------
+# Isolated connection primitive
+# ---------------------------------------------------------------------------
+
+
+@pytest.mark.sqlite_integration
+class TestIsolatedConnection:
+    """Tests for ``SQLiteBackend.get_isolated_connection``."""
+
+    def test_yields_persistent_connection(self, sqlite_db: Path) -> None:
+        backend = _make_backend(str(sqlite_db))
+        backend.connect()
+        with backend.get_isolated_connection() as conn:
+            assert conn is backend._connection
+        backend.close()
+
+    def test_persistent_connection_usable_after_exit(self, sqlite_db: Path) -> None:
+        backend = _make_backend(str(sqlite_db))
+        with backend.get_isolated_connection():
+            pass
+        rows = backend.execute_query("SELECT 1 AS one")
+        assert rows == [{"one": 1}]
+        backend.close()
+
+    def test_lazy_connect_on_enter(self, sqlite_db: Path) -> None:
+        backend = _make_backend(str(sqlite_db))
+        backend.get_isolated_connection()
+        assert backend._connection is None
+        with backend.get_isolated_connection() as conn:
+            assert isinstance(conn, sqlite3.Connection)
+        backend.close()
+
+
+# ---------------------------------------------------------------------------
 # Concurrency
 # ---------------------------------------------------------------------------
 
