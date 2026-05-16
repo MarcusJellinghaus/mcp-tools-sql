@@ -78,7 +78,12 @@ def _first_keyword(sql: str) -> str | None:
 
 
 def _preflight(sql: str, params: dict[str, Any] | None) -> str | None:
-    """Run pre-flight checks; return an error verdict string or ``None``."""
+    """Run pre-flight checks on ``sql`` and its bound ``params``.
+
+    Returns:
+        Error verdict string when a pre-flight check fails, or ``None``
+        when all checks pass.
+    """
     if sql.strip() == "":
         return "Invalid SQL. ValidationError: empty SQL"
     if _count_statements(sql) > 1:
