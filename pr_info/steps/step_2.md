@@ -98,24 +98,51 @@ if parent is None:
 if name in parent:
     raise ValueError(f"{parent_key}.{name} already exists")
 entry = tomlkit.table()
+
+# Pass 1 — scalars / non-dict, non-list values first (must precede any
+# sub-table header).
 for k, v in payload.items():
-    if k == "fields" and isinstance(v, list):       # AoT for [[updates.<n>.fields]]
-        aot = tomlkit.aot()
-        for item in v:
-            sub = tomlkit.table()
-            for ik, iv in item.items():
-                sub[ik] = iv
-            aot.append(sub)
-        entry[k] = aot
-    elif isinstance(v, dict):                       # sub-table for [<parent>.<n>.<k>]
+    if isinstance(v, dict):
+        continue
+    if isinstance(v, list):
+        continue
+    entry[k] = v                                    # scalar → tomlkit handles it
+
+# Pass 2 — dict-valued payload items as sub-tables
+# (rendered as [<parent>.<n>.<k>] headers).
+for k, v in payload.items():
+    if not isinstance(v, dict):
+        continue
+    sub = tomlkit.table()
+    for ik, iv in v.items():
+        sub[ik] = iv
+    entry[k] = sub
+
+# Pass 3 — list-valued payload items as Arrays of Tables
+# (rendered as [[<parent>.<n>.<k>]] blocks, e.g. updates.<n>.fields).
+for k, v in payload.items():
+    if not isinstance(v, list):
+        continue
+    aot = tomlkit.aot()
+    for item in v:
         sub = tomlkit.table()
-        for ik, iv in v.items():
+        for ik, iv in item.items():
             sub[ik] = iv
-        entry[k] = sub
-    else:                                           # scalar → tomlkit handles it
-        entry[k] = v
+        aot.append(sub)
+    entry[k] = aot
+
 parent[name] = entry
 ```
+
+Why three passes instead of a single in-order loop: pydantic emits fields
+in declaration order, so naive iteration would place sub-tables before
+later scalars. Once a `[a.b.c]` header appears in TOML, every following
+key-value belongs to that table — so we must emit all scalars first, then
+nested structures. Concretely for `QueryConfig` the declaration order is
+`description, sql, params, max_rows_default, max_rows_hard, filter_column,
+backends`; emitting `params` (a dict → sub-table) before
+`max_rows_default` (a scalar) would silently re-parent
+`max_rows_default = 1` under `[queries.<n>.params.<key>]` on round-trip.
 
 Why the explicit `tomlkit.table()` wrap for nested dicts: assigning a raw
 Python `dict` to a tomlkit `Table` renders it as an **inline** table
@@ -155,6 +182,14 @@ Append to `tests/config/test_authoring.py`:
 1. **`add_query` happy path round-trip.** Build via `build_query_config`, add
    to empty doc, `tomlkit.dumps` → `tomllib.loads` → reconstruct
    `QueryConfig`, assert equal to original.
+1a. **`add_query` key order — scalars before sub-tables.** Build a query
+    with both `max_rows_default=1` AND `params={"id": {"type": "int",
+    "required": True}}`. After `add_query` + `tomlkit.dumps(doc)`, assert
+    `dumped.index("max_rows_default") < dumped.index("[queries.")` — i.e.
+    the `max_rows_default = 1` line appears BEFORE the
+    `[queries.<n>.params.id]` section header. Guards the TOML
+    header-scoping bug: if a scalar follows a sub-table header it gets
+    silently re-parented under that sub-table on round-trip.
 2. **`add_query` lean output suppresses defaults.** Build with no
    `filter_column`, `max_rows_hard=None`, empty `description`, no `backends`.
    After `add_query` (default `include_defaults=False`) and `tomlkit.dumps`:

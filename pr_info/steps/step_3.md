@@ -131,6 +131,26 @@ def test_init_template_contains_example_markers(tmp_path: Path) -> None:
     assert "# [updates.set_user_email]" in text
 ```
 
+Also add a **semantic** test — generated template uncomments to
+semantically-correct TOML. Strip the leading `"# "` (and bare `"#"` for
+blank-comment lines) from every line of `_PROJECT_TEMPLATE_STANDALONE`,
+parse the result with `tomllib.loads`, then assert:
+
+- `parsed["queries"]["get_user"]["max_rows_default"] == 1`
+- `parsed["queries"]["get_user"]["params"]["id"]["type"] == "int"`
+- `parsed["updates"]["set_user_email"]["table"] == "users"`
+- `parsed["updates"]["set_user_email"]["key"]["field"] == "id"`
+
+Rationale: the marker-presence test only checks that the section headers
+exist as commented strings — it would still pass if a TOML-ordering bug
+silently re-parented `max_rows_default` under
+`[queries.get_user.params.id]`. The uncomment-and-parse test catches that
+whole class of bug (any scalar getting re-parented under a sub-table
+header, any sub-table mis-nested, any list-vs-dict confusion) by
+asserting on the actual semantic shape of the round-tripped document.
+It would have caught the Step 2 `_add_entry` declaration-order bug end
+to end.
+
 The existing `test_init_generates_valid_toml` test continues to enforce
 `tomllib`-parse cleanliness. Every other existing test in `test_init.py`
 must continue to pass without modification.
