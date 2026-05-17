@@ -89,6 +89,12 @@ Notes:
   visually separated (one trailing newline each) and lets the static
   `# Example UPDATE definition (uncomment to enable):` header sit naturally
   between them — matching today's UX.
+- Import-time computation risk: because `_PROJECT_TEMPLATE_STANDALONE` is
+  built at module load via `build_query_config` / `build_update_config`,
+  a pydantic `ValidationError` raised by a future model-validator change
+  would make `mcp_tools_sql.cli.commands.init` unimportable and break
+  every CLI command. Acceptable trade-off given the helpers' test
+  coverage, but documented so the maintainer knows the failure mode.
 
 Concrete split of the existing constant:
 - `_HEADER` ends just after `"# Example SELECT query (uncomment to enable):\n"`.

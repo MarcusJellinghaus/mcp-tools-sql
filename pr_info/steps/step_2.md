@@ -109,17 +109,26 @@ for k, v in payload.items():
     entry[k] = v                                    # scalar → tomlkit handles it
 
 # Pass 2 — dict-valued payload items as sub-tables
-# (rendered as [<parent>.<n>.<k>] headers).
+# (rendered as [<parent>.<n>.<k>] headers). Recurse into nested dicts so
+# each inner dict also becomes a proper sub-table header rather than an
+# inline table.
 for k, v in payload.items():
     if not isinstance(v, dict):
         continue
     sub = tomlkit.table()
     for ik, iv in v.items():
-        sub[ik] = iv
+        # If the inner value is itself a dict (e.g. params = {"id": {...}}),
+        # wrap recursively so it renders as [<parent>.<n>.<k>.<ik>] and not
+        # as `<ik> = {...}` inline.
+        sub[ik] = _to_toml_table(iv) if isinstance(iv, dict) else iv
     entry[k] = sub
 
 # Pass 3 — list-valued payload items as Arrays of Tables
 # (rendered as [[<parent>.<n>.<k>]] blocks, e.g. updates.<n>.fields).
+# Today's AoT-element model shape (UpdateFieldConfig) is flat: every
+# field is a scalar, so a single-level loop suffices. If a future model
+# introduces nested dicts inside an AoT element, reuse `_to_toml_table`
+# here for the same reason as Pass 2.
 for k, v in payload.items():
     if not isinstance(v, list):
         continue
@@ -133,6 +142,26 @@ for k, v in payload.items():
 
 parent[name] = entry
 ```
+
+Small recursive helper used by Pass 2 (and available for future AoT
+nesting):
+
+```
+def _to_toml_table(d: dict) -> tomlkit.items.Table:
+    t = tomlkit.table()
+    for k, v in d.items():
+        t[k] = _to_toml_table(v) if isinstance(v, dict) else v
+    return t
+```
+
+Concretely: `QueryConfig.params` round-trips as
+`{"id": {"type": "int", "required": True}}` out of `model_dump`. Pass 2
+wraps the OUTER `params` dict in `tomlkit.table()`, but its inner value
+`{"type": "int", "required": True}` is itself a dict — assigning it
+directly would render as `params.id = {type = "int", required = true}`
+(inline), not as the documented `[queries.<n>.params.id]` sub-table.
+`_to_toml_table` makes the recursion explicit so each nested dict layer
+becomes its own sub-table header.
 
 Why three passes instead of a single in-order loop: pydantic emits fields
 in declaration order, so naive iteration would place sub-tables before
