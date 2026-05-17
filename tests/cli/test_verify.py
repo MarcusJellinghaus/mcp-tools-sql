@@ -4,6 +4,8 @@ from __future__ import annotations
 
 import argparse
 import re
+import shutil
+import sqlite3
 import sys
 from pathlib import Path
 from unittest.mock import MagicMock, patch
@@ -1193,3 +1195,142 @@ def test_verify_updates_surfaces_required_flag_inline(sqlite_db: Path) -> None:
     assert "name(req)" in fields_value
     assert "country" in fields_value
     assert "country(req)" not in fields_value
+
+
+# ---------------------------------------------------------------------------
+# CLI snapshot regression test for QUERIES + UPDATES sections
+# ---------------------------------------------------------------------------
+
+
+def _extract_section(text: str, title: str) -> str:
+    """Return the body of `=== TITLE ===` up to the next blank line."""
+    lines = text.split("\n")
+    in_section = False
+    body: list[str] = []
+    for line in lines:
+        if line == f"=== {title} ===":
+            in_section = True
+            continue
+        if in_section:
+            if line == "":
+                break
+            body.append(line)
+    return "\n".join(body)
+
+
+def _prepare_snapshot_db(db_path: Path) -> None:
+    """Create the fixed sqlite schema used by the verify snapshot test."""
+    conn = sqlite3.connect(str(db_path))
+    try:
+        conn.execute("CREATE TABLE users (id INTEGER, email TEXT)")
+        conn.execute("CREATE TABLE customers (id INTEGER, name TEXT, country TEXT)")
+        conn.commit()
+    finally:
+        conn.close()
+
+
+def test_verify_cli_queries_updates_snapshot(
+    tmp_path: Path, capsys: pytest.CaptureFixture[str]
+) -> None:
+    """CLI stdout for QUERIES + UPDATES is byte-identical to the committed snapshot."""
+    sqlite_db = tmp_path / "snapshot.sqlite"
+    _prepare_snapshot_db(sqlite_db)
+
+    fixtures_dir = Path(__file__).parent / "fixtures"
+    query_cfg = tmp_path / "mcp-tools-sql.toml"
+    shutil.copyfile(fixtures_dir / "verify_snapshot.toml", query_cfg)
+
+    db_cfg = tmp_path / "db-config.toml"
+    db_cfg.write_text(
+        "[connections.default]\n"
+        'backend = "sqlite"\n'
+        f'path = "{sqlite_db.as_posix()}"\n',
+        encoding="utf-8",
+    )
+
+    args = _make_args(config=query_cfg, database_config=db_cfg)
+    verify_cmd.run(args)
+    captured = capsys.readouterr().out
+
+    queries_block = _extract_section(captured, "QUERIES")
+    updates_block = _extract_section(captured, "UPDATES")
+    actual = f"=== QUERIES ===\n{queries_block}\n=== UPDATES ===\n{updates_block}\n"
+    expected = (fixtures_dir / "verify_snapshot.txt").read_text(encoding="utf-8")
+    assert actual == expected
+
+
+# ---------------------------------------------------------------------------
+# Per-entry equality tests: verify_one_query / verify_one_update vs. bulk
+# ---------------------------------------------------------------------------
+
+
+def test_verify_one_query_matches_bulk_happy_path(sqlite_db: Path) -> None:
+    """`verify_one_query` returns identical entries to the bulk function."""
+    queries = {
+        "list_customers": QueryConfig(
+            sql="SELECT * FROM customers WHERE country = :country",
+            params={"country": QueryParamConfig(name="country", type="str")},
+            max_rows_default=10,
+        ),
+    }
+    backend = _open_sqlite_backend(sqlite_db)
+    try:
+        bulk = verify_cmd.verify_queries(queries, "sqlite", backend)
+        one = verify_cmd.verify_one_query(
+            "list_customers", queries["list_customers"], "sqlite", backend
+        )
+    finally:
+        backend.close()
+
+    bulk_without_overall = {k: v for k, v in bulk.items() if k != "overall_ok"}
+    assert list(one.keys()) == list(bulk_without_overall.keys())
+    assert one == bulk_without_overall
+
+
+@pytest.mark.parametrize(
+    ("name", "update"),
+    [
+        (
+            "set_customer_name",
+            UpdateConfig(
+                table="customers",
+                key=UpdateKeyConfig(field="id", type="int"),
+                fields=[
+                    UpdateFieldConfig(field="name", type="str"),
+                    UpdateFieldConfig(field="country", type="str"),
+                ],
+            ),
+        ),
+        (
+            "missing",
+            UpdateConfig(
+                table="does_not_exist",
+                key=UpdateKeyConfig(field="id", type="int"),
+                fields=[UpdateFieldConfig(field="x", type="str")],
+            ),
+        ),
+        (
+            "bad_table",
+            UpdateConfig(
+                table="orders; DROP",
+                key=UpdateKeyConfig(field="id", type="int"),
+                fields=[UpdateFieldConfig(field="name", type="str")],
+            ),
+        ),
+    ],
+)
+def test_verify_one_update_matches_bulk(
+    sqlite_db: Path, name: str, update: UpdateConfig
+) -> None:
+    """`verify_one_update` matches bulk output across happy/missing/bad-id branches."""
+    updates = {name: update}
+    backend = _open_sqlite_backend(sqlite_db)
+    try:
+        bulk = verify_cmd.verify_updates(updates, "sqlite", backend)
+        one = verify_cmd.verify_one_update(name, update, "sqlite", backend)
+    finally:
+        backend.close()
+
+    bulk_without_overall = {k: v for k, v in bulk.items() if k != "overall_ok"}
+    assert list(one.keys()) == list(bulk_without_overall.keys())
+    assert one == bulk_without_overall

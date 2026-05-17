@@ -1,0 +1,54 @@
+connection = "default"
+
+[queries.get_user]
+sql = "SELECT id, email FROM users WHERE id = :id"
+max_rows_default = 10
+
+[queries.get_user.params.id]
+name = "id"
+type = "int"
+
+[queries.bad_sql]
+sql = "SELECT * FROMX badtable"
+max_rows_default = 10
+
+[queries.mismatched_params]
+sql = "SELECT * FROM users WHERE name = :foo"
+max_rows_default = 10
+
+[queries.mismatched_params.params.bar]
+name = "bar"
+type = "str"
+
+[updates.set_user_email]
+table = "users"
+
+[updates.set_user_email.key]
+field = "id"
+type = "int"
+
+[[updates.set_user_email.fields]]
+field = "email"
+type = "str"
+
+[updates.set_missing]
+table = "nonexistent_table"
+
+[updates.set_missing.key]
+field = "id"
+type = "int"
+
+[[updates.set_missing.fields]]
+field = "x"
+type = "str"
+
+[updates.bad_table]
+table = "drop;"
+
+[updates.bad_table.key]
+field = "id"
+type = "int"
+
+[[updates.bad_table.fields]]
+field = "name"
+type = "str"
