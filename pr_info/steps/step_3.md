@@ -19,23 +19,21 @@
 ## WHAT
 
 In `init.py`, replace the hard-coded example query / update lines inside
-`_PROJECT_TEMPLATE_STANDALONE` with a value computed at module load time
+`_PROJECT_TEMPLATE_STANDALONE` with content computed at module load time
 from the Step 1 / Step 2 helpers. The constant name stays the same so all
 callers (`_build_project_template_standalone` and any existing tests) are
 untouched.
 
 ```python
-def _build_example_block() -> str: ...     # private, runs once at import
+def _build_query_block() -> str: ...      # private, runs once at import
+def _build_update_block() -> str: ...     # private, runs once at import
 ```
 
-`_PROJECT_TEMPLATE_STANDALONE = _HEADER + _build_example_block() + _FOOTER`
-
-Where `_HEADER` is the existing static text up to and including
-`"# Example SELECT query (uncomment to enable):\n"` plus the matching update
-header line, and `_FOOTER` is the existing default-queries pointer comment
-block. The blank-line separator between the two example blocks comes
-naturally from tomlkit's table-spacing — the resulting `# ` prefix on that
-blank line is fine (per issue text).
+`_PROJECT_TEMPLATE_STANDALONE` is assembled by concatenating the static
+SELECT header, the rendered query block, a blank separator, the static
+UPDATE header, the rendered update block, and the static footer. This
+preserves today's UX exactly: the `# Example UPDATE definition` header
+sits BETWEEN the queries block and the updates block (not above both).
 
 ## HOW
 
@@ -47,7 +45,13 @@ blank line is fine (per issue text).
 
 ## ALGORITHM
 
-`_build_example_block()` (runs once at import time):
+Shared helper (inline, or a private `_render_commented(doc) -> str`):
+```
+rendered = tomlkit.dumps(doc)
+return "\n".join(f"# {line}" if line else "#" for line in rendered.splitlines()) + "\n"
+```
+
+`_build_query_block()` (runs once at import time):
 ```
 doc = tomlkit.document()
 qcfg = build_query_config(
@@ -57,6 +61,13 @@ qcfg = build_query_config(
     params={"id": {"type": "int", "description": "User id", "required": True}},
     max_rows_default=1,
 )
+add_query(doc, "get_user", qcfg)
+return _render_commented(doc)
+```
+
+`_build_update_block()` (runs once at import time):
+```
+doc = tomlkit.document()
 ucfg = build_update_config(
     "set_user_email",
     description="Update a user's email",
@@ -65,10 +76,8 @@ ucfg = build_update_config(
     key={"field": "id", "type": "int", "description": "User id"},
     fields=[{"field": "email", "type": "str", "description": "New email"}],
 )
-add_query(doc, "get_user", qcfg)
 add_update(doc, "set_user_email", ucfg)
-rendered = tomlkit.dumps(doc)
-return "\n".join(f"# {line}" if line else "#" for line in rendered.splitlines()) + "\n"
+return _render_commented(doc)
 ```
 
 Notes:
@@ -76,45 +85,36 @@ Notes:
   result remains valid commented-out TOML (the issue allows `"# "` with
   trailing space — pick the variant that keeps black/ruff happy; both parse
   the same when uncommented).
-- The header text `"# Example SELECT query (uncomment to enable):\n"` and
-  `"# Example UPDATE definition (uncomment to enable):\n"` remain in
-  `_HEADER` (or split between `_HEADER` and a middle preamble, see below).
+- Building each block from its own fresh `TOMLDocument` keeps the two blocks
+  visually separated (one trailing newline each) and lets the static
+  `# Example UPDATE definition (uncomment to enable):` header sit naturally
+  between them — matching today's UX.
 
 Concrete split of the existing constant:
-- `_HEADER` ends just before `"# [queries.get_user]"`.
-- Generated block begins at `"# [queries.get_user]"` and ends after the last
-  `# field = "email"` etc. line.
+- `_HEADER` ends just after `"# Example SELECT query (uncomment to enable):\n"`.
+- `_MIDDLE` is the single line
+  `"# Example UPDATE definition (uncomment to enable):\n"`.
 - `_FOOTER` begins at `"# Default schema-introspection queries auto-load..."`.
 
-Because the generated block contains BOTH the queries and the updates table,
-the existing static line `"# Example UPDATE definition (uncomment to
-enable):"` needs to remain somewhere. KISS option: keep the two header lines
-(`# Example SELECT query...` and `# Example UPDATE definition...`) but
-re-emit them as static text immediately above the generated TOML — i.e. the
-final assembly is:
+Final assembly:
 
 ```
 _PROJECT_TEMPLATE_STANDALONE = (
-    _HEADER_BEFORE_EXAMPLES                 # connection line + first blank
-    + "# Example SELECT query (uncomment to enable):\n"
-    + "# Example UPDATE definition (uncomment to enable):\n"
-    + _build_example_block()
+    _HEADER                       # connection line + first blank + SELECT header
+    + _build_query_block()
     + "\n"
-    + _FOOTER                               # default-queries pointer block
+    + _MIDDLE                     # UPDATE header line
+    + _build_update_block()
+    + "\n"
+    + _FOOTER                     # default-queries pointer block
 )
 ```
 
-If review prefers separating the SELECT header from the UPDATE header (so
-each label sits directly above its block), split `_build_example_block()`
-into `_build_query_block(...)` and `_build_update_block(...)` instead. The
-issue's Decision #11 prefers one combined doc; stick with combined unless
-review pushes back.
-
 ## DATA
 
-`_build_example_block()` returns `str`. The full
-`_PROJECT_TEMPLATE_STANDALONE` constant remains a `str` with the same trailing
-newline behavior as today.
+`_build_query_block()` and `_build_update_block()` each return `str`. The
+full `_PROJECT_TEMPLATE_STANDALONE` constant remains a `str` with the same
+trailing newline behavior as today.
 
 ## Tests
 

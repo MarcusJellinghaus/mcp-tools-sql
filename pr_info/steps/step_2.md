@@ -107,10 +107,23 @@ for k, v in payload.items():
                 sub[ik] = iv
             aot.append(sub)
         entry[k] = aot
-    else:                                           # dict / scalar → tomlkit handles it
+    elif isinstance(v, dict):                       # sub-table for [<parent>.<n>.<k>]
+        sub = tomlkit.table()
+        for ik, iv in v.items():
+            sub[ik] = iv
+        entry[k] = sub
+    else:                                           # scalar → tomlkit handles it
         entry[k] = v
 parent[name] = entry
 ```
+
+Why the explicit `tomlkit.table()` wrap for nested dicts: assigning a raw
+Python `dict` to a tomlkit `Table` renders it as an **inline** table
+(`key = {field = "id", ...}`), which would break the documented
+`[updates.<n>.key]` sub-table header requirement and the
+`[queries.<n>.params.<key>]` sub-table layout. Wrapping in
+`tomlkit.table()` (mirroring the `fields` AoT branch) forces a proper
+sub-table header.
 
 `_remove_entry(doc, parent_key, name)`:
 ```
@@ -157,6 +170,11 @@ Append to `tests/config/test_authoring.py`:
 7. **`add_update` happy path round-trip** with key + 2 fields. Assert AoT
    structure (parsed `fields` is `list[dict]`, not inline `[{...},{...}]`).
    Pragmatic check: re-parsed `UpdateConfig` equals built one.
+7a. **`add_update` emits `key` as a sub-table, not inline.** After
+    `add_update(...)` for `set_user_email`, assert the rendered
+    `tomlkit.dumps(doc)` string contains the literal section header
+    `[updates.set_user_email.key]` AND does NOT contain `key = {`
+    (guards against the inline-table regression).
 8. **`add_update` rejects duplicate name** with `ValueError`.
 9. **Parametrize: `remove_query` / `remove_update` happy path** then
    re-`list_configured_tools` shows it gone.
@@ -164,6 +182,10 @@ Append to `tests/config/test_authoring.py`:
     missing section** (matrix: 2 functions × 2 conditions = 4 cases).
 11. **`remove_*` prunes empty parent.** Add one entry, remove it, assert
     `"queries"` / `"updates"` key is no longer in the doc (`"queries" not in doc`).
+    Robustness: also round-trip the post-removal doc through
+    `tomlkit.dumps(doc)` + `tomllib.loads(...)` and assert the top-level
+    `"queries"` / `"updates"` key is absent from the parsed mapping
+    (catches any tomlkit trivia retention that re-materialises the section).
 12. **Parametrize: `list_configured_tools` four cases** (empty / queries
     only / updates only / both). Empty doc returns `{"queries": [], "updates": []}`.
 

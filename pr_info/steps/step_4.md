@@ -2,12 +2,16 @@
 
 **Prompt for LLM:**
 > Read `pr_info/steps/summary.md` and then implement `pr_info/steps/step_4.md`.
-> Steps 1-3 are merged. TDD-ish: (a) first add the CLI snapshot test as a
-> regression guard (it must pass against the **current** verify.py before any
-> refactor) and commit the fixture; (b) add the per-entry equality tests; (c)
-> only then refactor `verify_queries` / `verify_updates` to extract
-> `verify_one_query` / `verify_one_update`. All three pieces ship in a single
-> commit because they form one cohesive change. Run all gates at the end.
+> Steps 1-3 are merged. Work sequence within the single commit:
+> (i) add the CLI stdout snapshot test as a regression guard — it must pass
+>     against the **current** `verify.py` before any refactor — and capture
+>     the snapshot fixture;
+> (ii) extract `verify_one_query` / `verify_one_update` and rewire the bulk
+>     functions to aggregate;
+> (iii) add the per-entry equality tests (they import the freshly extracted
+>     functions, so they cannot exist before step ii);
+> (iv) re-run the snapshot test and confirm byte-identity vs. step i.
+> All four pieces ship in a single commit. Run all gates at the end.
 
 ---
 
@@ -96,9 +100,26 @@ result[f"{name}.max_rows_default"] = _entry(ok=ok, value=str(qcfg.max_rows_defau
 return result
 ```
 
-`verify_one_update`: copy the current per-iteration body verbatim including
-the `continue` branch — but replace `continue` with `return result` and the
-`result[...] = ...` lines remain untouched.
+`verify_one_update`: copy the current per-iteration body verbatim. The
+current `verify_updates` loop body has TWO `continue` statements that must
+BOTH be rewritten as `return result`:
+
+1. **Bad-identifier branch** — when the table name (or schema/key/field
+   identifier) fails validation. After populating
+   `result[f"{name}.table"]` with the `[ERR]` entry, the bulk loop hits
+   `continue`. In the extracted function, replace with `return result`
+   (so the function returns a single-row dict — 1 row).
+2. **Missing-table branch** — when the table does not exist in the live
+   schema. After populating `result[f"{name}.table"]`,
+   `result[f"{name}.key_column"]`, and `result[f"{name}.fields"]` each
+   with `[ERR]` entries, the bulk loop hits `continue`. In the extracted
+   function, replace with `return result` (3-row dict).
+3. **Happy path** — falls through to populate all three rows
+   (`{name}.table`, `{name}.key_column`, `{name}.fields`) and reaches the
+   final `return result` (3-row dict).
+
+All `result[...] = ...` lines remain untouched; only the two `continue`
+statements become `return result`.
 
 ## DATA
 
@@ -140,6 +161,11 @@ def test_verify_cli_queries_updates_snapshot(tmp_path, capsys) -> None:
 `_extract_section` is a small private helper inside the test module: split
 stdout on `"=== "` headers and return the body up to the next blank
 separator.
+
+**Config wiring:** the snapshot test invokes `verify_cmd.run` with an
+explicit `--database-config` (or equivalent argv) pointing at a fixture
+config written into `tmp_path`, so the test never picks up the user's real
+`~/.mcp-tools-sql/config.toml`.
 
 The snapshot is captured **before** the refactor, committed, and must remain
 byte-identical after the refactor.

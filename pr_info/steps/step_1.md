@@ -101,15 +101,13 @@ In `tests/config/test_authoring.py`:
    Input: `params={"id": {"name": "other", "type": "int"}}`. Assert
    `cfg.params["id"].name == "id"`.
 3. **`build_query_config` propagates pydantic `ValidationError`.**
-   Parametrize 2-3 invalid inputs (e.g. `sql=...` missing — but `sql=""` is
-   accepted by the model; use param type=`""` invalid for type validation, or
-   `max_rows_default="not-an-int"`).
+   Omit the required `sql=` kwarg → expect `pydantic.ValidationError`.
 4. **`build_update_config` happy path; `schema=` kwarg lands on `schema_name`.**
    Assert `ucfg.schema_name == "dbo"`, `ucfg.table == "users"`,
    `ucfg.key.field == "id"`, `[f.field for f in ucfg.fields] == ["email"]`.
 5. **`build_update_config` propagates pydantic `ValidationError`.**
-   E.g. missing `table` (passed `table=""` is actually accepted — use missing
-   `field` in `key=` dict to trigger the model error).
+   Use a `key=` dict missing the required `field` key to trigger the model
+   error.
 
 Run gates after writing tests + impl:
 - `pytest tests/config/test_authoring.py -x`

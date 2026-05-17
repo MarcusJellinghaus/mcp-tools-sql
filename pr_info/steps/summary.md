@@ -104,6 +104,8 @@ test scoped to `=== QUERIES ===` + `=== UPDATES ===` sections only.
   re-exported (callers import explicitly).
 - Public signatures of `verify_queries` / `verify_updates` and their CLI
   behavior — unchanged.
+- `pyproject.toml` / dependency manifests — no new project dependencies;
+  `tomlkit` and `pydantic` are already top-level.
 
 ---
 
