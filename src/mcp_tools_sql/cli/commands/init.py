@@ -9,42 +9,27 @@ from pathlib import Path
 import tomlkit
 
 from mcp_tools_sql.cli.parsers import WideHelpFormatter
+from mcp_tools_sql.config.authoring import (
+    add_query,
+    add_update,
+    build_query_config,
+    build_update_config,
+)
 
 logger = logging.getLogger(__name__)
 
 BACKENDS = ("sqlite", "mssql", "postgresql")
 
-_PROJECT_TEMPLATE_STANDALONE = """\
+
+_HEADER = """\
 connection = "default"
 
 # Example SELECT query (uncomment to enable):
-# [queries.get_user]
-# description = "Look up a user by id"
-# sql = "SELECT * FROM users WHERE id = :id"
-# max_rows_default = 1
-#
-# [queries.get_user.params.id]
-# name = "id"
-# type = "int"
-# description = "User id"
-# required = true
+"""
 
-# Example UPDATE definition (uncomment to enable):
-# [updates.set_user_email]
-# description = "Update a user's email"
-# schema = "dbo"
-# table = "users"
-#
-# [updates.set_user_email.key]
-# field = "id"
-# type = "int"
-# description = "User id"
-#
-# [[updates.set_user_email.fields]]
-# field = "email"
-# type = "str"
-# description = "New email"
+_MIDDLE = "# Example UPDATE definition (uncomment to enable):\n"
 
+_FOOTER = """\
 # Default schema-introspection queries auto-load from the package.
 # Uncomment any block below to override the default for a specific query.
 # [queries.read_schemas]
@@ -54,6 +39,51 @@ connection = "default"
 # sql = "..."
 # (etc - see src/mcp_tools_sql/default_queries.toml for the full set)
 """
+
+
+def _render_commented(doc: tomlkit.TOMLDocument) -> str:
+    rendered = tomlkit.dumps(doc)
+    return (
+        "\n".join(f"# {line}" if line else "#" for line in rendered.splitlines()) + "\n"
+    )
+
+
+def _build_query_block() -> str:
+    doc = tomlkit.document()
+    qcfg = build_query_config(
+        "get_user",
+        description="Look up a user by id",
+        sql="SELECT * FROM users WHERE id = :id",
+        params={"id": {"type": "int", "description": "User id", "required": True}},
+        max_rows_default=1,
+    )
+    add_query(doc, "get_user", qcfg)
+    return _render_commented(doc)
+
+
+def _build_update_block() -> str:
+    doc = tomlkit.document()
+    ucfg = build_update_config(
+        "set_user_email",
+        description="Update a user's email",
+        schema="dbo",
+        table="users",
+        key={"field": "id", "type": "int", "description": "User id"},
+        fields=[{"field": "email", "type": "str", "description": "New email"}],
+    )
+    add_update(doc, "set_user_email", ucfg)
+    return _render_commented(doc)
+
+
+_PROJECT_TEMPLATE_STANDALONE = (
+    _HEADER
+    + _build_query_block()
+    + "\n"
+    + _MIDDLE
+    + _build_update_block()
+    + "\n"
+    + _FOOTER
+)
 
 
 _DATABASE_CONFIG_SQLITE = """\

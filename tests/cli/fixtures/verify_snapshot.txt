@@ -1,0 +1,18 @@
+=== QUERIES ===
+[OK]  get_user.sql                  EXPLAIN ok
+[OK]  get_user.params               well-formed
+[OK]  get_user.max_rows_default     10
+[ERR]  bad_sql.sql                   failed  - near "FROMX": syntax error
+[OK]  bad_sql.params                well-formed
+[OK]  bad_sql.max_rows_default      10
+[ERR]  mismatched_params.sql         failed  - no such column: name
+[ERR]  mismatched_params.params      issue  - SQL :foo not in config params; Config params ['bar'] not used in SQL
+[OK]  mismatched_params.max_rows_d  10
+=== UPDATES ===
+[OK]  set_user_email.table          users
+[OK]  set_user_email.key_column     id
+[OK]  set_user_email.fields         email
+[ERR]  set_missing.table             nonexistent_table  - Table not found
+[ERR]  set_missing.key_column        (skipped)  - Table not found
+[ERR]  set_missing.fields            (skipped)  - Table not found
+[ERR]  bad_table.table               drop;  - Invalid identifier 'drop;' for update 'bad_table': must match ^[a-zA-Z_][a-zA-Z0-9_]*$ (SQL identifiers in mcp-tools-sql are intentionally restricted to a strict whitelist)

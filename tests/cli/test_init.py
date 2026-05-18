@@ -289,6 +289,41 @@ def test_init_pyproject_ignores_custom_output_silently(
 
 
 # ---------------------------------------------------------------------------
+# Commented-example markers + uncommented semantic shape
+# ---------------------------------------------------------------------------
+
+
+def test_init_template_contains_example_markers(tmp_path: Path) -> None:
+    """Generated mcp-tools-sql.toml still contains commented example markers."""
+    output = tmp_path / "mcp-tools-sql.toml"
+    rc = init_cmd.run(_make_args("sqlite", output=output))
+    assert rc == 0
+    text = output.read_text(encoding="utf-8")
+    assert "# [queries.get_user]" in text
+    assert "# [updates.set_user_email]" in text
+
+
+def test_init_template_uncommented_parses_with_expected_shape() -> None:
+    """Uncommenting the template yields parseable TOML with the documented shape."""
+    template = init_cmd._PROJECT_TEMPLATE_STANDALONE
+    lines: list[str] = []
+    for line in template.splitlines():
+        if line.startswith("# "):
+            stripped = line[2:]
+            if stripped.startswith("[") or "=" in stripped:
+                lines.append(stripped)
+        elif line == "#":
+            lines.append("")
+        else:
+            lines.append(line)
+    parsed = tomllib.loads("\n".join(lines))
+    assert parsed["queries"]["get_user"]["max_rows_default"] == 1
+    assert parsed["queries"]["get_user"]["params"]["id"]["type"] == "int"
+    assert parsed["updates"]["set_user_email"]["table"] == "users"
+    assert parsed["updates"]["set_user_email"]["key"]["field"] == "id"
+
+
+# ---------------------------------------------------------------------------
 # Sanity: tomllib is available (we assume Python 3.11+ per pyproject.toml).
 # ---------------------------------------------------------------------------
 
