@@ -20,16 +20,6 @@
       },
       "alwaysLoad": true
     },
-    "sql-prototype": {
-      "type": "stdio",
-      "command": "${VIRTUAL_ENV}/bin/python",
-      "args": [
-        "examples/prototype_server.py"
-      ],
-      "env": {
-        "PYTHONPATH": "${MCP_CODER_PROJECT_DIR}/src"
-      }
-    },
     "mcp-workspace": {
       "type": "stdio",
       "command": "${MCP_CODER_VENV_PATH}/mcp-workspace",

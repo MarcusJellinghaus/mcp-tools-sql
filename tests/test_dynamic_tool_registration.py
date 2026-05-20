@@ -1,13 +1,11 @@
 """Tests for dynamic tool registration with FastMCP.
 
-Spike: Verify that dynamically-created functions (with __signature__ set at
-runtime) integrate correctly with FastMCP's add_tool() and produce the
-expected JSON schemas for LLM consumption.
+Verify that dynamically-created functions (with __signature__ set at runtime)
+integrate correctly with FastMCP's add_tool() and produce the expected JSON
+schemas for LLM consumption. Two test levels:
 
-Three test levels:
   1. Unit — Tool.from_function() schema verification
   2. In-memory MCP client — full protocol roundtrip
-  3. Live prototype — manual (see examples/prototype_server.py)
 """
 
 import inspect
