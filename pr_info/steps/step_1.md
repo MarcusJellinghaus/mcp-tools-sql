@@ -8,10 +8,10 @@ imports `make_entry` from the new location.
 
 ### Rename rationale (`_entry` → `make_entry`)
 
-The original CLI module name was `_entry`. With the helper now living in a
-different module and being imported by all sibling submodules + the CLI shim,
-an underscore prefix would trigger pylint's `protected-access` warning on
-every cross-module import. Dropping the underscore (renamed to `make_entry`)
+The original helper function was named `_entry`. With the helper now living
+in a different module and being imported by all sibling submodules + the CLI
+shim, an underscore prefix would trigger pylint's `protected-access` warning
+on every cross-module import. Dropping the underscore (renamed to `make_entry`)
 sidesteps the lint noise. The semantic intent — "not part of the public API;
 used only within the `verification` subpackage and the CLI shim during
 transition" — is preserved by convention: `make_entry` is simply not

@@ -21,9 +21,9 @@ lines and the snapshot test still passes byte-for-byte.
   `test_collect_install_instructions_aggregates_unique` (moves to
   test_orchestrator)
 - `tach.toml` — prune `cli.commands.depends_on`: remove `backends`,
-  `schema_tools`, `query_helpers`, `tool_builder`, `formatting` (now
-  reached only via `mcp_tools_sql.verification`); see HOW for the safety
-  check and the diff
+  `schema_tools`, `query_helpers`, `tool_builder`, `formatting`, and
+  `utils` (now reached only via `mcp_tools_sql.verification`, or no longer
+  used at all); see HOW for the safety check and the diff
 
 ## WHAT
 
@@ -282,6 +282,7 @@ be pruned from the `cli.commands` module's `depends_on`:
 - `mcp_tools_sql.query_helpers`
 - `mcp_tools_sql.tool_builder`
 - `mcp_tools_sql.formatting`
+- `mcp_tools_sql.utils`
 
 **Safety check before pruning (mandatory).** Other modules in
 `src/mcp_tools_sql/cli/commands/` (currently: `init.py`; potentially future
@@ -291,14 +292,14 @@ be pruned from the `cli.commands` module's `depends_on`:
 mcp__mcp-workspace__search_files(
     pattern="src/mcp_tools_sql/cli/commands/*.py",
     text="<module_name>",   # one of: backends, schema_tools, query_helpers,
-                            # tool_builder, formatting
+                            # tool_builder, formatting, utils
 )
 ```
 
-for each of the five candidate prunes. **Only prune an entry if NO file
-under `src/mcp_tools_sql/cli/commands/` imports from that module.** As of
-this plan, `init.py` only imports `mcp_tools_sql.cli.parsers` and
-`mcp_tools_sql.config.authoring`, so all five are confirmed safe to prune;
+for each candidate prune. **Only prune an entry if NO file under
+`src/mcp_tools_sql/cli/commands/` imports from that module.** As of this
+plan, `init.py` only imports `mcp_tools_sql.cli.parsers` and
+`mcp_tools_sql.config.authoring`, so all six are confirmed safe to prune;
 re-verify at implementation time in case new commands have landed.
 
 **`tach.toml` diff (after pruning):**
@@ -310,14 +311,13 @@ layer = "entry_point"
 depends_on = [
     { path = "mcp_tools_sql.cli" },
     { path = "mcp_tools_sql.config" },
-    { path = "mcp_tools_sql.utils" },
     { path = "mcp_tools_sql.verification" },
 ]
 ```
 
 (Removed: `backends`, `schema_tools`, `query_helpers`, `tool_builder`,
-`formatting`. Kept: `cli`, `config` — needed by `init.py` for
-`config.authoring` — `utils`, and the new `verification`.)
+`formatting`, `utils`. Kept: `cli`, `config` — needed by `init.py` for
+`config.authoring` — and the new `verification`.)
 
 ## ALGORITHM (for `verify_all`)
 
@@ -412,7 +412,12 @@ All must pass. The CLI snapshot test
 >    `_print_section`, `_compute_exit_code`, `add_subparser`,
 >    `_print_and_summarize`, and a 3-line `run(args)` that calls
 >    `verify_all(args.config, args.database_config)` and feeds the
->    result to `_print_and_summarize`. Remove all other code.
+>    result to `_print_and_summarize`. Remove all other code. Preserve
+>    the existing implementations of `_pad`, `_format_row`,
+>    `_print_section`, `_compute_exit_code`, and `_print_and_summarize`
+>    verbatim from the current `cli/commands/verify.py` — these control
+>    the byte-exact snapshot test output and must not be modified during
+>    the move.
 > 5. Create `tests/verification/test_orchestrator.py` with the moved
 >    `test_collect_install_instructions_aggregates_unique` plus 2–3 new
 >    `verify_all` tests covering: tuple shape, section ordering, and
@@ -422,12 +427,12 @@ All must pass. The CLI snapshot test
 >    byte-exact snapshot test). Target: ~300 lines, down from 1336.
 > 7. **Prune `tach.toml`.** After the slim shim is in place, remove the
 >    now-unused entries from `cli.commands.depends_on`: `backends`,
->    `schema_tools`, `query_helpers`, `tool_builder`, `formatting`.
->    **Before** pruning, run the safety check described in the HOW section
->    (`search_files` across `src/mcp_tools_sql/cli/commands/*.py` for
->    each candidate) — only remove entries that no `cli/commands/*.py`
->    file still uses. Then re-run `run_tach_check` and
->    `run_lint_imports_check`; both must pass.
+>    `schema_tools`, `query_helpers`, `tool_builder`, `formatting`, and
+>    `utils`. **Before** pruning, run the safety check described in the
+>    HOW section (`search_files` across
+>    `src/mcp_tools_sql/cli/commands/*.py` for each candidate) — only
+>    remove entries that no `cli/commands/*.py` file still uses. Then
+>    re-run `run_tach_check` and `run_lint_imports_check`; both must pass.
 >
 > Run all checks plus `check_file_size(max_lines=600)` for BOTH
 > `src/mcp_tools_sql/cli/commands/verify.py` (target ~150) AND
