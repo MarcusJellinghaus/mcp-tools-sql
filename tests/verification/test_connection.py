@@ -251,6 +251,45 @@ def test_verify_connection_sqlite_omits_dns_lookup(tmp_path: Path) -> None:
             open_backend.close()
 
 
+def test_verify_connection_mssql_includes_sanitized_conn_string(
+    stub_create_backend: MagicMock,  # pylint: disable=unused-argument
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """mssql backend → conn_string row present, ok=True, password redacted."""
+    # Avoid touching real DNS resolution.
+    monkeypatch.setattr(
+        "mcp_tools_sql.verification.connection.socket.gethostbyname",
+        MagicMock(return_value="10.1.2.3"),
+    )
+    conn = ConnectionConfig(
+        backend="mssql",
+        host="h",
+        port=1433,
+        database="d",
+        username="u",
+        password="supersecret",
+    )
+    result, _ = verify_connection(conn)
+    assert "conn_string" in result
+    assert result["conn_string"]["ok"] is True
+    value = result["conn_string"]["value"]
+    assert "supersecret" not in value
+    assert "PWD=***" in value
+    assert "Server=h,1433" in value
+
+
+def test_verify_connection_sqlite_omits_conn_string(tmp_path: Path) -> None:
+    """sqlite backend → no conn_string row (mssql-only)."""
+    db_path = tmp_path / "real.sqlite"
+    db_path.write_bytes(b"")
+    result, open_backend = verify_connection(_sqlite_connection(db_path))
+    try:
+        assert "conn_string" not in result
+    finally:
+        if open_backend is not None:
+            open_backend.close()
+
+
 def test_verify_connection_host_with_control_char_is_err() -> None:
     """Host containing a control char (e.g. newline) → host_port row ok=False."""
     conn = ConnectionConfig(

@@ -14,6 +14,7 @@ from mcp_tools_sql.backends.mssql import (
     MSSQLBackend,
     _build_connection_string,
     _odbc_escape,
+    build_sanitized_connection_string,
 )
 from mcp_tools_sql.config.models import ConnectionConfig
 from tests.conftest import MSSQLTestEnv
@@ -224,6 +225,55 @@ class TestConnectionStringBuilder:
             trusted_connection=True,
         )
         assert "Database={db;weird}" in _build_connection_string(c)
+
+
+class TestSanitizedConnectionString:
+    """Tests for the public ``build_sanitized_connection_string`` helper."""
+
+    def test_password_replaced_with_stars(self) -> None:
+        c = ConnectionConfig(
+            backend="mssql",
+            host="h",
+            port=1433,
+            database="d",
+            username="u",
+            password="supersecret",
+        )
+        s = build_sanitized_connection_string(c)
+        assert "supersecret" not in s
+        assert "PWD=***" in s
+
+    def test_trusted_connection_no_redaction_marker(self) -> None:
+        """trusted_connection has no password → string identical to raw."""
+        c = ConnectionConfig(
+            backend="mssql",
+            host="h",
+            port=1433,
+            database="d",
+            trusted_connection=True,
+        )
+        s = build_sanitized_connection_string(c)
+        assert "Trusted_Connection=yes" in s
+        assert "***" not in s
+        # No password → result identical to the raw connection string.
+        assert s == _build_connection_string(c)
+
+    def test_rest_of_string_matches_raw(self) -> None:
+        """All non-password parts match ``_build_connection_string`` output."""
+        c = ConnectionConfig(
+            backend="mssql",
+            host=r"myserver\inst",
+            port=0,
+            database="d",
+            username="u",
+            password="secret",
+            encrypt=False,
+            trust_server_certificate=True,
+        )
+        sanitized = build_sanitized_connection_string(c)
+        raw = _build_connection_string(c)
+        # The only difference is the password: replacing it should round-trip.
+        assert sanitized == raw.replace("secret", "***")
 
 
 class TestLifecycle:

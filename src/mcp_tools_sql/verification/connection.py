@@ -9,6 +9,7 @@ import sys
 from typing import Any
 
 from mcp_tools_sql.backends.base import DatabaseBackend, create_backend
+from mcp_tools_sql.backends.mssql import build_sanitized_connection_string
 from mcp_tools_sql.config.models import ConnectionConfig
 from mcp_tools_sql.verification._helpers import make_entry
 
@@ -180,6 +181,11 @@ def verify_connection(
     ):
         ok, value, error = _check_kerberos_ticket()
         result["kerberos_ticket"] = make_entry(ok=ok, value=value, error=error)
+
+    if connection.backend == "mssql":
+        result["conn_string"] = make_entry(
+            ok=True, value=build_sanitized_connection_string(connection)
+        )
 
     open_backend: DatabaseBackend | None = None
     backend: DatabaseBackend | None = None

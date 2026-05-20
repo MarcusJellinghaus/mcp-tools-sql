@@ -81,6 +81,21 @@ def _sanitize(msg: str, password: str) -> str:
     return msg
 
 
+def build_sanitized_connection_string(config: ConnectionConfig) -> str:
+    """Return the full ODBC connection string with the password redacted.
+
+    Builds the same connection string used at runtime via
+    :func:`_build_connection_string`, then replaces any occurrence of the
+    password with ``***``. For ``trusted_connection`` (no password) the
+    string is returned unchanged.
+
+    Returns:
+        The ODBC connection string suitable for display, with the password
+        replaced by ``***``.
+    """
+    return _sanitize(_build_connection_string(config), config.password)
+
+
 class MSSQLBackend(DatabaseBackend):
     """Backend for Microsoft SQL Server via pyodbc."""
 
