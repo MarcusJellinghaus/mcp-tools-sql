@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import logging
+import socket
 import subprocess
 import sys
 from typing import Any
@@ -44,6 +45,25 @@ def _required_str_entry(value: str, *, required_error: str) -> dict[str, Any]:
         value=value or "(empty)",
         error="" if value else required_error,
     )
+
+
+def _resolve_dns(host_with_instance: str) -> tuple[bool, str, str]:
+    r"""Resolve the host portion of ``host_with_instance`` via DNS.
+
+    Strips any ``\instance`` suffix before lookup — SQL Server named-instance
+    syntax (``host\instance``) is not part of the hostname proper.
+
+    Returns:
+        Tuple ``(ok, value, error)`` suitable for :func:`make_entry`. On
+        success ``value`` is the resolved IP; on failure ``value`` is the
+        host that was tried and ``error`` carries the ``gaierror`` message.
+    """
+    host_only = host_with_instance.split("\\", 1)[0]
+    try:
+        ip = socket.gethostbyname(host_only)
+        return True, ip, ""
+    except socket.gaierror as exc:
+        return False, host_only, f"DNS lookup failed: {exc}"
 
 
 def _check_kerberos_ticket() -> tuple[bool, str, str]:
@@ -144,6 +164,14 @@ def verify_connection(
             value="(none)",
             error="No credentials configured",
         )
+
+    if (
+        connection.backend == "mssql"
+        and connection.host
+        and not _has_control_chars(connection.host)
+    ):
+        ok, value, error = _resolve_dns(connection.host)
+        result["dns_lookup"] = make_entry(ok=ok, value=value, error=error)
 
     if (
         connection.backend == "mssql"

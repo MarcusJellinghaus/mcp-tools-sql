@@ -165,6 +165,92 @@ def test_verify_connection_host_port_value_with_explicit_port() -> None:
             open_backend.close()
 
 
+def test_verify_connection_dns_lookup_success(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """gethostbyname returns an IP → dns_lookup row ok with that IP."""
+    monkeypatch.setattr(
+        "mcp_tools_sql.verification.connection.socket.gethostbyname",
+        MagicMock(return_value="10.1.2.3"),
+    )
+    conn = ConnectionConfig(
+        backend="mssql",
+        host="myserver",
+        database="d",
+        trusted_connection=True,
+    )
+    result, open_backend = verify_connection(conn)
+    try:
+        assert result["dns_lookup"]["ok"] is True
+        assert result["dns_lookup"]["value"] == "10.1.2.3"
+    finally:
+        if open_backend is not None:
+            open_backend.close()
+
+
+def test_verify_connection_dns_lookup_strips_named_instance(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """Named-instance host: only the host part is looked up, instance is stripped."""
+    mock = MagicMock(return_value="10.1.2.3")
+    monkeypatch.setattr(
+        "mcp_tools_sql.verification.connection.socket.gethostbyname",
+        mock,
+    )
+    conn = ConnectionConfig(
+        backend="mssql",
+        host=r"myserver\inst",
+        database="d",
+        trusted_connection=True,
+    )
+    result, open_backend = verify_connection(conn)
+    try:
+        assert result["dns_lookup"]["ok"] is True
+        # gethostbyname should have been called with the host *without* \instance
+        mock.assert_called_with("myserver")
+    finally:
+        if open_backend is not None:
+            open_backend.close()
+
+
+def test_verify_connection_dns_lookup_failure(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """gaierror → dns_lookup row fails, value is host, error mentions DNS."""
+    import socket  # pylint: disable=import-outside-toplevel
+
+    monkeypatch.setattr(
+        "mcp_tools_sql.verification.connection.socket.gethostbyname",
+        MagicMock(side_effect=socket.gaierror("Name or service not known")),
+    )
+    conn = ConnectionConfig(
+        backend="mssql",
+        host="no-such-host.invalid",
+        database="d",
+        trusted_connection=True,
+    )
+    result, open_backend = verify_connection(conn)
+    try:
+        assert result["dns_lookup"]["ok"] is False
+        assert result["dns_lookup"]["value"] == "no-such-host.invalid"
+        assert "DNS lookup failed" in result["dns_lookup"]["error"]
+    finally:
+        if open_backend is not None:
+            open_backend.close()
+
+
+def test_verify_connection_sqlite_omits_dns_lookup(tmp_path: Path) -> None:
+    """sqlite backend → no dns_lookup row (no host)."""
+    db_path = tmp_path / "real.sqlite"
+    db_path.write_bytes(b"")
+    result, open_backend = verify_connection(_sqlite_connection(db_path))
+    try:
+        assert "dns_lookup" not in result
+    finally:
+        if open_backend is not None:
+            open_backend.close()
+
+
 def test_verify_connection_host_with_control_char_is_err() -> None:
     """Host containing a control char (e.g. newline) → host_port row ok=False."""
     conn = ConnectionConfig(

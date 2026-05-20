@@ -25,26 +25,6 @@ from mcp_tools_sql.verification.updates import verify_updates
 logger = logging.getLogger(__name__)
 
 
-def _resolve_backend(
-    config_path: Path | None,
-    db_config_path: Path | None,
-) -> str:
-    """Best-effort backend resolution from configs.
-
-    Returns:
-        Backend name (e.g. ``sqlite``) or ``"unknown"`` on any failure.
-    """
-    try:
-        resolved_query = discover_query_config(config_path, project_dir=Path.cwd())
-        qcfg = load_query_config(resolved_query)
-        dbcfg = load_database_config(db_config_path)
-        conn = resolve_connection(qcfg, dbcfg)
-        return conn.backend
-    except (ValueError, OSError) as exc:
-        logger.debug("Could not resolve backend: %s", exc)
-        return "unknown"
-
-
 def _resolve_connection_for_verify(
     config_path: Path | None,
     db_config_path: Path | None,
@@ -153,14 +133,21 @@ def verify_all(
     sections: list[tuple[str, dict[str, Any]]] = []
     sections.append(("ENVIRONMENT", verify_environment()))
     sections.append(("CONFIG", verify_config_files(config_path, db_config_path)))
-    backend = _resolve_backend(config_path, db_config_path)
-    sections.append(("DEPENDENCIES", verify_dependencies(backend)))
+    resolved_connection = _resolve_connection_for_verify(config_path, db_config_path)
+    backend = (
+        resolved_connection.backend if resolved_connection is not None else "unknown"
+    )
+    configured_driver = (
+        resolved_connection.driver
+        if resolved_connection is not None and backend == "mssql"
+        else ""
+    )
+    sections.append(("DEPENDENCIES", verify_dependencies(backend, configured_driver)))
     sections.append(("BUILTIN", verify_builtin()))
 
     skip_summary: str | None = None
-    connection = _resolve_connection_for_verify(config_path, db_config_path)
-    if connection is not None:
-        connection_result, open_backend = verify_connection(connection)
+    if resolved_connection is not None:
+        connection_result, open_backend = verify_connection(resolved_connection)
         sections.append(("CONNECTION", connection_result))
         try:
             if connection_result.get("overall_ok", False) and open_backend is not None:
@@ -170,7 +157,9 @@ def verify_all(
                         (
                             "QUERIES",
                             verify_queries(
-                                query_config.queries, connection.backend, open_backend
+                                query_config.queries,
+                                resolved_connection.backend,
+                                open_backend,
                             ),
                         )
                     )
@@ -178,7 +167,9 @@ def verify_all(
                         (
                             "UPDATES",
                             verify_updates(
-                                query_config.updates, connection.backend, open_backend
+                                query_config.updates,
+                                resolved_connection.backend,
+                                open_backend,
                             ),
                         )
                     )

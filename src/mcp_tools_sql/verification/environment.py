@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import importlib.metadata
+import platform
 import sys
 from typing import Any
 
@@ -14,8 +15,8 @@ def verify_environment() -> dict[str, Any]:
 
     Returns:
         Standard verifier result dict with entries for ``python_version``,
-        ``virtualenv``, ``mcp_tools_sql``, ``mcp_coder_utils`` and an
-        ``overall_ok`` flag.
+        ``os``, ``virtualenv``, ``mcp_tools_sql``, ``mcp_coder_utils`` and
+        an ``overall_ok`` flag.
     """
     result: dict[str, Any] = {}
 
@@ -23,6 +24,11 @@ def verify_environment() -> dict[str, Any]:
         f"{sys.version_info.major}.{sys.version_info.minor}.{sys.version_info.micro}"
     )
     result["python_version"] = make_entry(ok=True, value=py_version)
+
+    result["os"] = make_entry(
+        ok=True,
+        value=f"{platform.system()} ({sys.platform})",
+    )
 
     in_venv = sys.prefix != sys.base_prefix
     result["virtualenv"] = make_entry(
