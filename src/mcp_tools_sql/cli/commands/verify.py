@@ -31,6 +31,7 @@ from mcp_tools_sql.config.models import (
 from mcp_tools_sql.identifiers import IDENTIFIER_PATTERN, identifier_error
 from mcp_tools_sql.query_helpers import extract_sql_params
 from mcp_tools_sql.schema_tools import load_default_queries
+from mcp_tools_sql.verification._helpers import make_entry
 
 logger = logging.getLogger(__name__)
 
@@ -70,21 +71,6 @@ def _compute_exit_code(error_count: int) -> int:
     return 0 if error_count == 0 else 1
 
 
-def _entry(
-    *,
-    ok: bool,
-    value: str = "",
-    error: str = "",
-    install_hint: str = "",
-) -> dict[str, Any]:
-    """Build a single verifier result entry with the standard shape.
-
-    Returns:
-        Dict containing ``ok``, ``value``, ``error`` and ``install_hint`` keys.
-    """
-    return {"ok": ok, "value": value, "error": error, "install_hint": install_hint}
-
-
 def verify_environment() -> dict[str, Any]:
     """Report Python version, virtualenv status, and key package versions.
 
@@ -98,10 +84,10 @@ def verify_environment() -> dict[str, Any]:
     py_version = (
         f"{sys.version_info.major}.{sys.version_info.minor}.{sys.version_info.micro}"
     )
-    result["python_version"] = _entry(ok=True, value=py_version)
+    result["python_version"] = make_entry(ok=True, value=py_version)
 
     in_venv = sys.prefix != sys.base_prefix
-    result["virtualenv"] = _entry(
+    result["virtualenv"] = make_entry(
         ok=True,
         value=sys.prefix if in_venv else "(not in a virtual environment)",
     )
@@ -115,9 +101,9 @@ def verify_environment() -> dict[str, Any]:
     ):
         try:
             ver = importlib.metadata.version(pkg)
-            result[pkg] = _entry(ok=True, value=ver)
+            result[pkg] = make_entry(ok=True, value=ver)
         except importlib.metadata.PackageNotFoundError:
-            result[pkg] = _entry(
+            result[pkg] = make_entry(
                 ok=False,
                 value="(not installed)",
                 error=f"package {pkg!r} not found",
@@ -147,20 +133,20 @@ def verify_config_files(
     resolved_query: Path | None
     try:
         resolved_query = discover_query_config(config_path, project_dir=Path.cwd())
-        result["query_config_path"] = _entry(ok=True, value=str(resolved_query))
+        result["query_config_path"] = make_entry(ok=True, value=str(resolved_query))
     except ValueError as exc:
         resolved_query = None
-        result["query_config_path"] = _entry(ok=False, error=str(exc))
-        result["query_config_parse"] = _entry(
+        result["query_config_path"] = make_entry(ok=False, error=str(exc))
+        result["query_config_parse"] = make_entry(
             ok=False, error="skipped (path not resolved)"
         )
 
     if resolved_query is not None:
         try:
             load_query_config(resolved_query)
-            result["query_config_parse"] = _entry(ok=True, value="loaded")
+            result["query_config_parse"] = make_entry(ok=True, value="loaded")
         except ValueError as exc:
-            result["query_config_parse"] = _entry(ok=False, error=str(exc))
+            result["query_config_parse"] = make_entry(ok=False, error=str(exc))
 
         try:
             data = _read_toml(resolved_query)
@@ -168,7 +154,7 @@ def verify_config_files(
         except ValueError:
             found = []
         if found:
-            entry = _entry(
+            entry = make_entry(
                 ok=False,
                 value=", ".join(sorted(set(found))),
                 error="Move credentials to ~/.mcp-tools-sql/config.toml",
@@ -178,22 +164,22 @@ def verify_config_files(
 
     db_path = db_config_path or Path.home() / ".mcp-tools-sql" / "config.toml"
     if not db_path.exists():
-        result["database_config_path"] = _entry(
+        result["database_config_path"] = make_entry(
             ok=False,
             value=str(db_path),
             error="file not found",
             install_hint="run `mcp-tools-sql init --backend <backend>`",
         )
-        result["database_config_parse"] = _entry(
+        result["database_config_parse"] = make_entry(
             ok=False, error="skipped (file not found)"
         )
     else:
-        result["database_config_path"] = _entry(ok=True, value=str(db_path))
+        result["database_config_path"] = make_entry(ok=True, value=str(db_path))
         try:
             load_database_config(db_path)
-            result["database_config_parse"] = _entry(ok=True, value="loaded")
+            result["database_config_parse"] = make_entry(ok=True, value="loaded")
         except ValueError as exc:
-            result["database_config_parse"] = _entry(ok=False, error=str(exc))
+            result["database_config_parse"] = make_entry(ok=False, error=str(exc))
 
     result["overall_ok"] = all(
         entry["ok"] or entry.get("warn", False)
@@ -216,7 +202,7 @@ def verify_dependencies(backend: str) -> dict[str, Any]:
     """
     if backend == "unknown":
         return {
-            "backend": _entry(
+            "backend": make_entry(
                 ok=False,
                 error="cannot determine backend without valid config",
             ),
@@ -225,7 +211,7 @@ def verify_dependencies(backend: str) -> dict[str, Any]:
 
     if backend == "sqlite":
         return {
-            "info": _entry(ok=True, value="(no optional dependencies for sqlite)"),
+            "info": make_entry(ok=True, value="(no optional dependencies for sqlite)"),
             "overall_ok": True,
         }
 
@@ -236,7 +222,7 @@ def verify_dependencies(backend: str) -> dict[str, Any]:
         return _verify_dependencies_postgresql()
 
     return {
-        "backend": _entry(
+        "backend": make_entry(
             ok=False,
             value=backend,
             error=f"unknown backend {backend!r}",
@@ -258,9 +244,9 @@ def _verify_dependencies_mssql() -> dict[str, Any]:
 
         pyodbc_module = pyodbc
         version = getattr(pyodbc, "version", "")
-        result["pyodbc"] = _entry(ok=True, value=version)
+        result["pyodbc"] = make_entry(ok=True, value=version)
     except ImportError as exc:
-        result["pyodbc"] = _entry(
+        result["pyodbc"] = make_entry(
             ok=False,
             value="(not installed)",
             error=str(exc),
@@ -268,7 +254,7 @@ def _verify_dependencies_mssql() -> dict[str, Any]:
         )
 
     if pyodbc_module is None:
-        result["odbc_driver"] = _entry(
+        result["odbc_driver"] = make_entry(
             ok=False,
             value="(skipped)",
             error="pyodbc not available",
@@ -278,7 +264,7 @@ def _verify_dependencies_mssql() -> dict[str, Any]:
             drivers = list(pyodbc_module.drivers())
             sql_server_driver = next((d for d in drivers if "SQL Server" in d), None)
             if sql_server_driver is None:
-                result["odbc_driver"] = _entry(
+                result["odbc_driver"] = make_entry(
                     ok=False,
                     value="(none found)",
                     error="No ODBC driver containing 'SQL Server' found",
@@ -289,9 +275,9 @@ def _verify_dependencies_mssql() -> dict[str, Any]:
                     ),
                 )
             else:
-                result["odbc_driver"] = _entry(ok=True, value=sql_server_driver)
+                result["odbc_driver"] = make_entry(ok=True, value=sql_server_driver)
         except Exception as exc:  # pylint: disable=broad-except
-            result["odbc_driver"] = _entry(
+            result["odbc_driver"] = make_entry(
                 ok=False,
                 value="(error)",
                 error=str(exc),
@@ -314,9 +300,9 @@ def _verify_dependencies_postgresql() -> dict[str, Any]:
         import psycopg  # type: ignore[import-not-found]  # pylint: disable=import-outside-toplevel
 
         version = getattr(psycopg, "__version__", "")
-        result["psycopg"] = _entry(ok=True, value=version)
+        result["psycopg"] = make_entry(ok=True, value=version)
     except ImportError as exc:
-        result["psycopg"] = _entry(
+        result["psycopg"] = make_entry(
             ok=False,
             value="(not installed)",
             error=str(exc),
@@ -339,20 +325,20 @@ def verify_builtin() -> dict[str, Any]:
     result: dict[str, Any] = {}
     try:
         queries = load_default_queries()
-        result["default_queries_loaded"] = _entry(
+        result["default_queries_loaded"] = make_entry(
             ok=bool(queries),
             value=f"{len(queries)} queries",
             error="" if queries else "no queries found",
         )
-        result["tools_registered_count"] = _entry(
+        result["tools_registered_count"] = make_entry(
             ok=True, value=f"{len(queries)} tools"
         )
         result["overall_ok"] = bool(queries)
     except Exception as exc:  # pylint: disable=broad-except
-        result["default_queries_loaded"] = _entry(
+        result["default_queries_loaded"] = make_entry(
             ok=False, value="(error)", error=str(exc)
         )
-        result["tools_registered_count"] = _entry(
+        result["tools_registered_count"] = make_entry(
             ok=False, value="(skipped)", error="default_queries_loaded failed"
         )
         result["overall_ok"] = False
@@ -401,17 +387,17 @@ def verify_connection(
         A 2-tuple of (result_dict, open_backend_or_None).
     """
     result: dict[str, Any] = {}
-    result["backend"] = _entry(ok=True, value=connection.backend)
+    result["backend"] = make_entry(ok=True, value=connection.backend)
 
     if connection.backend == "mssql":
-        result["driver"] = _entry(
+        result["driver"] = make_entry(
             ok=bool(connection.driver),
             value=connection.driver or "(empty)",
             error="" if connection.driver else "driver must be set for mssql",
         )
 
     if connection.backend == "sqlite":
-        result["path"] = _entry(
+        result["path"] = make_entry(
             ok=bool(connection.path),
             value=connection.path or "(empty)",
             error="" if connection.path else "path must be set for sqlite",
@@ -420,23 +406,23 @@ def verify_connection(
         host_value = (
             f"{connection.host}:{connection.port}" if connection.host else "(empty)"
         )
-        result["host_port"] = _entry(
+        result["host_port"] = make_entry(
             ok=bool(connection.host),
             value=host_value,
             error="" if connection.host else "host must be set",
         )
-        result["database"] = _entry(
+        result["database"] = make_entry(
             ok=bool(connection.database),
             value=connection.database or "(empty)",
             error="" if connection.database else "database must be set",
         )
 
     if connection.password or connection.trusted_connection:
-        result["credentials"] = _entry(ok=True, value="configured")
+        result["credentials"] = make_entry(ok=True, value="configured")
     elif connection.backend == "sqlite":
-        result["credentials"] = _entry(ok=True, value="(not required for sqlite)")
+        result["credentials"] = make_entry(ok=True, value="(not required for sqlite)")
     else:
-        result["credentials"] = _entry(
+        result["credentials"] = make_entry(
             ok=False,
             value="(none)",
             error="No credentials configured",
@@ -448,7 +434,7 @@ def verify_connection(
         and sys.platform == "linux"
     ):
         ok, value, error = _check_kerberos_ticket()
-        result["kerberos_ticket"] = _entry(ok=ok, value=value, error=error)
+        result["kerberos_ticket"] = make_entry(ok=ok, value=value, error=error)
 
     open_backend: DatabaseBackend | None = None
     backend: DatabaseBackend | None = None
@@ -456,10 +442,10 @@ def verify_connection(
         backend = create_backend(connection)
         backend.connect()
         backend.execute_query("SELECT 1")
-        result["select_1"] = _entry(ok=True, value="ok")
+        result["select_1"] = make_entry(ok=True, value="ok")
         open_backend = backend
     except Exception as exc:  # pylint: disable=broad-except
-        result["select_1"] = _entry(ok=False, value="failed", error=str(exc))
+        result["select_1"] = make_entry(ok=False, value="failed", error=str(exc))
         if backend is not None:
             try:
                 backend.close()
@@ -554,21 +540,21 @@ def verify_one_query(
     sql = qcfg.resolve_sql(backend_name)
 
     ok, err = _check_sql_explain(sql, qcfg.params, backend_name, backend)
-    result[f"{name}.sql"] = _entry(
+    result[f"{name}.sql"] = make_entry(
         ok=ok,
         value="EXPLAIN ok" if ok else "failed",
         error=err,
     )
 
     ok, err = _check_params_well_formed(sql, qcfg.params)
-    result[f"{name}.params"] = _entry(
+    result[f"{name}.params"] = make_entry(
         ok=ok,
         value="well-formed" if ok else "issue",
         error=err,
     )
 
     ok = qcfg.max_rows_default > 0
-    result[f"{name}.max_rows_default"] = _entry(
+    result[f"{name}.max_rows_default"] = make_entry(
         ok=ok,
         value=str(qcfg.max_rows_default),
         error="" if ok else "max_rows_default must be > 0",
@@ -652,7 +638,7 @@ def verify_one_update(
     if ucfg.schema_name and not IDENTIFIER_PATTERN.match(ucfg.schema_name):
         bad_idents.append(ucfg.schema_name)
     if bad_idents:
-        result[f"{name}.table"] = _entry(
+        result[f"{name}.table"] = make_entry(
             ok=False,
             value=ucfg.table,
             error=identifier_error(value=bad_idents[0], update_name=name),
@@ -666,13 +652,13 @@ def verify_one_update(
 
     if cols is None:
         qualified = f"{ucfg.schema_name}.{ucfg.table}".lstrip(".")
-        result[f"{name}.table"] = _entry(
+        result[f"{name}.table"] = make_entry(
             ok=False, value=qualified, error="Table not found"
         )
-        result[f"{name}.key_column"] = _entry(
+        result[f"{name}.key_column"] = make_entry(
             ok=False, value="(skipped)", error="Table not found"
         )
-        result[f"{name}.fields"] = _entry(
+        result[f"{name}.fields"] = make_entry(
             ok=False, value="(skipped)", error="Table not found"
         )
         # NOTE: Key insertion order is load-bearing — the CLI snapshot test and
@@ -680,34 +666,34 @@ def verify_one_update(
         # Do not refactor to dict comprehensions or dict() constructors.
         return result
 
-    result[f"{name}.table"] = _entry(ok=True, value=ucfg.table)
+    result[f"{name}.table"] = make_entry(ok=True, value=ucfg.table)
 
     key_field = ucfg.key.field if ucfg.key else ""
     if not key_field:
-        result[f"{name}.key_column"] = _entry(
+        result[f"{name}.key_column"] = make_entry(
             ok=False, value="(none)", error="No key configured"
         )
     elif not IDENTIFIER_PATTERN.match(key_field):
-        result[f"{name}.key_column"] = _entry(
+        result[f"{name}.key_column"] = make_entry(
             ok=False,
             value=key_field,
             error=identifier_error(value=key_field, update_name=name),
         )
     elif key_field not in cols:
-        result[f"{name}.key_column"] = _entry(
+        result[f"{name}.key_column"] = make_entry(
             ok=False,
             value=key_field,
             error=f"Column not found in {ucfg.table}",
         )
     else:
-        result[f"{name}.key_column"] = _entry(ok=True, value=key_field)
+        result[f"{name}.key_column"] = make_entry(ok=True, value=key_field)
 
     fields_value = ", ".join(
         f"{f.field}(req)" if f.required else f.field for f in ucfg.fields
     )
     bad_fields = [f.field for f in ucfg.fields if not IDENTIFIER_PATTERN.match(f.field)]
     if bad_fields:
-        result[f"{name}.fields"] = _entry(
+        result[f"{name}.fields"] = make_entry(
             ok=False,
             value=fields_value,
             error=identifier_error(value=bad_fields[0], update_name=name),
@@ -715,13 +701,13 @@ def verify_one_update(
     else:
         missing = [f.field for f in ucfg.fields if f.field not in cols]
         if missing:
-            result[f"{name}.fields"] = _entry(
+            result[f"{name}.fields"] = make_entry(
                 ok=False,
                 value=fields_value,
                 error=f"Missing columns: {', '.join(missing)}",
             )
         else:
-            result[f"{name}.fields"] = _entry(ok=True, value=fields_value)
+            result[f"{name}.fields"] = make_entry(ok=True, value=fields_value)
 
     return result
 
@@ -769,7 +755,8 @@ def collect_install_instructions(
 
     unique_hints = list(dict.fromkeys(hints))
     result: dict[str, Any] = {
-        f"hint_{i}": _entry(ok=True, value=hint) for i, hint in enumerate(unique_hints)
+        f"hint_{i}": make_entry(ok=True, value=hint)
+        for i, hint in enumerate(unique_hints)
     }
     result["overall_ok"] = True
     return result
