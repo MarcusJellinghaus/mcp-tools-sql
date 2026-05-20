@@ -10,7 +10,6 @@ from pathlib import Path
 
 import pytest
 
-from mcp_tools_sql.backends.mssql import MSSQLBackend
 from mcp_tools_sql.backends.sqlite import SQLiteBackend
 from mcp_tools_sql.cli.commands import verify as verify_cmd
 from mcp_tools_sql.config.models import (
@@ -365,173 +364,11 @@ def test_verify_full_run_returns_1_on_error(tmp_path: Path) -> None:
     assert verify_cmd.run(args) == 1
 
 
-# ---------------------------------------------------------------------------
-# verify_queries
-# ---------------------------------------------------------------------------
-
-
 def _open_sqlite_backend(db_path: Path) -> SQLiteBackend:
     """Return a connected SQLiteBackend pointing at ``db_path``."""
     backend = SQLiteBackend(ConnectionConfig(backend="sqlite", path=str(db_path)))
     backend.connect()
     return backend
-
-
-def test_verify_queries_valid_sqlite(sqlite_db: Path) -> None:
-    """A query with valid SQL + matching params + max_rows_default>0 → all ok=True."""
-    queries = {
-        "list_customers": QueryConfig(
-            sql="SELECT * FROM customers WHERE country = :country",
-            params={
-                "country": QueryParamConfig(name="country", type="str"),
-            },
-            max_rows_default=10,
-        ),
-    }
-    backend = _open_sqlite_backend(sqlite_db)
-    try:
-        result = verify_cmd.verify_queries(queries, "sqlite", backend)
-    finally:
-        backend.close()
-
-    assert result["list_customers.sql"]["ok"] is True
-    assert result["list_customers.params"]["ok"] is True
-    assert result["list_customers.max_rows_default"]["ok"] is True
-    assert result["overall_ok"] is True
-
-
-def test_verify_queries_detects_invalid_sql(sqlite_db: Path) -> None:
-    """Issue test (xii): bad SQL → ``<name>.sql`` row ok=False with sqlite error."""
-    queries = {
-        "broken": QueryConfig(
-            sql="SELECT * FROMX badtable",
-            params={},
-            max_rows_default=10,
-        ),
-    }
-    backend = _open_sqlite_backend(sqlite_db)
-    try:
-        result = verify_cmd.verify_queries(queries, "sqlite", backend)
-    finally:
-        backend.close()
-
-    assert result["broken.sql"]["ok"] is False
-    assert result["broken.sql"]["error"]
-    assert result["overall_ok"] is False
-
-
-def test_verify_queries_detects_param_mismatch(sqlite_db: Path) -> None:
-    """Issue test (xiii): SQL has ``:foo`` but config has ``:bar`` → params ok=False."""
-    queries = {
-        "mismatch": QueryConfig(
-            sql="SELECT * FROM customers WHERE name = :foo",
-            params={
-                "bar": QueryParamConfig(name="bar", type="str"),
-            },
-            max_rows_default=10,
-        ),
-    }
-    backend = _open_sqlite_backend(sqlite_db)
-    try:
-        result = verify_cmd.verify_queries(queries, "sqlite", backend)
-    finally:
-        backend.close()
-
-    assert result["mismatch.params"]["ok"] is False
-    assert "foo" in result["mismatch.params"]["error"]
-    assert "bar" in result["mismatch.params"]["error"]
-    assert result["overall_ok"] is False
-
-
-def test_verify_queries_detects_invalid_param_type(sqlite_db: Path) -> None:
-    """Param type ``"bool"`` (not in allowed set) → ok=False."""
-    queries = {
-        "bad_type": QueryConfig(
-            sql="SELECT * FROM customers WHERE id = :id",
-            params={
-                "id": QueryParamConfig(name="id", type="bool"),
-            },
-            max_rows_default=10,
-        ),
-    }
-    backend = _open_sqlite_backend(sqlite_db)
-    try:
-        result = verify_cmd.verify_queries(queries, "sqlite", backend)
-    finally:
-        backend.close()
-
-    assert result["bad_type.params"]["ok"] is False
-    assert "bool" in result["bad_type.params"]["error"]
-    assert result["overall_ok"] is False
-
-
-def test_verify_queries_rejects_filter_and_max_rows_as_non_sql_params(
-    sqlite_db: Path,
-) -> None:
-    """``filter`` and ``max_rows`` are no longer allow-listed as non-SQL params.
-
-    They are auto-injected by the tool builder, so declaring them in
-    ``[queries.<name>.params]`` is now a config error.
-    """
-    queries = {
-        "with_filter": QueryConfig(
-            sql="SELECT * FROM customers WHERE country = :country",
-            params={
-                "country": QueryParamConfig(name="country", type="str"),
-                "filter": QueryParamConfig(name="filter", type="str", required=False),
-                "max_rows": QueryParamConfig(
-                    name="max_rows", type="int", required=False
-                ),
-            },
-            max_rows_default=10,
-        ),
-    }
-    backend = _open_sqlite_backend(sqlite_db)
-    try:
-        result = verify_cmd.verify_queries(queries, "sqlite", backend)
-    finally:
-        backend.close()
-
-    assert result["with_filter.params"]["ok"] is False
-    assert "not used in SQL" in result["with_filter.params"]["error"]
-    assert result["overall_ok"] is False
-
-
-def test_verify_queries_detects_missing_max_rows_default(sqlite_db: Path) -> None:
-    """``QueryConfig(max_rows_default=0)`` → ok=False on ``<name>.max_rows_default`` row."""
-    queries = {
-        "no_max": QueryConfig(
-            sql="SELECT * FROM customers",
-            params={},
-            max_rows_default=0,
-        ),
-    }
-    backend = _open_sqlite_backend(sqlite_db)
-    try:
-        result = verify_cmd.verify_queries(queries, "sqlite", backend)
-    finally:
-        backend.close()
-
-    assert result["no_max.max_rows_default"]["ok"] is False
-    assert "max_rows_default" in result["no_max.max_rows_default"]["error"]
-    assert result["overall_ok"] is False
-
-
-def test_verify_queries_unimplemented_backend_explain_fails_cleanly() -> None:
-    """mssql backend's ``explain()`` raises NotImplementedError → ok=False with error."""
-    queries = {
-        "any": QueryConfig(
-            sql="SELECT 1",
-            params={},
-            max_rows_default=10,
-        ),
-    }
-    conn = ConnectionConfig(backend="mssql", host="localhost", database="db")
-    backend = MSSQLBackend(conn)
-    result = verify_cmd.verify_queries(queries, "mssql", backend)
-
-    assert result["any.sql"]["ok"] is False
-    assert result["overall_ok"] is False
 
 
 # ---------------------------------------------------------------------------
@@ -892,31 +729,8 @@ def test_verify_cli_queries_updates_snapshot(
 
 
 # ---------------------------------------------------------------------------
-# Per-entry equality tests: verify_one_query / verify_one_update vs. bulk
+# Per-entry equality tests: verify_one_update vs. bulk
 # ---------------------------------------------------------------------------
-
-
-def test_verify_one_query_matches_bulk_happy_path(sqlite_db: Path) -> None:
-    """`verify_one_query` returns identical entries to the bulk function."""
-    queries = {
-        "list_customers": QueryConfig(
-            sql="SELECT * FROM customers WHERE country = :country",
-            params={"country": QueryParamConfig(name="country", type="str")},
-            max_rows_default=10,
-        ),
-    }
-    backend = _open_sqlite_backend(sqlite_db)
-    try:
-        bulk = verify_cmd.verify_queries(queries, "sqlite", backend)
-        one = verify_cmd.verify_one_query(
-            "list_customers", queries["list_customers"], "sqlite", backend
-        )
-    finally:
-        backend.close()
-
-    bulk_without_overall = {k: v for k, v in bulk.items() if k != "overall_ok"}
-    assert list(one.keys()) == list(bulk_without_overall.keys())
-    assert one == bulk_without_overall
 
 
 @pytest.mark.parametrize(

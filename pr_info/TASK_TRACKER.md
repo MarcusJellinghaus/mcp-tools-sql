@@ -52,9 +52,9 @@ This tracks **Feature Implementation** consisting of multiple **Tasks**.
 - [x] Commit message prepared
 
 ### Step 7: Move `verify_queries` + `verify_one_query` + helpers ([step_7.md](./steps/step_7.md))
-- [ ] Implementation (tests + production code)
-- [ ] Quality checks: pylint, pytest, mypy — fix all issues
-- [ ] Commit message prepared
+- [x] Implementation (tests + production code)
+- [x] Quality checks: pylint, pytest, mypy — fix all issues
+- [x] Commit message prepared
 
 ### Step 8: Move `verify_updates` + `verify_one_update` + helpers ([step_8.md](./steps/step_8.md))
 - [ ] Implementation (tests + production code)
