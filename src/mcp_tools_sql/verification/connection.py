@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import logging
 import subprocess
 import sys
 from typing import Any
@@ -9,6 +10,40 @@ from typing import Any
 from mcp_tools_sql.backends.base import DatabaseBackend, create_backend
 from mcp_tools_sql.config.models import ConnectionConfig
 from mcp_tools_sql.verification._helpers import make_entry
+
+logger = logging.getLogger(__name__)
+
+_CONTROL_CHAR_HINT = (
+    "value contains control character(s) (e.g. newline) — most likely from a "
+    "backslash escape (\\n, \\t) in a double-quoted TOML value. "
+    "Use a single-quoted literal ('server\\name') or double the backslash "
+    '("server\\\\name") to keep the literal backslash.'
+)
+
+
+def _has_control_chars(value: str) -> bool:
+    """Return True if ``value`` contains any ASCII control character."""
+    return any(ord(c) < 32 for c in value)
+
+
+def _required_str_entry(value: str, *, required_error: str) -> dict[str, Any]:
+    """Build a make_entry for a required string field, with control-char check.
+
+    If ``value`` contains control characters, returns an ``ok=False`` entry
+    whose ``value`` is ``repr(value)`` (so the offending character is visible)
+    and ``error`` is :data:`_CONTROL_CHAR_HINT`. Otherwise behaves like the
+    standard required-string check.
+
+    Returns:
+        A verifier entry dict.
+    """
+    if value and _has_control_chars(value):
+        return make_entry(ok=False, value=repr(value), error=_CONTROL_CHAR_HINT)
+    return make_entry(
+        ok=bool(value),
+        value=value or "(empty)",
+        error="" if value else required_error,
+    )
 
 
 def _check_kerberos_ticket() -> tuple[bool, str, str]:
@@ -27,15 +62,19 @@ def _check_kerberos_ticket() -> tuple[bool, str, str]:
             timeout=5,
         )
     except FileNotFoundError:
+        logger.debug("klist not found on PATH")
         return (
             False,
             "klist not installed",
             "Install Kerberos client tools (krb5-user / krb5-workstation)",
         )
     except subprocess.TimeoutExpired as exc:
+        logger.debug("klist -s timed out: %s", exc)
         return False, "klist timeout", str(exc)
     if proc.returncode == 0:
+        logger.debug("klist -s exit 0: cached ticket present")
         return True, "cached ticket present", ""
+    logger.debug("klist -s exit %d, stderr=%r", proc.returncode, proc.stderr)
     return False, "no cached ticket", "Run `kinit` to obtain a Kerberos ticket"
 
 
@@ -63,28 +102,37 @@ def verify_connection(
         )
 
     if connection.backend == "sqlite":
-        result["path"] = make_entry(
-            ok=bool(connection.path),
-            value=connection.path or "(empty)",
-            error="" if connection.path else "path must be set for sqlite",
+        result["path"] = _required_str_entry(
+            connection.path, required_error="path must be set for sqlite"
         )
     else:
-        host_value = (
-            f"{connection.host}:{connection.port}" if connection.host else "(empty)"
-        )
-        result["host_port"] = make_entry(
-            ok=bool(connection.host),
-            value=host_value,
-            error="" if connection.host else "host must be set",
-        )
-        result["database"] = make_entry(
-            ok=bool(connection.database),
-            value=connection.database or "(empty)",
-            error="" if connection.database else "database must be set",
+        if connection.host and _has_control_chars(connection.host):
+            result["host_port"] = make_entry(
+                ok=False,
+                value=repr(connection.host),
+                error=_CONTROL_CHAR_HINT,
+            )
+        else:
+            host_value = (
+                f"{connection.host}:{connection.port}" if connection.host else "(empty)"
+            )
+            result["host_port"] = make_entry(
+                ok=bool(connection.host),
+                value=host_value,
+                error="" if connection.host else "host must be set",
+            )
+        result["database"] = _required_str_entry(
+            connection.database, required_error="database must be set"
         )
 
-    if connection.password or connection.trusted_connection:
-        result["credentials"] = make_entry(ok=True, value="configured")
+    if connection.trusted_connection and connection.password:
+        result["credentials"] = make_entry(
+            ok=True, value="trusted_connection + password"
+        )
+    elif connection.trusted_connection:
+        result["credentials"] = make_entry(ok=True, value="trusted_connection")
+    elif connection.password:
+        result["credentials"] = make_entry(ok=True, value="password")
     elif connection.backend == "sqlite":
         result["credentials"] = make_entry(ok=True, value="(not required for sqlite)")
     else:

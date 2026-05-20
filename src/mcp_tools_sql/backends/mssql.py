@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import logging
 import threading
 from collections.abc import Iterator
 from contextlib import contextmanager
@@ -13,6 +14,8 @@ from mcp_tools_sql.utils.sql_placeholders import (
     substitute_named_with_literals,
     translate_named_to_qmark,
 )
+
+logger = logging.getLogger(__name__)
 
 _NEEDS_BRACES = set(";={}")
 _DEFAULT_MSSQL_PORT = 1433
@@ -103,12 +106,19 @@ class MSSQLBackend(DatabaseBackend):
             import pyodbc  # pylint: disable=import-error,import-outside-toplevel
 
             conn_str = _build_connection_string(self._config)
+            logger.debug(
+                "MSSQL connect attempt: %s",
+                _sanitize(conn_str, self._config.password),
+            )
             try:
                 self._connection = pyodbc.connect(conn_str, autocommit=True)
             except pyodbc.Error as exc:
                 exc.args = tuple(
                     _sanitize(a, self._config.password) if isinstance(a, str) else a
                     for a in exc.args
+                )
+                logger.debug(
+                    "MSSQL connect failed: %s %r", type(exc).__name__, exc.args
                 )
                 raise
 

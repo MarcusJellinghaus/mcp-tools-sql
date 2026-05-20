@@ -68,7 +68,7 @@ def test_verify_connection_unimplemented_backend_is_err() -> None:
 
 
 def test_verify_connection_credentials_password_set() -> None:
-    """Password resolved → credentials row ok=True."""
+    """Password resolved → credentials row ok=True with value 'password'."""
     conn = ConnectionConfig(
         backend="mssql",
         host="h",
@@ -79,6 +79,41 @@ def test_verify_connection_credentials_password_set() -> None:
     result, open_backend = verify_connection(conn)
     try:
         assert result["credentials"]["ok"] is True
+        assert result["credentials"]["value"] == "password"
+    finally:
+        if open_backend is not None:
+            open_backend.close()
+
+
+def test_verify_connection_credentials_trusted_only() -> None:
+    """trusted_connection=true (no password) → value 'trusted_connection'."""
+    conn = ConnectionConfig(
+        backend="mssql", host="h", port=1433, database="d", trusted_connection=True
+    )
+    result, open_backend = verify_connection(conn)
+    try:
+        assert result["credentials"]["ok"] is True
+        assert result["credentials"]["value"] == "trusted_connection"
+    finally:
+        if open_backend is not None:
+            open_backend.close()
+
+
+def test_verify_connection_credentials_trusted_and_password() -> None:
+    """Both trusted_connection and password set → value mentions both."""
+    conn = ConnectionConfig(
+        backend="mssql",
+        host="h",
+        port=1433,
+        database="d",
+        trusted_connection=True,
+        password="resolved",
+    )
+    result, open_backend = verify_connection(conn)
+    try:
+        assert result["credentials"]["ok"] is True
+        assert "trusted_connection" in result["credentials"]["value"]
+        assert "password" in result["credentials"]["value"]
     finally:
         if open_backend is not None:
             open_backend.close()
@@ -90,6 +125,28 @@ def test_verify_connection_credentials_missing_for_mssql() -> None:
     result, open_backend = verify_connection(conn)
     try:
         assert result["credentials"]["ok"] is False
+    finally:
+        if open_backend is not None:
+            open_backend.close()
+
+
+def test_verify_connection_host_with_control_char_is_err() -> None:
+    """Host containing a control char (e.g. newline) → host_port row ok=False."""
+    conn = ConnectionConfig(
+        backend="mssql",
+        host="server\name",  # intentional newline — same effect as TOML "server\n"
+        port=1433,
+        database="d",
+        trusted_connection=True,
+    )
+    result, open_backend = verify_connection(conn)
+    try:
+        assert result["host_port"]["ok"] is False
+        # repr() makes the offending character visible in the printed value
+        assert "\\n" in result["host_port"]["value"]
+        error = result["host_port"]["error"].lower()
+        assert "control character" in error
+        assert "toml" in error
     finally:
         if open_backend is not None:
             open_backend.close()
@@ -187,6 +244,26 @@ def test_klist_nonzero_returns_err(
     assert result["kerberos_ticket"]["ok"] is False
     error = result["kerberos_ticket"]["error"].lower()
     assert "kinit" in error or "ticket" in error
+
+
+def test_klist_nonzero_logs_debug(
+    monkeypatch: pytest.MonkeyPatch,
+    caplog: pytest.LogCaptureFixture,
+    linux_platform: None,  # pylint: disable=unused-argument
+    stub_create_backend: MagicMock,  # pylint: disable=unused-argument
+) -> None:
+    """``klist -s`` exits non-zero → debug log records exit code + stderr."""
+    proc = MagicMock(returncode=1, stderr=b"kinit: no credentials cache")
+    monkeypatch.setattr("subprocess.run", MagicMock(return_value=proc))
+    with caplog.at_level("DEBUG", logger="mcp_tools_sql.verification.connection"):
+        verify_connection(_trusted_mssql())
+    debug_lines = [
+        r.getMessage()
+        for r in caplog.records
+        if r.name == "mcp_tools_sql.verification.connection" and r.levelname == "DEBUG"
+    ]
+    assert any("klist -s exit 1" in line for line in debug_lines)
+    assert any("kinit: no credentials cache" in line for line in debug_lines)
 
 
 def test_klist_missing_returns_err(

@@ -380,6 +380,50 @@ class TestErrorSanitization:
         assert exc.value.args[0] == "08001"
 
 
+class TestConnectDebugLogging:
+    """Tests that MSSQLBackend.connect() emits diagnostic debug logs."""
+
+    def test_connect_logs_redacted_conn_string(
+        self, fake_pyodbc: Any, caplog: pytest.LogCaptureFixture
+    ) -> None:
+        """Successful connect → debug log contains the redacted conn string."""
+        del fake_pyodbc  # only needed for module patching side effect
+        b = MSSQLBackend(_cfg(password="supersecret"))
+        with caplog.at_level("DEBUG", logger="mcp_tools_sql.backends.mssql"):
+            b.connect()
+        attempt_lines = [
+            r.getMessage()
+            for r in caplog.records
+            if "MSSQL connect attempt" in r.getMessage()
+        ]
+        assert attempt_lines, "no attempt debug line emitted"
+        for line in attempt_lines:
+            assert "supersecret" not in line
+            assert "PWD=***" in line
+
+    def test_connect_failure_logs_exception_details(
+        self, fake_pyodbc: Any, caplog: pytest.LogCaptureFixture
+    ) -> None:
+        """pyodbc.connect raises → debug log records exception type + args."""
+        fake_pyodbc.connect.side_effect = fake_pyodbc.OperationalError(
+            "08001", "Login failed; PWD=supersecret"
+        )
+        b = MSSQLBackend(_cfg(password="supersecret"))
+        with caplog.at_level("DEBUG", logger="mcp_tools_sql.backends.mssql"):
+            with pytest.raises(fake_pyodbc.Error):
+                b.connect()
+        failure_lines = [
+            r.getMessage()
+            for r in caplog.records
+            if "MSSQL connect failed" in r.getMessage()
+        ]
+        assert failure_lines, "no failure debug line emitted"
+        for line in failure_lines:
+            assert "OperationalError" in line
+            assert "08001" in line
+            assert "supersecret" not in line
+
+
 @pytest.mark.mssql_integration
 class TestMSSQLIntegration:
     """Round-trip tests against a real SQL Server.
