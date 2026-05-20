@@ -107,7 +107,8 @@ class TestConnectionStringBuilder:
         assert "Trusted_Connection=yes" in s
         assert "UID=" not in s and "PWD=" not in s
 
-    def test_port_zero_defaults_to_1433(self) -> None:
+    def test_port_zero_omits_port_from_server(self) -> None:
+        """port=0 (the model default) → Server=host with no ,port suffix."""
         c = ConnectionConfig(
             backend="mssql",
             host="h",
@@ -115,7 +116,27 @@ class TestConnectionStringBuilder:
             database="d",
             trusted_connection=True,
         )
-        assert "Server=h,1433" in _build_connection_string(c)
+        s = _build_connection_string(c)
+        assert "Server=h;" in s
+        assert "Server=h," not in s
+
+    def test_named_instance_with_port_zero(self) -> None:
+        """host=server\\instance, port=0 → Server=server\\instance (no port).
+
+        This is the form ODBC needs so SQL Browser can resolve the named
+        instance's dynamic port. Specifying a port alongside an instance
+        name makes ODBC bypass SQL Browser, which is almost never desired.
+        """
+        c = ConnectionConfig(
+            backend="mssql",
+            host=r"myserver\inst",
+            port=0,
+            database="d",
+            trusted_connection=True,
+        )
+        s = _build_connection_string(c)
+        assert r"Server=myserver\inst;" in s
+        assert ",1433" not in s
 
     def test_port_uses_comma_not_colon(self) -> None:
         c = ConnectionConfig(

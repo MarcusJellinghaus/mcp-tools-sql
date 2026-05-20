@@ -96,10 +96,14 @@ _DATABASE_CONFIG_MSSQL = """\
 [connections.default]
 backend = "mssql"
 host = ""
-port = 1433
+# port: leave unset for the default instance (1433) or named instances
+# (host\\instance — SQL Browser resolves the port). Set it explicitly only
+# when connecting to a non-default fixed TCP port.
+# port = 1433
 database = ""
 username = ""
 password = "${MSSQL_PASSWORD}"
+# trusted_connection = true   # uncomment for Windows auth (no password)
 driver = "ODBC Driver 18 for SQL Server"
 """
 

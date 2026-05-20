@@ -58,9 +58,11 @@ def test_init_generates_valid_toml(tmp_path: Path) -> None:
     [
         ("sqlite", {"backend", "path"}, {"host", "port"}),
         (
+            # `port` is commented out in the mssql template; users opt in only
+            # for non-default fixed ports (see "When to set port" in the docs).
             "mssql",
-            {"backend", "host", "port", "database", "username", "driver"},
-            {"path"},
+            {"backend", "host", "database", "username", "driver"},
+            {"path", "port"},
         ),
         (
             "postgresql",

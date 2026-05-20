@@ -130,6 +130,41 @@ def test_verify_connection_credentials_missing_for_mssql() -> None:
             open_backend.close()
 
 
+def test_verify_connection_host_port_value_with_port_zero() -> None:
+    """port=0 → host_port row shows just the host, not ``host:0``."""
+    conn = ConnectionConfig(
+        backend="mssql",
+        host=r"myserver\inst",
+        port=0,
+        database="d",
+        trusted_connection=True,
+    )
+    result, open_backend = verify_connection(conn)
+    try:
+        assert result["host_port"]["value"] == r"myserver\inst"
+        assert ":0" not in result["host_port"]["value"]
+    finally:
+        if open_backend is not None:
+            open_backend.close()
+
+
+def test_verify_connection_host_port_value_with_explicit_port() -> None:
+    """port > 0 → host_port row shows ``host:port``."""
+    conn = ConnectionConfig(
+        backend="mssql",
+        host="h",
+        port=1234,
+        database="d",
+        trusted_connection=True,
+    )
+    result, open_backend = verify_connection(conn)
+    try:
+        assert result["host_port"]["value"] == "h:1234"
+    finally:
+        if open_backend is not None:
+            open_backend.close()
+
+
 def test_verify_connection_host_with_control_char_is_err() -> None:
     """Host containing a control char (e.g. newline) → host_port row ok=False."""
     conn = ConnectionConfig(

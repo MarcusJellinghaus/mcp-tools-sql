@@ -113,9 +113,12 @@ def verify_connection(
                 error=_CONTROL_CHAR_HINT,
             )
         else:
-            host_value = (
-                f"{connection.host}:{connection.port}" if connection.host else "(empty)"
-            )
+            if not connection.host:
+                host_value = "(empty)"
+            elif connection.port:
+                host_value = f"{connection.host}:{connection.port}"
+            else:
+                host_value = connection.host
             result["host_port"] = make_entry(
                 ok=bool(connection.host),
                 value=host_value,

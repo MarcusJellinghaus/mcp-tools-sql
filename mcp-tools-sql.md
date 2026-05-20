@@ -321,15 +321,20 @@ Per-machine, per-user. Like `~/.ssh/config` — set up once, never committed.
 # Named database connections
 [connections.customer-prod]
 backend = "mssql"
-host = "sql-server-prod.internal"
-port = 1433
+host = "sql-server-prod.internal"   # default instance — ODBC uses 1433
 database = "wide_data"
-trusted_connection = true          # Windows auth — no password needed
+trusted_connection = true           # Windows auth — no password needed
+
+[connections.customer-named-inst]
+backend = "mssql"
+host = "sql-server-prod\\reporting" # named instance — SQL Browser resolves the port
+database = "wide_data"
+trusted_connection = true
 
 [connections.customer-dev]
 backend = "mssql"
 host = "localhost"
-port = 1433
+port = 14330                        # explicit non-default TCP port
 database = "wide_data_dev"
 username = "sa"
 password = "DevPassword123!"        # OK here — this file is never in a repo
@@ -348,6 +353,17 @@ path = "C:/data/test.db"
 Contains:
 - **Named connections**: backend, host, credentials. Referenced by name from query configs.
 - **Security settings** (phase 2/3): Global switches for update permissions. Could restrict which query config files are allowed to define UPDATE tools — prevents a random config from writing to a production database.
+
+##### When to set `port` (MSSQL)
+
+Omit `port` (or leave it unset) in the common cases — ODBC figures it out:
+
+- **Default instance**: `host = "myserver"` with no `port` line. ODBC connects to the default TCP port 1433.
+- **Named instance**: `host = "myserver\\instance_name"` with no `port` line. ODBC asks the SQL Browser service (UDP 1434 on the host) for the instance's actual (often dynamic) port — the same path SSMS uses.
+
+Set `port` explicitly only when the instance listens on a fixed non-default TCP port and you want to bypass SQL Browser (e.g. UDP 1434 is firewalled). **Don't combine `host\instance` with an explicit `port`** — ODBC will ignore the instance name and try a plain TCP connect to `host` on that port, which is almost never what you want and produces a confusing timeout.
+
+In TOML, write a named-instance host as `host = "myserver\\instance_name"` (double quotes — backslash must be doubled) or `host = 'myserver\instance_name'` (single quotes — literal). Do **not** write `host = "myserver\instance_name"`: TOML treats `\i` as an invalid escape, and `\n` would silently become a newline.
 
 #### 3. `mcp-tools-sql.toml` — Query & update definitions
 
