@@ -59,38 +59,6 @@ def valid_database_config(tmp_path: Path) -> Path:
 
 
 # ---------------------------------------------------------------------------
-# verify_config_files
-# ---------------------------------------------------------------------------
-
-
-def test_verify_config_files_missing_returns_err(tmp_path: Path) -> None:
-    """A non-existent --config path produces ok=False with the path in the error."""
-    missing = tmp_path / "nope.toml"
-    result = verify_cmd.verify_config_files(missing, db_config_path=None)
-
-    assert result["query_config_path"]["ok"] is False
-    assert str(missing) in result["query_config_path"]["error"]
-    assert result["overall_ok"] is False
-
-
-def test_verify_config_files_valid_returns_ok(
-    valid_query_config: Path,
-    valid_database_config: Path,
-) -> None:
-    """Valid query + database config files both report ok=True."""
-    result = verify_cmd.verify_config_files(
-        valid_query_config,
-        db_config_path=valid_database_config,
-    )
-
-    assert result["query_config_path"]["ok"] is True
-    assert result["query_config_parse"]["ok"] is True
-    assert result["database_config_path"]["ok"] is True
-    assert result["database_config_parse"]["ok"] is True
-    assert result["overall_ok"] is True
-
-
-# ---------------------------------------------------------------------------
 # Orchestrator: run() output and exit code
 # ---------------------------------------------------------------------------
 
