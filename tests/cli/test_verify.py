@@ -208,58 +208,6 @@ def test_verify_detects_missing_connection(
 
 
 # ---------------------------------------------------------------------------
-# collect_install_instructions
-# ---------------------------------------------------------------------------
-
-
-def test_collect_install_instructions_aggregates_unique() -> None:
-    """Failed entries with identical hints dedupe; ok entries' hints are ignored."""
-    sections: list[tuple[str, dict[str, object]]] = [
-        (
-            "DEPENDENCIES",
-            {
-                "pyodbc": {
-                    "ok": False,
-                    "value": "(not installed)",
-                    "error": "no module",
-                    "install_hint": "pip install mcp-tools-sql[mssql]",
-                },
-                "psycopg": {
-                    "ok": False,
-                    "value": "(not installed)",
-                    "error": "no module",
-                    "install_hint": "pip install mcp-tools-sql[mssql]",
-                },
-                "ok_one": {
-                    "ok": True,
-                    "value": "x",
-                    "error": "",
-                    "install_hint": "pip install ignored-because-ok",
-                },
-                "overall_ok": False,
-            },
-        ),
-        (
-            "OTHER",
-            {
-                "blah": {
-                    "ok": False,
-                    "value": "x",
-                    "error": "fail",
-                    "install_hint": "pip install other",
-                },
-                "overall_ok": False,
-            },
-        ),
-    ]
-    result = verify_cmd.collect_install_instructions(sections)
-
-    hints = [entry["value"] for key, entry in result.items() if key != "overall_ok"]
-    assert hints == ["pip install mcp-tools-sql[mssql]", "pip install other"]
-    assert result["overall_ok"] is True
-
-
-# ---------------------------------------------------------------------------
 # Orchestrator: run() with M1 complete (CONNECTION + INSTALL + skip-M2)
 # ---------------------------------------------------------------------------
 

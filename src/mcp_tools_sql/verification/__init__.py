@@ -6,11 +6,13 @@ from mcp_tools_sql.verification.config_files import verify_config_files
 from mcp_tools_sql.verification.connection import verify_connection
 from mcp_tools_sql.verification.dependencies import verify_dependencies
 from mcp_tools_sql.verification.environment import verify_environment
+from mcp_tools_sql.verification.orchestrator import verify_all
 from mcp_tools_sql.verification.queries import verify_queries
 from mcp_tools_sql.verification.updates import verify_updates
 
 __all__ = [
     "VerifierEntry",
+    "verify_all",
     "verify_builtin",
     "verify_config_files",
     "verify_connection",
