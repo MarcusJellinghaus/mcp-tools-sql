@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import logging
 import threading
 from collections.abc import Iterator
 from contextlib import contextmanager
@@ -14,8 +15,9 @@ from mcp_tools_sql.utils.sql_placeholders import (
     translate_named_to_qmark,
 )
 
+logger = logging.getLogger(__name__)
+
 _NEEDS_BRACES = set(";={}")
-_DEFAULT_MSSQL_PORT = 1433
 
 
 def _odbc_escape(value: str) -> str:
@@ -35,17 +37,25 @@ def _odbc_escape(value: str) -> str:
 
 
 def _build_connection_string(config: ConnectionConfig) -> str:
-    """Build a pyodbc connection string from a ``ConnectionConfig``.
+    r"""Build a pyodbc connection string from a ``ConnectionConfig``.
 
-    ``port`` of 0 maps to the SQL Server default 1433.
+    A ``port`` of ``0`` (the model default when the TOML key is omitted) is
+    treated as "no port specified" — only the host is emitted in the
+    ``Server=`` part. This lets ODBC use the SQL Server default (1433) for
+    default instances, or query SQL Browser when the host is a named
+    instance (``host\instance``).
 
     Returns:
         A semicolon-joined ``key=value`` string with deterministic ordering.
     """
-    port = config.port or _DEFAULT_MSSQL_PORT
+    server_part = (
+        f"Server={config.host},{config.port}"
+        if config.port
+        else f"Server={config.host}"
+    )
     parts = [
         f"Driver={{{config.driver}}}",
-        f"Server={config.host},{port}",
+        server_part,
         f"Database={_odbc_escape(config.database)}",
     ]
     if config.trusted_connection:
@@ -69,6 +79,21 @@ def _sanitize(msg: str, password: str) -> str:
     if password:
         return msg.replace(password, "***")
     return msg
+
+
+def build_sanitized_connection_string(config: ConnectionConfig) -> str:
+    """Return the full ODBC connection string with the password redacted.
+
+    Builds the same connection string used at runtime via
+    :func:`_build_connection_string`, then replaces any occurrence of the
+    password with ``***``. For ``trusted_connection`` (no password) the
+    string is returned unchanged.
+
+    Returns:
+        The ODBC connection string suitable for display, with the password
+        replaced by ``***``.
+    """
+    return _sanitize(_build_connection_string(config), config.password)
 
 
 class MSSQLBackend(DatabaseBackend):
@@ -103,12 +128,19 @@ class MSSQLBackend(DatabaseBackend):
             import pyodbc  # pylint: disable=import-error,import-outside-toplevel
 
             conn_str = _build_connection_string(self._config)
+            logger.debug(
+                "MSSQL connect attempt: %s",
+                _sanitize(conn_str, self._config.password),
+            )
             try:
                 self._connection = pyodbc.connect(conn_str, autocommit=True)
             except pyodbc.Error as exc:
                 exc.args = tuple(
                     _sanitize(a, self._config.password) if isinstance(a, str) else a
                     for a in exc.args
+                )
+                logger.debug(
+                    "MSSQL connect failed: %s %r", type(exc).__name__, exc.args
                 )
                 raise
 

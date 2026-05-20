@@ -14,6 +14,7 @@ from mcp_tools_sql.backends.mssql import (
     MSSQLBackend,
     _build_connection_string,
     _odbc_escape,
+    build_sanitized_connection_string,
 )
 from mcp_tools_sql.config.models import ConnectionConfig
 from tests.conftest import MSSQLTestEnv
@@ -107,7 +108,8 @@ class TestConnectionStringBuilder:
         assert "Trusted_Connection=yes" in s
         assert "UID=" not in s and "PWD=" not in s
 
-    def test_port_zero_defaults_to_1433(self) -> None:
+    def test_port_zero_omits_port_from_server(self) -> None:
+        """port=0 (the model default) → Server=host with no ,port suffix."""
         c = ConnectionConfig(
             backend="mssql",
             host="h",
@@ -115,7 +117,27 @@ class TestConnectionStringBuilder:
             database="d",
             trusted_connection=True,
         )
-        assert "Server=h,1433" in _build_connection_string(c)
+        s = _build_connection_string(c)
+        assert "Server=h;" in s
+        assert "Server=h," not in s
+
+    def test_named_instance_with_port_zero(self) -> None:
+        """host=server\\instance, port=0 → Server=server\\instance (no port).
+
+        This is the form ODBC needs so SQL Browser can resolve the named
+        instance's dynamic port. Specifying a port alongside an instance
+        name makes ODBC bypass SQL Browser, which is almost never desired.
+        """
+        c = ConnectionConfig(
+            backend="mssql",
+            host=r"myserver\inst",
+            port=0,
+            database="d",
+            trusted_connection=True,
+        )
+        s = _build_connection_string(c)
+        assert r"Server=myserver\inst;" in s
+        assert ",1433" not in s
 
     def test_port_uses_comma_not_colon(self) -> None:
         c = ConnectionConfig(
@@ -203,6 +225,55 @@ class TestConnectionStringBuilder:
             trusted_connection=True,
         )
         assert "Database={db;weird}" in _build_connection_string(c)
+
+
+class TestSanitizedConnectionString:
+    """Tests for the public ``build_sanitized_connection_string`` helper."""
+
+    def test_password_replaced_with_stars(self) -> None:
+        c = ConnectionConfig(
+            backend="mssql",
+            host="h",
+            port=1433,
+            database="d",
+            username="u",
+            password="supersecret",
+        )
+        s = build_sanitized_connection_string(c)
+        assert "supersecret" not in s
+        assert "PWD=***" in s
+
+    def test_trusted_connection_no_redaction_marker(self) -> None:
+        """trusted_connection has no password → string identical to raw."""
+        c = ConnectionConfig(
+            backend="mssql",
+            host="h",
+            port=1433,
+            database="d",
+            trusted_connection=True,
+        )
+        s = build_sanitized_connection_string(c)
+        assert "Trusted_Connection=yes" in s
+        assert "***" not in s
+        # No password → result identical to the raw connection string.
+        assert s == _build_connection_string(c)
+
+    def test_rest_of_string_matches_raw(self) -> None:
+        """All non-password parts match ``_build_connection_string`` output."""
+        c = ConnectionConfig(
+            backend="mssql",
+            host=r"myserver\inst",
+            port=0,
+            database="d",
+            username="u",
+            password="secret",
+            encrypt=False,
+            trust_server_certificate=True,
+        )
+        sanitized = build_sanitized_connection_string(c)
+        raw = _build_connection_string(c)
+        # The only difference is the password: replacing it should round-trip.
+        assert sanitized == raw.replace("secret", "***")
 
 
 class TestLifecycle:
@@ -378,6 +449,50 @@ class TestErrorSanitization:
         assert exc.value is original
         assert isinstance(exc.value, fake_pyodbc.OperationalError)
         assert exc.value.args[0] == "08001"
+
+
+class TestConnectDebugLogging:
+    """Tests that MSSQLBackend.connect() emits diagnostic debug logs."""
+
+    def test_connect_logs_redacted_conn_string(
+        self, fake_pyodbc: Any, caplog: pytest.LogCaptureFixture
+    ) -> None:
+        """Successful connect → debug log contains the redacted conn string."""
+        del fake_pyodbc  # only needed for module patching side effect
+        b = MSSQLBackend(_cfg(password="supersecret"))
+        with caplog.at_level("DEBUG", logger="mcp_tools_sql.backends.mssql"):
+            b.connect()
+        attempt_lines = [
+            r.getMessage()
+            for r in caplog.records
+            if "MSSQL connect attempt" in r.getMessage()
+        ]
+        assert attempt_lines, "no attempt debug line emitted"
+        for line in attempt_lines:
+            assert "supersecret" not in line
+            assert "PWD=***" in line
+
+    def test_connect_failure_logs_exception_details(
+        self, fake_pyodbc: Any, caplog: pytest.LogCaptureFixture
+    ) -> None:
+        """pyodbc.connect raises → debug log records exception type + args."""
+        fake_pyodbc.connect.side_effect = fake_pyodbc.OperationalError(
+            "08001", "Login failed; PWD=supersecret"
+        )
+        b = MSSQLBackend(_cfg(password="supersecret"))
+        with caplog.at_level("DEBUG", logger="mcp_tools_sql.backends.mssql"):
+            with pytest.raises(fake_pyodbc.Error):
+                b.connect()
+        failure_lines = [
+            r.getMessage()
+            for r in caplog.records
+            if "MSSQL connect failed" in r.getMessage()
+        ]
+        assert failure_lines, "no failure debug line emitted"
+        for line in failure_lines:
+            assert "OperationalError" in line
+            assert "08001" in line
+            assert "supersecret" not in line
 
 
 @pytest.mark.mssql_integration

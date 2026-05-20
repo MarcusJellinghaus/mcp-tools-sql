@@ -76,3 +76,39 @@ def test_verify_dependencies_mssql_with_pyodbc_no_driver() -> None:
     assert result["odbc_driver"]["ok"] is False
     assert "ODBC Driver 18 for SQL Server" in result["odbc_driver"]["install_hint"]
     assert result["overall_ok"] is False
+
+
+def test_verify_dependencies_mssql_configured_driver_installed() -> None:
+    """configured_driver present in installed list → odbc_driver row OK with that name."""
+    fake_pyodbc = MagicMock()
+    fake_pyodbc.version = "5.0.1"
+    fake_pyodbc.drivers = MagicMock(
+        return_value=["ODBC Driver 17 for SQL Server", "ODBC Driver 18 for SQL Server"]
+    )
+    with patch.dict(sys.modules, {"pyodbc": fake_pyodbc}):
+        result = verify_dependencies(
+            "mssql", configured_driver="ODBC Driver 18 for SQL Server"
+        )
+
+    assert result["odbc_driver"]["ok"] is True
+    assert result["odbc_driver"]["value"] == "ODBC Driver 18 for SQL Server"
+
+
+def test_verify_dependencies_mssql_configured_driver_mismatch() -> None:
+    """configured_driver not installed → odbc_driver row fails and lists installed."""
+    fake_pyodbc = MagicMock()
+    fake_pyodbc.version = "5.0.1"
+    fake_pyodbc.drivers = MagicMock(
+        return_value=["ODBC Driver 18 for SQL Server", "SQLite ODBC Driver"]
+    )
+    with patch.dict(sys.modules, {"pyodbc": fake_pyodbc}):
+        result = verify_dependencies(
+            "mssql", configured_driver="ODBC Driver 17 for SQL Server"
+        )
+
+    assert result["odbc_driver"]["ok"] is False
+    assert "ODBC Driver 17 for SQL Server" in result["odbc_driver"]["value"]
+    # Installed drivers shown in the error so the user sees the diff
+    assert "ODBC Driver 18 for SQL Server" in result["odbc_driver"]["error"]
+    assert "SQLite ODBC Driver" in result["odbc_driver"]["error"]
+    assert result["overall_ok"] is False

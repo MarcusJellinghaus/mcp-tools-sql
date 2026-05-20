@@ -16,19 +16,19 @@ Published to PyPI as `mcp-tools-sql`. Developed in Python.
 
 ## 2. Use Cases
 
-### Primary Example: Financial Data (Bank Fundamentals)
+### Primary Example: Wide Data (Customer Data)
 
 This is the driving use case — it pushes every aspect of the design.
 
-**Goal**: "Read the profit and loss of Bank A from the bank fundamentals database."
+**Goal**: "Read the revenue figures for Customer A from the customer data warehouse."
 
-**The challenge**: The database has schemas with wide tables (~1000 columns), domain-specific naming, and the user doesn't know the exact column names or bank identifiers upfront.
+**The challenge**: The database has schemas with wide tables (~1000 columns), domain-specific naming, and the user doesn't know the exact column names or customer identifiers upfront.
 
 The LLM needs to:
-1. Find the right schema (e.g. `bank_fundamentals`)
-2. Find the right table (e.g. `bank_data`)
-3. Find relevant columns out of 1000+ (P&L-related: `net_income`, `operating_revenue`, ...)
-4. Identify the right bank (by name, country)
+1. Find the right schema (e.g. `wide_data`)
+2. Find the right table (e.g. `customer_data`)
+3. Find relevant columns out of 1000+ (revenue-related: `net_revenue`, `operating_revenue`, ...)
+4. Identify the right customer (by name, country)
 5. Pull the actual data
 
 This is a *discovery workflow* — a multi-step process where each tool call informs the next. See section 4.1 for how the introspection tools handle this, particularly `search_columns` for navigating wide tables.
@@ -37,14 +37,14 @@ This is a *discovery workflow* — a multi-step process where each tool call inf
 
 **Goal**: Build and maintain a mapping table that links identifiers across multiple master data tables.
 
-Typical scenario: An entity (e.g. a company) exists in several systems — Provider A has one ID, Provider B another, an internal system a third. A mapping table ties them together. Today this is done manually or with brittle scripts.
+Typical scenario: An entity (e.g. a customer) exists in several systems — internal system A has one ID, internal system B another, system C a third. A mapping table ties them together. Today this is done manually or with brittle scripts.
 
 **Workflow**:
-1. **Configure lookup tools**: Define SELECT tools for each master data source (`find_provider_a_entity`, `find_provider_b_entity`, `find_internal_entity`) — search by name, country, partial match
+1. **Configure lookup tools**: Define SELECT tools for each master data source (`find_system_a_entity`, `find_system_b_entity`, `find_system_c_entity`) — search by name, country, partial match
 2. **Configure an update tool**: Define an UPDATE on the mapping table — key is one entity ID, fields are the other system IDs
-3. **Interactive prompting**: User tells the LLM "Link Company X across all three systems." The LLM:
+3. **Interactive prompting**: User tells the LLM "Link Customer X across all three systems." The LLM:
    - Queries each master data table to find the entity
-   - Presents candidates for confirmation ("Found 3 matches in Bloomberg — which one?")
+   - Presents candidates for confirmation ("Found 3 matches in system C — which one?")
    - Writes the mapping via the UPDATE tool
 4. **Automation**: Once the interactive workflow is reliable, wrap it in automated prompting (via mcp-coder or similar) — feed a list of entities, let the LLM resolve and map them in batch
 
@@ -56,7 +56,7 @@ Typical scenario: An entity (e.g. a company) exists in several systems — Provi
 
 ### Why these examples matter
 
-If the tool can handle bank fundamentals (wide tables, multi-step discovery) and master data mapping (cross-table lookups, interactive → automated), it can handle simpler scenarios easily. Design for the hard cases first.
+If the tool can handle customer data (wide tables, multi-step discovery) and master data mapping (cross-table lookups, interactive → automated), it can handle simpler scenarios easily. Design for the hard cases first.
 
 ---
 
@@ -84,7 +84,7 @@ Built-in tools that work out of the box without user configuration:
 
 #### Handling wide tables (100+ columns)
 
-The bank fundamentals scenario (see section 2) reveals that `read_columns` returning 1000 rows is unusable. Strategy:
+The customer data scenario (see section 2) reveals that `read_columns` returning 1000 rows is unusable. Strategy:
 
 1. **`read_columns` with `filter` parameter**: Optional `filter` argument for column name pattern matching (`LIKE '%income%'` or `LIKE '%revenue%'`). Without filter, truncates at `max_rows_default` (default 100) with a warning: "Showing 100 of 1,042 columns. Use filter parameter to narrow results."
 
@@ -92,36 +92,36 @@ The bank fundamentals scenario (see section 2) reveals that `read_columns` retur
 
 3. **Column grouping by prefix/suffix** (phase 2): Many wide tables use naming conventions like `pl_net_income`, `pl_operating_revenue`, `bs_total_assets`. A `read_column_prefixes(schema, table)` tool could return grouped counts: `pl_* (47 columns), bs_* (83 columns), ...` — letting the LLM navigate by category before drilling in.
 
-#### Example: Bank fundamentals discovery workflow
+#### Example: Customer data discovery workflow
 
 ```
-LLM: read_schemas()                          → [..., "bank_fundamentals", ...]
-LLM: read_tables("bank_fundamentals")       → ["bank_data", "insurance_data", ...]
-LLM: read_columns("bank_fundamentals", "bank_data")
+LLM: read_schemas()                          → [..., "wide_data", ...]
+LLM: read_tables("wide_data")       → ["customer_data", "account_data", ...]
+LLM: read_columns("wide_data", "customer_data")
      → "Showing 100 of 1,042 columns. Use filter to narrow."
        (first 100 columns listed)
-LLM: search_columns("bank_fundamentals", "bank_data", "%profit%,%loss%,%income%,%revenue%")
-     → net_income (decimal), operating_revenue (decimal), 
-       pre_tax_profit (decimal), total_interest_income (decimal), ...
+LLM: search_columns("wide_data", "customer_data", "%revenue%,%sales%,%total%,%count%")
+     → net_revenue (decimal), operating_revenue (decimal),
+       total_sales (decimal), order_count (int), ...
        (27 columns matched)
 LLM: [now knows which columns to use in a configured SELECT query]
 ```
 
-For finding the right bank, the user configures a lookup query:
+For finding the right customer, the user configures a lookup query:
 ```toml
-[tool.mcp-tools-sql.queries.find_banks]
-description = "Search for banks by name and/or country"
+[tool.mcp-tools-sql.queries.find_customers]
+description = "Search for customers by name and/or country"
 sql = """
-    SELECT BankID, BankName, Country
-    FROM bank_fundamentals.bank_data
-    WHERE BankName LIKE :name_pattern
+    SELECT CustomerID, CustomerName, Country
+    FROM wide_data.customer_data
+    WHERE CustomerName LIKE :name_pattern
       AND (:country IS NULL OR Country = :country)
-    ORDER BY BankName
+    ORDER BY CustomerName
 """
 max_rows_default = 50
 ```
 
-The final data retrieval is also a configured query — the LLM uses the discovered column names and bank IDs to call it.
+The final data retrieval is also a configured query — the LLM uses the discovered column names and customer IDs to call it.
 
 Implementation per backend:
 - **MSSQL / PostgreSQL**: `INFORMATION_SCHEMA.SCHEMATA`, `INFORMATION_SCHEMA.TABLES`, `INFORMATION_SCHEMA.COLUMNS`
@@ -212,7 +212,7 @@ Enhance the discovery capabilities based on phase 1 learnings:
 
 Move from "run configured queries" to "help explore and understand data." Focus on master data / string columns, not numeric analysis.
 
-- **Smart filtering**: Tools that help the LLM understand what values exist in a column before querying. `read_distinct_values(schema, table, column, limit?)` — returns distinct values with counts. Essential for columns like `Country`, `Status`, `BankType` where the LLM needs to know valid filter values.
+- **Smart filtering**: Tools that help the LLM understand what values exist in a column before querying. `read_distinct_values(schema, table, column, limit?)` — returns distinct values with counts. Essential for columns like `Country`, `Status`, `CustomerType` where the LLM needs to know valid filter values.
 - **Data profiling**: `read_table_profile(schema, table)` — row count, column stats (distinct count, null count, sample values). Compact overview, not full data.
 - **SQL-based aggregations**: Configured aggregate queries (`GROUP BY`, `COUNT`, `DISTINCT`) as tools. Lets the LLM summarize data without pulling all rows.
 - **Result paging**: Cursor-based pagination for large result sets across multiple tool calls.
@@ -251,24 +251,24 @@ The config will grow as more queries and updates are added. The LLM should be ab
    
    These are CLI commands (or MCP tools) that read the TOML, modify it structurally, and write it back. The LLM never needs to understand TOML syntax — it just passes structured arguments.
 
-3. **Verify after edit**: After any config change, automatically run `verify` on the affected entry and report the result. The LLM gets immediate feedback: "Query `get_bank_pnl` added. Validation: [OK] SQL valid, [OK] params well-formed."
+3. **Verify after edit**: After any config change, automatically run `verify` on the affected entry and report the result. The LLM gets immediate feedback: "Query `get_customer_metrics` added. Validation: [OK] SQL valid, [OK] params well-formed."
 
 4. **Hot-reload** (phase 2): Signal the running MCP server to reload config without restart. Until then, the LLM can note that a server restart is needed after config changes.
 
 **Typical LLM workflow:**
 ```
-User: "Add a query to look up banks by country"
+User: "Add a query to look up customers by country"
 LLM:  read_config_schema()              → understands the format
-LLM:  search_columns("bank_fundamentals", "bank_data", "%country%")
+LLM:  search_columns("wide_data", "customer_data", "%country%")
       → finds: Country (varchar), CountryCode (char(2))
 LLM:  add_query(
-        name="find_banks_by_country",
-        description="Search for banks in a given country",
-        sql="SELECT BankID, BankName, Country FROM bank_fundamentals.bank_data WHERE Country = :country ORDER BY BankName",
+        name="find_customers_by_country",
+        description="Search for customers in a given country",
+        sql="SELECT CustomerID, CustomerName, Country FROM wide_data.customer_data WHERE Country = :country ORDER BY CustomerName",
         params=[{"name": "country", "type": "str", "description": "Country name", "required": true}],
         max_rows_default=50
       )
-      → "Query `find_banks_by_country` added. Verify: [OK]"
+      → "Query `find_customers_by_country` added. Verify: [OK]"
 ```
 
 This turns config authoring from "edit a TOML file correctly" into "call a tool with structured arguments" — much more natural for an LLM.
@@ -319,18 +319,23 @@ Per-machine, per-user. Like `~/.ssh/config` — set up once, never committed.
 # ~/.mcp-tools-sql/config.toml
 
 # Named database connections
-[connections.bank-prod]
+[connections.customer-prod]
 backend = "mssql"
-host = "sql-server-prod.internal"
-port = 1433
-database = "bank_fundamentals"
-trusted_connection = true          # Windows auth — no password needed
+host = "sql-server-prod.internal"   # default instance — ODBC uses 1433
+database = "wide_data"
+trusted_connection = true           # Windows auth — no password needed
 
-[connections.bank-dev]
+[connections.customer-named-inst]
+backend = "mssql"
+host = "sql-server-prod\\reporting" # named instance — SQL Browser resolves the port
+database = "wide_data"
+trusted_connection = true
+
+[connections.customer-dev]
 backend = "mssql"
 host = "localhost"
-port = 1433
-database = "bank_fundamentals_dev"
+port = 14330                        # explicit non-default TCP port
+database = "wide_data_dev"
 username = "sa"
 password = "DevPassword123!"        # OK here — this file is never in a repo
 
@@ -342,21 +347,32 @@ path = "C:/data/test.db"
 # [security]
 # allow_updates = true              # global kill switch for all UPDATE tools
 # require_confirmation = ["*"]      # which update tools need confirmation
-# allowed_query_configs = ["C:/projects/bank-analysis/mcp-tools-sql.toml"]
+# allowed_query_configs = ["C:/projects/customer-analysis/mcp-tools-sql.toml"]
 ```
 
 Contains:
 - **Named connections**: backend, host, credentials. Referenced by name from query configs.
 - **Security settings** (phase 2/3): Global switches for update permissions. Could restrict which query config files are allowed to define UPDATE tools — prevents a random config from writing to a production database.
 
+##### When to set `port` (MSSQL)
+
+Omit `port` (or leave it unset) in the common cases — ODBC figures it out:
+
+- **Default instance**: `host = "myserver"` with no `port` line. ODBC connects to the default TCP port 1433.
+- **Named instance**: `host = "myserver\\instance_name"` with no `port` line. ODBC asks the SQL Browser service (UDP 1434 on the host) for the instance's actual (often dynamic) port — the same path SSMS uses.
+
+Set `port` explicitly only when the instance listens on a fixed non-default TCP port and you want to bypass SQL Browser (e.g. UDP 1434 is firewalled). **Don't combine `host\instance` with an explicit `port`** — ODBC will ignore the instance name and try a plain TCP connect to `host` on that port, which is almost never what you want and produces a confusing timeout.
+
+In TOML, write a named-instance host as `host = "myserver\\instance_name"` (double quotes — backslash must be doubled) or `host = 'myserver\instance_name'` (single quotes — literal). Do **not** write `host = "myserver\instance_name"`: TOML treats `\i` as an invalid escape, and `\n` would silently become a newline.
+
 #### 3. `mcp-tools-sql.toml` — Query & update definitions
 
 Lives in the user's project directory. Defines what tools the LLM can use. Contains NO secrets.
 
 ```toml
-# ~/projects/bank-analysis/mcp-tools-sql.toml
+# ~/projects/customer-analysis/mcp-tools-sql.toml
 
-connection = "bank-prod"           # references a named connection from config.toml
+connection = "customer-prod"           # references a named connection from config.toml
 
 [queries.get_orders_by_customer]
 description = "Retrieve orders for a given customer ID"
@@ -523,7 +539,7 @@ for name, query_config in config.queries.items():
     # 2. Register it as an MCP tool with dynamic name + description
     mcp.add_tool(
         fn=tool_fn,
-        name=f"query_{name}",               # e.g. "query_find_banks_by_country"
+        name=f"query_{name}",               # e.g. "query_find_customers_by_country"
         description=query_config.description  # from config
     )
 ```
@@ -595,8 +611,8 @@ for param in config.params:
 
 This is what the LLM sees in the tool listing:
 ```
-Tool: query_find_banks_by_country
-Description: "Search for banks in a given country"
+Tool: query_find_customers_by_country
+Description: "Search for customers in a given country"
 Parameters:
   - country (string, required): "Country name"
   - max_results (integer, optional): "Maximum number of results to return"

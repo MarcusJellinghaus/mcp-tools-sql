@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import platform
 import sys
 
 from mcp_tools_sql.verification import verify_environment
@@ -16,6 +17,15 @@ def test_verify_environment_returns_python_version() -> None:
         f"{sys.version_info.major}.{sys.version_info.minor}.{sys.version_info.micro}"
     )
     assert result["python_version"]["value"] == expected
+
+
+def test_verify_environment_returns_os() -> None:
+    """`os` entry shows platform.system() and sys.platform."""
+    result = verify_environment()
+
+    assert result["os"]["ok"] is True
+    assert platform.system() in result["os"]["value"]
+    assert sys.platform in result["os"]["value"]
 
 
 def test_verify_environment_overall_ok_true_when_packages_present() -> None:
