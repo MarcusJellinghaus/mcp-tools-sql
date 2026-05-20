@@ -78,6 +78,9 @@ MCP server providing safe, configurable SQL database access for LLM-assisted wor
 │  ├── mcp_tools_sql.update_tools                     │
 │  └── mcp_tools_sql.validation_tools                 │
 ├─────────────────────────────────────────────────────┤
+│  Verification Layer                                 │
+│  └── mcp_tools_sql.verification (subpackage)        │
+├─────────────────────────────────────────────────────┤
 │  Infrastructure Layer                               │
 │  ├── mcp_tools_sql.backends (sqlite, mssql, pg)     │
 │  └── mcp_tools_sql.formatting                       │
@@ -105,6 +108,20 @@ plus shared argparse helpers (`HelpHintArgumentParser`, `WideHelpFormatter`) in
 `server` — `main` dispatches to either `cli` (for `init`/`verify`) or `server`
 (for the default MCP-server command).
 
+### Verification Layer (`mcp_tools_sql.verification`)
+
+The verification engine was extracted from `cli/commands/verify.py` in
+issue #21 to keep the CLI module under the 600-line file-size limit and
+to make the engine reusable from non-CLI consumers (planned: MCP-server
+health endpoint, programmatic validation in tests). The orchestrator
+`verify_all(config_path, db_config_path)` composes every section in a
+canonical order and returns `(sections, skip_summary)`; the CLI shim
+is a pure printer that iterates `sections` as-is. The subpackage sits
+at the `tool_implementation` layer (same as `schema_tools`/`query_tools`)
+in `tach.toml`, and on its own line in `.importlinter` (above
+`schema_tools|...`) because it imports from `schema_tools.load_default_queries`
+and `query_helpers.extract_sql_params`.
+
 ### Key Modules
 
 | Module | Responsibility |
@@ -122,6 +139,7 @@ plus shared argparse helpers (`HelpHintArgumentParser`, `WideHelpFormatter`) in
 | `backends/mssql.py` | SQL Server implementation (pyodbc) |
 | `formatting.py` | Result → LLM-friendly text (tabular, truncated) |
 | `tool_logging.py` | Per-tool-call logging context manager (INFO counts, DEBUG params, ERROR duration) |
+| `verification/` | Verifier engine: environment, config, dependencies, builtin, connection, queries, updates. Orchestrated by `verify_all`. Consumed by the `verify` CLI subcommand. |
 
 ---
 
