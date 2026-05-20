@@ -30,7 +30,7 @@ import importlib.metadata
 import sys
 from typing import Any
 
-from mcp_tools_sql.verification._helpers import _entry
+from mcp_tools_sql.verification._helpers import make_entry
 
 
 def verify_environment() -> dict[str, Any]:
@@ -81,7 +81,9 @@ move_symbol(
 ```
 
 This updates all project-wide imports automatically. Then manually:
-1. Add the `_entry` import at the top of `environment.py`.
+1. Add the `make_entry` import at the top of `environment.py` (and ensure
+   every `_entry(...)` call in the moved body is updated to
+   `make_entry(...)`).
 2. Re-export from `verification/__init__.py`.
 3. Move the two tests by editing `tests/cli/test_verify.py` and creating
    `tests/verification/test_environment.py`.

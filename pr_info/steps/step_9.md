@@ -16,9 +16,14 @@ lines and the snapshot test still passes byte-for-byte.
 ### Modified files
 - `src/mcp_tools_sql/cli/commands/verify.py` — slimmed to ~150 lines
 - `src/mcp_tools_sql/verification/__init__.py` — re-export `verify_all`
-- `tests/cli/test_verify.py` — keep only CLI-level integration tests,
-  delete `test_collect_install_instructions_aggregates_unique` (moves
-  to test_orchestrator)
+- `tests/cli/test_verify.py` — keep only CLI-level integration tests
+  (target: ~300 lines; current: 1336 lines); delete
+  `test_collect_install_instructions_aggregates_unique` (moves to
+  test_orchestrator)
+- `tach.toml` — prune `cli.commands.depends_on`: remove `backends`,
+  `schema_tools`, `query_helpers`, `tool_builder`, `formatting` (now
+  reached only via `mcp_tools_sql.verification`); see HOW for the safety
+  check and the diff
 
 ## WHAT
 
@@ -39,7 +44,7 @@ from mcp_tools_sql.config.loader import (
     resolve_connection,
 )
 from mcp_tools_sql.config.models import ConnectionConfig, QueryFileConfig
-from mcp_tools_sql.verification._helpers import _entry
+from mcp_tools_sql.verification._helpers import make_entry
 from mcp_tools_sql.verification.builtin import verify_builtin
 from mcp_tools_sql.verification.config_files import verify_config_files
 from mcp_tools_sql.verification.connection import verify_connection
@@ -257,6 +262,63 @@ mcp__mcp-workspace__check_file_size(max_lines=600)
 `src/mcp_tools_sql/cli/commands/verify.py` should now be well under the
 600-line limit (target ~150 lines).
 
+Also confirm `tests/cli/test_verify.py` is under the limit (target ~300
+lines, down from 1336):
+
+```
+mcp__mcp-workspace__check_file_size(max_lines=600)
+# for tests/cli/test_verify.py
+```
+
+### Prune `cli.commands.depends_on` in `tach.toml`
+
+Once `cli/commands/verify.py` is slimmed, the only direct imports it makes
+are `argparse`, `mcp_tools_sql.cli.parsers`, and
+`mcp_tools_sql.verification`. The following entries become unused and must
+be pruned from the `cli.commands` module's `depends_on`:
+
+- `mcp_tools_sql.backends`
+- `mcp_tools_sql.schema_tools`
+- `mcp_tools_sql.query_helpers`
+- `mcp_tools_sql.tool_builder`
+- `mcp_tools_sql.formatting`
+
+**Safety check before pruning (mandatory).** Other modules in
+`src/mcp_tools_sql/cli/commands/` (currently: `init.py`; potentially future
+`query.py`, `update.py`, etc.) may also use these. Run:
+
+```
+mcp__mcp-workspace__search_files(
+    pattern="src/mcp_tools_sql/cli/commands/*.py",
+    text="<module_name>",   # one of: backends, schema_tools, query_helpers,
+                            # tool_builder, formatting
+)
+```
+
+for each of the five candidate prunes. **Only prune an entry if NO file
+under `src/mcp_tools_sql/cli/commands/` imports from that module.** As of
+this plan, `init.py` only imports `mcp_tools_sql.cli.parsers` and
+`mcp_tools_sql.config.authoring`, so all five are confirmed safe to prune;
+re-verify at implementation time in case new commands have landed.
+
+**`tach.toml` diff (after pruning):**
+
+```toml
+[[modules]]
+path = "mcp_tools_sql.cli.commands"
+layer = "entry_point"
+depends_on = [
+    { path = "mcp_tools_sql.cli" },
+    { path = "mcp_tools_sql.config" },
+    { path = "mcp_tools_sql.utils" },
+    { path = "mcp_tools_sql.verification" },
+]
+```
+
+(Removed: `backends`, `schema_tools`, `query_helpers`, `tool_builder`,
+`formatting`. Kept: `cli`, `config` — needed by `init.py` for
+`config.authoring` — `utils`, and the new `verification`.)
+
 ## ALGORITHM (for `verify_all`)
 
 ```
@@ -280,6 +342,14 @@ if conn is not None:
                     verify_queries(qcfg.queries, conn.backend, open_backend)))
                 sections.append(("UPDATES",
                     verify_updates(qcfg.updates, conn.backend, open_backend)))
+            # NOTE: When qcfg is None on the happy path (connection succeeded
+            # but query-config load failed), the QUERIES/UPDATES sections are
+            # SILENTLY OMITTED with NO skip_summary. This is intentional and
+            # mirrors the current cli.commands.verify.run() behaviour: the
+            # CONFIG section already reported the failure via its
+            # query_config_parse entry, so there is nothing more to say here.
+            # Do NOT "fix" this by adding a skip_summary call — that would
+            # double-report the same failure and break the snapshot.
         else:
             n_q, n_u = _load_query_config_for_counts(cfg)
             skip_summary = render_skip_m2_summary(n_q, n_u)
@@ -306,10 +376,14 @@ Run after edits:
 - `mcp__mcp-tools-py__run_pylint_check`
 - `mcp__mcp-tools-py__run_mypy_check`
 - `mcp__mcp-tools-py__run_pytest_check(extra_args=["-n", "auto", "-m", "not git_integration and not claude_cli_integration and not claude_api_integration and not formatter_integration and not github_integration and not langchain_integration"])`
-- `mcp__mcp-tools-py__run_tach_check`
-- `mcp__mcp-tools-py__run_lint_imports_check`
-- `mcp__mcp-workspace__check_file_size(max_lines=600)` — confirm
-  `cli/commands/verify.py` is under threshold.
+- `mcp__mcp-tools-py__run_tach_check` — must pass with the pruned
+  `cli.commands.depends_on`.
+- `mcp__mcp-tools-py__run_lint_imports_check` — must pass with the pruned
+  `cli.commands.depends_on`.
+- `mcp__mcp-workspace__check_file_size(max_lines=600)` for
+  `src/mcp_tools_sql/cli/commands/verify.py` — must be ≤ 600 (target ~150).
+- `mcp__mcp-workspace__check_file_size(max_lines=600)` for
+  `tests/cli/test_verify.py` — must be ≤ 600 (target ~300, down from 1336).
 
 All must pass. The CLI snapshot test
 (`test_verify_cli_queries_updates_snapshot`) must still pass byte-equal.
@@ -345,8 +419,17 @@ All must pass. The CLI snapshot test
 >    the `skip_summary is None` happy path.
 > 6. Trim `tests/cli/test_verify.py` to the final shape listed in
 >    step_9.md (CLI-level integration tests only, including the
->    byte-exact snapshot test).
+>    byte-exact snapshot test). Target: ~300 lines, down from 1336.
+> 7. **Prune `tach.toml`.** After the slim shim is in place, remove the
+>    now-unused entries from `cli.commands.depends_on`: `backends`,
+>    `schema_tools`, `query_helpers`, `tool_builder`, `formatting`.
+>    **Before** pruning, run the safety check described in the HOW section
+>    (`search_files` across `src/mcp_tools_sql/cli/commands/*.py` for
+>    each candidate) — only remove entries that no `cli/commands/*.py`
+>    file still uses. Then re-run `run_tach_check` and
+>    `run_lint_imports_check`; both must pass.
 >
-> Run all checks plus `check_file_size(max_lines=600)`. Confirm the
-> snapshot test still passes byte-for-byte. All checks must pass before
-> committing.
+> Run all checks plus `check_file_size(max_lines=600)` for BOTH
+> `src/mcp_tools_sql/cli/commands/verify.py` (target ~150) AND
+> `tests/cli/test_verify.py` (target ~300). Confirm the snapshot test
+> still passes byte-for-byte. All checks must pass before committing.

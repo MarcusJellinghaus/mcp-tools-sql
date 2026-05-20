@@ -27,7 +27,7 @@ from __future__ import annotations
 
 from typing import Any
 
-from mcp_tools_sql.verification._helpers import _entry
+from mcp_tools_sql.verification._helpers import make_entry
 
 
 def verify_dependencies(backend: str) -> dict[str, Any]:
@@ -92,7 +92,8 @@ move_symbol(
 ```
 
 Then manually:
-1. Add the `_entry` import at the top.
+1. Add the `make_entry` import at the top (and update every `_entry(...)`
+   call in the moved bodies to `make_entry(...)`).
 2. Re-export `verify_dependencies` from `verification/__init__.py`.
 3. Move the six tests.
 

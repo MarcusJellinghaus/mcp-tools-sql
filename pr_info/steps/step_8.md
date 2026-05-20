@@ -46,7 +46,7 @@ from typing import Any
 from mcp_tools_sql.backends.base import DatabaseBackend
 from mcp_tools_sql.config.models import UpdateConfig
 from mcp_tools_sql.identifiers import IDENTIFIER_PATTERN, identifier_error
-from mcp_tools_sql.verification._helpers import _entry
+from mcp_tools_sql.verification._helpers import make_entry
 
 
 def _list_table_columns(

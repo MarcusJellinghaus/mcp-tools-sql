@@ -32,7 +32,7 @@ from typing import Any
 
 from mcp_tools_sql.backends.base import DatabaseBackend, create_backend
 from mcp_tools_sql.config.models import ConnectionConfig
-from mcp_tools_sql.verification._helpers import _entry
+from mcp_tools_sql.verification._helpers import make_entry
 
 
 def _check_kerberos_ticket() -> tuple[bool, str, str]:
@@ -73,8 +73,16 @@ Move all connection tests from `tests/cli/test_verify.py` to the new file,
 updating imports:
 
 ```python
+from mcp_tools_sql.backends.sqlite import SQLiteBackend
 from mcp_tools_sql.verification import verify_connection
 ```
+
+**Imports to add (do not forget):**
+- `from mcp_tools_sql.backends.sqlite import SQLiteBackend` — used by the
+  success-path test `test_verify_connection_returns_open_backend_on_success`
+  (and any other test that needs to assert the returned backend is a real
+  `SQLiteBackend` instance). Verified path:
+  `src/mcp_tools_sql/backends/sqlite.py` exposes the `SQLiteBackend` class.
 
 **Retarget the Kerberos monkeypatch** in the `stub_create_backend` fixture:
 

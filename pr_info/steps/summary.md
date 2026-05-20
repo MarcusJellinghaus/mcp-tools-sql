@@ -56,7 +56,7 @@ def verify_all(
 ### Typing
 
 `VerifierEntry` TypedDict (in `verification/_helpers.py`) types the
-**entry dicts** returned by `_entry()`. Section dicts stay as
+**entry dicts** returned by `make_entry()`. Section dicts stay as
 `dict[str, Any]` because they are heterogeneous (`overall_ok: bool`
 alongside entries).
 

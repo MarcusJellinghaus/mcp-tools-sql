@@ -25,7 +25,7 @@ from __future__ import annotations
 from typing import Any
 
 from mcp_tools_sql.schema_tools import load_default_queries
-from mcp_tools_sql.verification._helpers import _entry
+from mcp_tools_sql.verification._helpers import make_entry
 
 
 def verify_builtin() -> dict[str, Any]:
@@ -77,7 +77,8 @@ move_symbol(
 ```
 
 Then manually:
-1. Add the `_entry` and `load_default_queries` imports at the top.
+1. Add the `make_entry` and `load_default_queries` imports at the top (and
+   update every `_entry(...)` call in the moved body to `make_entry(...)`).
 2. Re-export from `verification/__init__.py`.
 3. Move the two tests.
 

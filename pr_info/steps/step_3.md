@@ -33,7 +33,7 @@ from mcp_tools_sql.config.loader import (
     load_database_config,
     load_query_config,
 )
-from mcp_tools_sql.verification._helpers import _entry
+from mcp_tools_sql.verification._helpers import make_entry
 
 
 def verify_config_files(
@@ -86,7 +86,9 @@ move_symbol(
 ```
 
 Then manually:
-1. Add the `_entry` and `mcp_tools_sql.config.loader` imports at the top.
+1. Add the `make_entry` and `mcp_tools_sql.config.loader` imports at the
+   top (and update every `_entry(...)` call in the moved body to
+   `make_entry(...)`).
 2. Re-export from `verification/__init__.py`.
 3. Move the two tests and the helper fixtures.
 

@@ -37,7 +37,7 @@ from typing import Any
 from mcp_tools_sql.backends.base import DatabaseBackend
 from mcp_tools_sql.config.models import QueryConfig, QueryParamConfig
 from mcp_tools_sql.query_helpers import extract_sql_params
-from mcp_tools_sql.verification._helpers import _entry
+from mcp_tools_sql.verification._helpers import make_entry
 
 
 _VALID_PARAM_TYPES = {"str", "int", "float", "datetime"}
@@ -103,12 +103,20 @@ Move tests from `tests/cli/test_verify.py` (lines ~650–805 + ~1267–1287),
 updating imports:
 
 ```python
+from mcp_tools_sql.backends.mssql import MSSQLBackend
 from mcp_tools_sql.verification import verify_queries
 from mcp_tools_sql.verification.queries import verify_one_query
 ```
 
 (The per-entry equality test imports `verify_one_query` from the submodule
 directly because it's not re-exported.)
+
+**Imports to add (do not forget):**
+- `from mcp_tools_sql.backends.mssql import MSSQLBackend` — used by the
+  test `test_verify_queries_unimplemented_backend_explain_fails_cleanly`
+  (and any other test that instantiates `MSSQLBackend` to exercise the
+  unimplemented-backend path). Verified path:
+  `src/mcp_tools_sql/backends/mssql.py` exposes the `MSSQLBackend` class.
 
 Tests use the new `sqlite_backend` fixture from
 `tests/verification/conftest.py` instead of the local
