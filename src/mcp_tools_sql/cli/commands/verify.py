@@ -4,7 +4,6 @@ from __future__ import annotations
 
 import argparse
 import datetime
-import importlib.metadata
 import logging
 import subprocess
 import sys
@@ -31,6 +30,7 @@ from mcp_tools_sql.config.models import (
 from mcp_tools_sql.identifiers import IDENTIFIER_PATTERN, identifier_error
 from mcp_tools_sql.query_helpers import extract_sql_params
 from mcp_tools_sql.schema_tools import load_default_queries
+from mcp_tools_sql.verification import verify_environment
 from mcp_tools_sql.verification._helpers import make_entry
 
 logger = logging.getLogger(__name__)
@@ -69,51 +69,6 @@ def _print_section(title: str) -> None:
 def _compute_exit_code(error_count: int) -> int:
     """Return ``0`` if no errors, ``1`` otherwise."""
     return 0 if error_count == 0 else 1
-
-
-def verify_environment() -> dict[str, Any]:
-    """Report Python version, virtualenv status, and key package versions.
-
-    Returns:
-        Standard verifier result dict with entries for ``python_version``,
-        ``virtualenv``, ``mcp_tools_sql``, ``mcp_coder_utils`` and an
-        ``overall_ok`` flag.
-    """
-    result: dict[str, Any] = {}
-
-    py_version = (
-        f"{sys.version_info.major}.{sys.version_info.minor}.{sys.version_info.micro}"
-    )
-    result["python_version"] = make_entry(ok=True, value=py_version)
-
-    in_venv = sys.prefix != sys.base_prefix
-    result["virtualenv"] = make_entry(
-        ok=True,
-        value=sys.prefix if in_venv else "(not in a virtual environment)",
-    )
-
-    for pkg, hint in (
-        ("mcp_tools_sql", ""),
-        (
-            "mcp_coder_utils",
-            "pip install mcp-coder-utils",
-        ),
-    ):
-        try:
-            ver = importlib.metadata.version(pkg)
-            result[pkg] = make_entry(ok=True, value=ver)
-        except importlib.metadata.PackageNotFoundError:
-            result[pkg] = make_entry(
-                ok=False,
-                value="(not installed)",
-                error=f"package {pkg!r} not found",
-                install_hint=hint,
-            )
-
-    result["overall_ok"] = all(
-        entry["ok"] for key, entry in result.items() if key != "overall_ok"
-    )
-    return result
 
 
 def verify_config_files(
