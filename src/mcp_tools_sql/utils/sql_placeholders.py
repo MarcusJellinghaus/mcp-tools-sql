@@ -1,42 +1,54 @@
-"""Tokenizer-aware extraction and translation of ``:name`` SQL placeholders.
+"""AST-aware extraction and translation of ``:name`` SQL placeholders.
 
-Recognises ``:name`` placeholders while ignoring occurrences inside
-quoted strings (``'…'``, ``"…"``) and comments (``-- …``, ``/* … */``)
-via ``sqlparse``'s token classification.
+Built on :mod:`sqlglot`: the SQL is parsed into an AST and ``:name``
+placeholders are recognised as :class:`sqlglot.exp.Placeholder` nodes.
+Because they are real AST nodes, occurrences inside quoted strings
+(``'…'``, ``"…"``) and comments (``-- …``, ``/* … */``) are never treated
+as placeholders -- sqlglot classifies those as literals/comments instead.
 
 Exposes :func:`extract_param_names`, :func:`translate_named_to_qmark`, and
 :func:`substitute_named_with_literals`. The last is used by the MSSQL
 ``explain`` path, where pyodbc's prepared-statement protocol does not
 return result rows under ``SET SHOWPLAN_TEXT ON``.
+
+Note:
+    Rendered SQL is produced by sqlglot's generator, not echoed verbatim
+    from the input. Whitespace, keyword casing, and comments may be
+    normalised -- this is a deliberate consequence of the AST migration.
 """
 
 from __future__ import annotations
 
 import math
-from collections.abc import Iterator
 from datetime import date, datetime
 from decimal import Decimal
 from typing import Any
 
-import sqlparse
-from sqlparse import tokens as T
-from sqlparse.sql import Token
+import sqlglot
+from sqlglot import exp
 
 
-def _iter_placeholders(sql: str) -> Iterator[Token]:
-    """Yield ``:name`` placeholder tokens from ``sql``.
+def _statements(sql: str) -> list[exp.Expression]:
+    """Parse ``sql`` into a list of top-level statement expressions.
 
-    Quoted strings and comments are skipped because ``sqlparse`` tags
-    placeholders with ``Name.Placeholder`` distinctly from string and
-    comment tokens.
-
-    Yields:
-        Each ``Name.Placeholder`` token whose value begins with ``:``.
+    Returns:
+        The non-empty parsed statements; trailing/empty fragments that
+        sqlglot returns as ``None`` are dropped.
     """
-    for stmt in sqlparse.parse(sql):
-        for tok in stmt.flatten():  # type: ignore[no-untyped-call]
-            if tok.ttype is T.Name.Placeholder and tok.value.startswith(":"):
-                yield tok
+    return [stmt for stmt in sqlglot.parse(sql) if stmt is not None]
+
+
+def _named_placeholders(expr: exp.Expression) -> list[exp.Placeholder]:
+    """Collect named ``:name`` placeholder nodes from ``expr`` in render order.
+
+    Anonymous ``?`` placeholders (whose ``name`` is empty) are excluded.
+    ``find_all`` performs a depth-first pre-order walk, which matches the
+    left-to-right order in which the generator renders the placeholders.
+
+    Returns:
+        Named placeholder nodes, in positional order.
+    """
+    return [node for node in expr.find_all(exp.Placeholder) if node.name]
 
 
 def extract_param_names(sql: str) -> set[str]:
@@ -45,30 +57,31 @@ def extract_param_names(sql: str) -> set[str]:
     Returns:
         Unordered, deduplicated set of placeholder names (without the
         leading ``:``). Placeholders inside quoted strings or comments
-        are ignored.
+        are ignored because they are not placeholder nodes in the AST.
     """
-    return {tok.value[1:] for tok in _iter_placeholders(sql)}
+    return {ph.name for stmt in _statements(sql) for ph in _named_placeholders(stmt)}
 
 
 def translate_named_to_qmark(sql: str) -> tuple[str, list[str]]:
     """Translate ``:name`` placeholders to ``?`` markers.
 
+    Each named placeholder node is replaced by an anonymous placeholder and
+    the statements are re-rendered through sqlglot.
+
     Returns:
-        Tuple ``(translated_sql, ordered_names)`` where every
-        ``:name`` placeholder has been rewritten as ``?`` and
-        ``ordered_names[i]`` is the name of the *i*-th ``?`` in
-        ``translated_sql``. Order and duplicates are preserved.
+        Tuple ``(translated_sql, ordered_names)`` where every ``:name``
+        placeholder has been rewritten as ``?`` and ``ordered_names[i]``
+        is the name of the *i*-th ``?`` in ``translated_sql``. Order and
+        duplicates are preserved.
     """
     names: list[str] = []
-    parts: list[str] = []
-    for stmt in sqlparse.parse(sql):
-        for tok in stmt.flatten():  # type: ignore[no-untyped-call]
-            if tok.ttype is T.Name.Placeholder and tok.value.startswith(":"):
-                names.append(tok.value[1:])
-                parts.append("?")
-            else:
-                parts.append(tok.value)
-    return "".join(parts), names
+    rendered: list[str] = []
+    for stmt in _statements(sql):
+        for ph in _named_placeholders(stmt):
+            names.append(ph.name)
+            ph.replace(exp.Placeholder())
+        rendered.append(stmt.sql())
+    return "; ".join(rendered), names
 
 
 def _sql_literal(value: Any) -> str:
@@ -121,9 +134,11 @@ def substitute_named_with_literals(sql: str, params: dict[str, Any]) -> str:
     so the parameterised form must be expanded to literals before the
     showplan call.
 
-    A missing placeholder key raises ``KeyError`` (via the ``params``
-    lookup); unsupported value types or non-finite floats propagate
-    ``TypeError`` / ``ValueError`` from :func:`_sql_literal`.
+    Each named placeholder node is replaced by the parsed literal of
+    ``_sql_literal(params[name])`` and the statements are re-rendered
+    through sqlglot. A missing placeholder key raises ``KeyError`` (via the
+    ``params`` lookup); unsupported value types or non-finite floats
+    propagate ``TypeError`` / ``ValueError`` from :func:`_sql_literal`.
 
     Args:
         sql: SQL with ``:name`` placeholders.
@@ -132,12 +147,10 @@ def substitute_named_with_literals(sql: str, params: dict[str, Any]) -> str:
     Returns:
         SQL with each placeholder replaced by ``_sql_literal(params[name])``.
     """
-    parts: list[str] = []
-    for stmt in sqlparse.parse(sql):
-        for tok in stmt.flatten():  # type: ignore[no-untyped-call]
-            if tok.ttype is T.Name.Placeholder and tok.value.startswith(":"):
-                name = tok.value[1:]
-                parts.append(_sql_literal(params[name]))
-            else:
-                parts.append(tok.value)
-    return "".join(parts)
+    rendered: list[str] = []
+    for stmt in _statements(sql):
+        for ph in _named_placeholders(stmt):
+            literal = sqlglot.parse_one(_sql_literal(params[ph.name]))
+            ph.replace(literal)
+        rendered.append(stmt.sql())
+    return "; ".join(rendered)
