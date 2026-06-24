@@ -25,9 +25,9 @@ This tracks **Feature Implementation** consisting of multiple **Tasks**.
 
 Detail: [step_1.md](./steps/step_1.md)
 
-- [ ] Implementation: swap `sqlparse`→`sqlglot` in `pyproject.toml` (remove sqlparse mypy override); reimplement `extract_param_names`, `translate_named_to_qmark`, `substitute_named_with_literals` on the sqlglot AST in `sql_placeholders.py`; confirm placeholder node type empirically; update `tests/test_sql_placeholders.py` (TDD) preserving intent + add `:name` round-trip and ordered multi-placeholder tests
-- [ ] Quality checks: pylint, pytest (unit subset), mypy — fix all issues
-- [ ] Commit message prepared
+- [x] Implementation: swap `sqlparse`→`sqlglot` in `pyproject.toml` (remove sqlparse mypy override); reimplement `extract_param_names`, `translate_named_to_qmark`, `substitute_named_with_literals` on the sqlglot AST in `sql_placeholders.py`; confirm placeholder node type empirically; update `tests/test_sql_placeholders.py` (TDD) preserving intent + add `:name` round-trip and ordered multi-placeholder tests
+- [x] Quality checks: pylint, pytest (unit subset), mypy — fix all issues
+- [x] Commit message prepared
 
 ### Step 2: Shared preflight helpers + migrate `validate_sql` to sqlglot
 

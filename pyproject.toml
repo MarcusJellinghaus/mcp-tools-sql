@@ -115,6 +115,10 @@ ignore_missing_imports = true
 module = ["pyodbc", "pyodbc.*"]
 ignore_missing_imports = true
 
+[[tool.mypy.overrides]]
+module = ["sqlglot", "sqlglot.*"]
+ignore_missing_imports = true
+
 [tool.ruff]
 target-version = "py311"
 line-length = 88
@@ -140,6 +144,11 @@ convention = "google"
 # W1203: logging-fstring-interpolation — redundant while W is disabled, but kept
 #        as documentation: f-strings in logging calls are acceptable for readability
 disable = ["W", "C", "R", "W1203"]
+
+[tool.pylint.typecheck]
+# sqlglot builds its ``exp`` expression classes dynamically; treat it as an
+# ignored module so pylint neither attempts the import nor flags dynamic members.
+ignored-modules = ["sqlglot"]
 
 [tool.mcp-coder.implement]
 format_code = true
