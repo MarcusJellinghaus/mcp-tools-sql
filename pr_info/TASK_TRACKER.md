@@ -21,6 +21,49 @@ This tracks **Feature Implementation** consisting of multiple **Tasks**.
 
 ## Tasks
 
-<!-- Tasks populated from pr_info/steps/ by prepare_task_tracker -->
+### Step 1: Parsing foundation — sqlparse → sqlglot + reimplement placeholder helpers
+
+Detail: [step_1.md](./steps/step_1.md)
+
+- [ ] Implementation: swap `sqlparse`→`sqlglot` in `pyproject.toml` (remove sqlparse mypy override); reimplement `extract_param_names`, `translate_named_to_qmark`, `substitute_named_with_literals` on the sqlglot AST in `sql_placeholders.py`; confirm placeholder node type empirically; update `tests/test_sql_placeholders.py` (TDD) preserving intent + add `:name` round-trip and ordered multi-placeholder tests
+- [ ] Quality checks: pylint, pytest (unit subset), mypy — fix all issues
+- [ ] Commit message prepared
+
+### Step 2: Shared preflight helpers + migrate `validate_sql` to sqlglot
+
+Detail: [step_2.md](./steps/step_2.md)
+
+- [ ] Implementation: add `to_dialect`, `count_statements`, `first_statement_kind`, `basic_preflight`, and `ParseError` re-export to `sql_placeholders.py`; re-base `validate_sql._preflight` to delegate to `basic_preflight` + layer session-keyword check; remove local `_count_statements`/`_first_keyword`; add fail-closed parse contract; update `tests/test_validation_tools.py` (TDD)
+- [ ] Quality checks: pylint, pytest (unit subset), mypy — fix all issues
+- [ ] Commit message prepared
+
+### Step 3: `execute_readonly_query` backend seam (ABC + SQLite + MSSQL)
+
+Detail: [step_3.md](./steps/step_3.md)
+
+- [ ] Implementation: add `execute_readonly_query` abstractmethod to `backends/base.py`; implement fresh `PRAGMA query_only=ON` per-call connection in `backends/sqlite.py`; delegate to `execute_query` in `backends/mssql.py`; write TDD tests in `tests/backends/test_sqlite.py` and `tests/backends/test_mssql.py`
+- [ ] Quality checks: pylint, pytest (unit subset), mypy — fix all issues
+- [ ] Commit message prepared
+
+### Step 4: Read-only AST gate + COUNT-wrap helpers (pure functions)
+
+Detail: [step_4.md](./steps/step_4.md)
+
+- [ ] Implementation: add `read_only_violation(sql, dialect)` and `build_count_query(sql, dialect)` (plus `_WRITE_NODES`/`_READONLY_ROOTS`) to `sql_placeholders.py` via sqlglot AST inspection (reject write nodes, `SELECT…INTO`, non-read-only roots fail-closed); confirm root node set empirically; write TDD unit tests in `tests/test_sql_placeholders.py`
+- [ ] Quality checks: pylint, pytest (unit subset), mypy — fix all issues
+- [ ] Commit message prepared
+
+### Step 5: `count_records` tool — module + registration + architecture config
+
+Detail: [step_5.md](./steps/step_5.md)
+
+- [ ] Implementation: create `count_tools.py` with `CountTools` registering async `count_records(sql, params=None) -> str` (consume `basic_preflight`, `read_only_violation`, precise MSSQL leading-`WITH` rejection, `build_count_query` + `execute_readonly_query`, validate_sql exception mapping); register in `server._register_builtin_tools`; add `"count_records"` to `PROGRAMMATIC_BUILTIN_TOOLS`; add `count_tools` to `.importlinter` and `tach.toml`; write TDD tests in `tests/test_count_tools.py` and registration test in `tests/test_server.py`
+- [ ] Quality checks: pylint, pytest (unit subset), mypy, `run_lint_imports_check`, `run_tach_check` — fix all issues
+- [ ] Commit message prepared
+
+---
 
 ## Pull Request
+
+- [ ] PR review: verify all steps complete, all quality checks pass, and changes align with [summary.md](./steps/summary.md)
+- [ ] PR summary prepared (title + description covering the sqlparse→sqlglot migration and the new `count_records` tool)
