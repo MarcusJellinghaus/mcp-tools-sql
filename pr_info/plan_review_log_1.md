@@ -32,3 +32,32 @@
 **Changes**: Updated `step_1.md`, `step_2.md`, `step_4.md`, `step_5.md`, `summary.md` via `/plan_update` (multi-placeholder ordered test; node-type spike gating; `basic_preflight` moved to Step 2; SHOWPLAN render clarified; strict fail-closed root allow-list; precise leading-`WITH` check + `WITH (NOLOCK)` negative test; duplicate-column e2e count test; summary step-overview fixed).
 
 **Status**: Plan changed this round → committing, then looping for a fresh review round.
+
+## Round 2 — 2026-06-24
+
+**Findings**: Follow-up review confirmed all Round-1 edits applied cleanly with no internal contradictions:
+- Step 2 fully owns `basic_preflight`; Step 5 only consumes it — no dangling reference to the moved refactor.
+- Step 1 multi-placeholder ordered test + gated node-type spike present and coherent.
+- Step 4 strict `_READONLY_ROOTS` allow-list (no `...`) + unknown-root rejection test present.
+- Step 5 precise leading-`WITH` check + `WITH (NOLOCK)` negative test + duplicate-column e2e test present.
+- Codebase cross-checks (validation_tools structure, `PROGRAMMATIC_BUILTIN_TOOLS` counter, placeholder helper signatures, DatabaseBackend ABC) all consistent with the plan.
+
+Two minor non-defect observations (already surfaced by the plan, no action): preflight ordering (missing-param vs session-keyword) flagged as an implementer verification task; redundant-but-safe parse in count_records body after `basic_preflight`.
+
+**Decisions**: No changes required — observations are acceptable as-is.
+
+**User decisions**: None.
+
+**Changes**: None this round.
+
+**Status**: No plan changes → loop terminates.
+
+---
+
+## Final Status
+
+- **Rounds run**: 2
+- **Round 1**: Applied 7 improvements (missing tests, spike gating, `basic_preflight` moved to Step 2, strict fail-closed root allow-list, precise MSSQL leading-`WITH` check) — committed `06bb07a`.
+- **Round 2**: Clean follow-up review — **READY FOR APPROVAL**, no further changes.
+- **Escalations to user**: None. All "design" findings were already explicitly decided in issue #38; not re-litigated.
+- **Verdict**: ✅ Plan is ready for approval.
