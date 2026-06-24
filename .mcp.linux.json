@@ -17,7 +17,8 @@
       ],
       "env": {
         "PYTHONPATH": "${MCP_CODER_PROJECT_DIR}/src"
-      }
+      },
+      "alwaysLoad": true
     },
     "mcp-workspace": {
       "type": "stdio",
@@ -38,7 +39,8 @@
       ],
       "env": {
         "PYTHONPATH": "${MCP_CODER_VENV_DIR}/lib"
-      }
+      },
+      "alwaysLoad": true
     }
   }
 }
