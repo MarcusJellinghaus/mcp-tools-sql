@@ -31,15 +31,11 @@ async def count_records(
 
 ## HOW (integration)
 - `count_tools.py` imports: `log_tool_call`; from `utils.sql_placeholders`:
-  `to_dialect`, `count_statements`, `first_statement_kind` (unused — skip),
-  `extract_param_names`, `read_only_violation`, `build_count_query`, `ParseError`;
-  reuse the empty/multi/missing-param preflight via a shared helper. To avoid a
-  sibling import of `validation_tools._preflight`, factor the **basic** preflight
-  (empty / fail-closed parse / multi-statement / missing-param — no session
-  keywords) into `utils.sql_placeholders.basic_preflight(sql, params, dialect)`
-  and have both `validation_tools` and `count_tools` call it. (Small refactor of
-  Step 2's `_preflight` to delegate to it — keep validate_sql's session-keyword
-  check on top.)
+  `to_dialect`, `basic_preflight`, `read_only_violation`, `build_count_query`,
+  `ParseError`. The shared `basic_preflight` (empty / fail-closed parse /
+  multi-statement / missing-param — no session keywords) was **already
+  introduced in Step 2**; Step 5 only *consumes* it (no refactor here). It
+  avoids a sibling import of `validation_tools._preflight`.
 - `server.py`: in `_register_builtin_tools`, add
   `CountTools(self._backend, self._backend_name).register(self._mcp)` (after
   ValidationTools; **not** gated by `allow_updates`). Import `CountTools`.
@@ -59,7 +55,7 @@ async with log_tool_call("count_records", params or {}, sql=sql) as rec:
     if verdict: return verdict
     violation = read_only_violation(sql, dialect)
     if violation: return violation
-    if dialect == "tsql" and <root has WITH>:                # leading CTE
+    if dialect == "tsql" and <root has statement-level WITH>:   # leading CTE only
         return "CTE (WITH) queries can't be counted on SQL Server — the count wrapper doesn't support them."
     wrapped = build_count_query(sql, dialect)
     try:
@@ -70,8 +66,13 @@ async with log_tool_call("count_records", params or {}, sql=sql) as rec:
 - Exception mapping mirrors `validate_sql` (`_INVALID_SQL_EXC` →
   `Invalid SQL.`; `KeyError/TypeError/ValueError` → `Invalid parameters.`;
   `RuntimeError` → `Database connection error.`; else `Unexpected error.`).
-- The leading-`WITH` check uses the parsed root (`sqlglot.parse_one(sql,
-  read="tsql").args.get("with")`); can be a tiny helper in the shared module.
+- The leading-`WITH` check must be **precise**: key the rejection on the
+  statement-level CTE node specifically, e.g.
+  `isinstance(parsed.args.get("with"), exp.With)` (where
+  `parsed = sqlglot.parse_one(sql, read="tsql")`). T-SQL table hints like
+  `WITH (NOLOCK)` are modeled by sqlglot on the **table** node, not the
+  statement `with` arg, so this gate must **not** false-positive on them. Can be
+  a tiny helper in the shared module.
 
 ## DATA
 - Returns a **bare number string** (e.g. `"42"`). Error paths return the labelled
@@ -89,6 +90,10 @@ async with log_tool_call("count_records", params or {}, sql=sql) as rec:
 pattern as `test_validation_tools.py`):
 - `SELECT * FROM customers` → `"2"`; `SELECT * FROM orders` → `"3"`.
 - `WHERE` filter → correct subset count.
+- **Duplicate/unnamed output columns**: `SELECT a, a FROM t` (or
+  `SELECT id, id FROM customers`) → correct count, confirming
+  `SELECT COUNT(*) FROM (<sql>) AS count_sub` works when the inner query has
+  duplicate column names.
 - `:name` param: `SELECT * FROM orders WHERE status = :s`, `{"s":"pending"}` → `"2"`.
 - Read-only gate rejections: `UPDATE …`, `INSERT …`, `DELETE …`, `DROP TABLE …`,
   `SELECT … INTO …` → `Not read-only.` verdict, and **no rows modified**.
@@ -99,6 +104,11 @@ pattern as `test_validation_tools.py`):
   (MagicMock backend, as in `test_validation_tools.py`), call with
   `WITH x AS (SELECT 1) SELECT * FROM x` → the precise CTE rejection message,
   and assert `execute_readonly_query` was **not** called.
+- MSSQL `WITH (NOLOCK)` table hint is **not** false-positived by the leading-WITH
+  gate: with `CountTools(mock_backend, "mssql")`, call with
+  `SELECT * FROM t WITH (NOLOCK)` → it passes the leading-WITH gate (reaches
+  `build_count_query` / `execute_readonly_query`, i.e. **not** the CTE rejection
+  message). Assert the CTE rejection is not returned.
 
 `tests/test_server.py`:
 - Add a test that `_register_builtin_tools()` registers `count_records`.
@@ -112,16 +122,18 @@ pattern as `test_validation_tools.py`):
 ## DONE WHEN
 - All three code checks + import-linter + tach pass.
 - Single commit: count_tools.py + server.py + schema_tools.py + .importlinter +
-  tach.toml + test_count_tools.py + test_server.py (+ the small `basic_preflight`
-  refactor in sql_placeholders.py / validation_tools.py).
+  tach.toml + test_count_tools.py + test_server.py. (`basic_preflight` already
+  exists from Step 2 — no refactor in this step.)
 
 ## LLM PROMPT
 > Implement Step 5 of `pr_info/steps/summary.md` (`pr_info/steps/step_5.md`).
 > Create `src/mcp_tools_sql/count_tools.py` with a `CountTools` class registering
-> an async `count_records(sql, params=None) -> str` tool: basic preflight
-> (factor `basic_preflight` into `utils.sql_placeholders` and reuse it from
-> `validation_tools` too), then `read_only_violation`, then the deterministic
-> MSSQL leading-`WITH` rejection, then `build_count_query` + 
+> an async `count_records(sql, params=None) -> str` tool: call the shared
+> `basic_preflight` (already in `utils.sql_placeholders` from Step 2 — consume,
+> do not refactor), then `read_only_violation`, then the deterministic MSSQL
+> leading-`WITH` rejection keyed precisely on the statement-level CTE node
+> (`isinstance(parsed.args.get("with"), exp.With)`, so `WITH (NOLOCK)` table
+> hints don't false-positive), then `build_count_query` + 
 > `backend.execute_readonly_query`, returning `str(rows[0]["row_count"])` with
 > the same exception mapping as `validate_sql`. Register it in
 > `server._register_builtin_tools` (not gated by `allow_updates`), add

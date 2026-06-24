@@ -19,9 +19,20 @@ def build_count_query(sql: str, dialect: str) -> str:
     """Render SELECT COUNT(*) AS row_count FROM (<sql>) AS count_sub for `dialect`.
     Raises sqlglot ParseError on unparseable SQL."""
 
-# small module constant:
+# small module constants:
 _WRITE_NODES = (exp.Insert, exp.Update, exp.Delete, exp.Merge,
                 exp.Create, exp.Drop, exp.Alter, exp.TruncateTable)
+
+# STRICT read-only root allow-list (fail-closed: reject any root NOT listed).
+# Accepted roots per the issue:
+#   SQLite:    SELECT / WITH / VALUES   (WITH...SELECT parses as a Select
+#              carrying a `with` arg, so exp.Select covers it)
+#   MSSQL/tsql: SELECT / WITH (the leading-CTE case is rejected deterministically
+#              downstream in count_records, Step 5)
+# The exact exp.* node-type names are pinned empirically during implementation
+# (e.g. whether exp.Union / exp.Values appear as roots), but "reject unknown
+# roots" is the FIXED contract — do NOT leave a trailing `...` catch-all.
+_READONLY_ROOTS = (exp.Select, exp.Union, exp.Values)   # adjust per empirical check
 ```
 
 ## HOW (integration)
@@ -39,8 +50,9 @@ read_only_violation(sql, dialect):
     # SELECT ... INTO creates a table on MSSQL
     if any(s.args.get("into") for s in root.find_all(exp.Select)):
         return "Not read-only. SELECT ... INTO is not permitted."
-    # root must itself be a read-only construct
-    if not isinstance(root, (exp.Select, exp.Union, exp.With, exp.Values, ...)):
+    # root must itself be a read-only construct — STRICT, fail-closed allow-list.
+    # Reject any root node type NOT explicitly listed below.
+    if not isinstance(root, _READONLY_ROOTS):
         return "Not read-only. Only SELECT/WITH/VALUES queries can be counted."
     return None
 
@@ -53,9 +65,11 @@ build_count_query(sql, dialect):
 Notes:
 - `root.find(*_WRITE_NODES)` walks the whole tree, so a data-modifying CTE body
   (`WITH x AS (DELETE …) …`) is caught by the `exp.Delete` node inside it.
-- Confirm the exact read-only root node set against sqlglot per dialect
-  (`exp.Subquery` may wrap; `WITH ... SELECT` parses as a `Select` carrying a
-  `with` arg, so `exp.Select` covers it — verify and adjust the isinstance set).
+- Confirm the exact read-only root node set against sqlglot per dialect and pin
+  `_READONLY_ROOTS` to the observed classes (`exp.Subquery` may wrap;
+  `WITH ... SELECT` parses as a `Select` carrying a `with` arg, so `exp.Select`
+  covers it — verify and adjust the tuple). The allow-list is **fail-closed**:
+  any root not in `_READONLY_ROOTS` is rejected; never widen it to a catch-all.
 - Keep messages concise/precise; they are returned verbatim by the tool.
 
 ## DATA
@@ -73,6 +87,9 @@ Notes:
 - `SELECT * INTO new_t FROM t` (dialect `tsql`) → non-None.
 - Data-modifying CTE (`tsql`: `WITH x AS (...) DELETE …`; verify it parses) →
   non-None.
+- **Fail-closed root**: a parseable statement whose root is not in
+  `_READONLY_ROOTS` (e.g. a bare `EXPLAIN …` / `PRAGMA …`, whichever sqlglot
+  parses to a non-listed root) → non-None — proving unknown roots are rejected.
 `build_count_query`:
 - `SELECT * FROM customers` (sqlite) renders to the expected wrapper string
   (assert it contains `COUNT(*)`, `AS row_count`, `AS count_sub`).

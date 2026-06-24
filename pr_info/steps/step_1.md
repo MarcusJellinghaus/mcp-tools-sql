@@ -78,9 +78,17 @@ Write/adjust first, then implement until green:
 - Add a focused **round-trip test**: parse `SELECT :a`, render via the helper,
   confirm `extract_param_names` still returns `{"a"}` and that the rendered text
   contains a bindable placeholder.
+- Add a **multi-placeholder ordered round-trip** test (e.g.
+  `SELECT * FROM t WHERE a = :x AND b = :y`): assert `translate_named_to_qmark`
+  returns `["x", "y"]` in that exact order — i.e. the `:name`→`?` positional
+  order is preserved (the `find_all` traversal order matches the render order).
 
 ## DONE WHEN
 - `pyproject.toml` no longer references `sqlparse`; `sqlglot` present.
+- The sqlglot placeholder **node type** (`exp.Placeholder` vs `exp.Parameter`)
+  is **empirically confirmed and asserted by a test** — the make-or-break spike
+  is gated, not merely mentioned (a test parses `:name` and asserts the concrete
+  node class / `.name`).
 - `run_pylint_check`, `run_mypy_check`, `run_pytest_check` (unit subset) all pass.
 - Single commit: pyproject + sql_placeholders.py + test_sql_placeholders.py.
 

@@ -95,10 +95,13 @@
 
 ## Step overview (one commit each, TDD)
 1. **Parsing foundation** — dependency swap + reimplement placeholder helpers on sqlglot.
-2. **Shared preflight helpers + `validate_sql` migration** (fail-closed parse).
+2. **Shared preflight helpers (incl. `basic_preflight`) + `validate_sql` migration**
+   (fail-closed parse). `basic_preflight` is introduced here so Step 5 consumes
+   it without re-refactoring.
 3. **`execute_readonly_query` backend seam** (ABC + SQLite + MSSQL).
 4. **Read-only gate + COUNT-wrap helpers** (pure functions, unit-tested).
-5. **`count_records` tool** — module + registration + architecture config (e2e).
+5. **`count_records` tool** — module + registration + architecture config (e2e);
+   consumes the shared `basic_preflight` from Step 2.
 
 > **Spike note:** sqlglot's exact placeholder node (`exp.Placeholder` vs
 > `exp.Parameter`) and whether `:name` round-trips through a `sqlite`-dialect
