@@ -17,13 +17,20 @@ class TestExtractSqlParams:
         assert extract_sql_params("SELECT * WHERE x = :id") == {"id"}
 
     def test_multiple_params(self) -> None:
-        assert extract_sql_params("WHERE a = :x AND b = :y") == {"x", "y"}
+        assert extract_sql_params("SELECT * FROM t WHERE a = :x AND b = :y") == {
+            "x",
+            "y",
+        }
 
     def test_no_params(self) -> None:
         assert extract_sql_params("SELECT 'main' AS name") == set()
 
     def test_duplicate_param(self) -> None:
-        assert extract_sql_params("WHERE a = :x OR b = :x") == {"x"}
+        assert extract_sql_params("SELECT * FROM t WHERE a = :x OR b = :x") == {"x"}
+
+    def test_unparseable_sql_yields_no_params(self) -> None:
+        # Best-effort scan: invalid SQL returns an empty set rather than raising.
+        assert extract_sql_params("SELECT * FROMX badtable") == set()
 
 
 class TestApplyFilter:

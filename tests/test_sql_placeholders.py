@@ -42,8 +42,11 @@ class TestPlaceholderNodeSpike:
         parsed = sqlglot.parse_one("SELECT ?")
         placeholders = list(parsed.find_all(exp.Placeholder))
         assert len(placeholders) == 1
-        # ``?`` parses to a placeholder with an empty name.
-        assert placeholders[0].name == ""
+        # ``?`` parses to a placeholder carrying no ``this`` arg. sqlglot's
+        # ``.name`` falls back to "?" for it, so named-ness is distinguished
+        # via ``text("this")`` (empty here), not ``.name``.
+        assert placeholders[0].text("this") == ""
+        assert placeholders[0].name == "?"
 
 
 class TestExtractParamNames:
@@ -126,7 +129,7 @@ class TestTranslateNamedToQmark:
         reparsed = sqlglot.parse_one(sql_out)
         anon = list(reparsed.find_all(exp.Placeholder))
         assert len(anon) == 1
-        assert anon[0].name == ""
+        assert anon[0].text("this") == ""
 
     def test_ordered_multi_placeholder_roundtrip(self) -> None:
         # The ``:name`` -> ``?`` positional order must match the source order.

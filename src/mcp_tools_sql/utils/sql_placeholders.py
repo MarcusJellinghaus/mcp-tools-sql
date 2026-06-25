@@ -98,14 +98,17 @@ def _statements(sql: str, dialect: str | None = None) -> list[exp.Expression]:
 def _named_placeholders(expr: exp.Expression) -> list[exp.Placeholder]:
     """Collect named ``:name`` placeholder nodes from ``expr`` in render order.
 
-    Anonymous ``?`` placeholders (whose ``name`` is empty) are excluded.
-    ``find_all`` performs a depth-first pre-order walk, which matches the
-    left-to-right order in which the generator renders the placeholders.
+    Anonymous ``?`` placeholders are excluded. They carry no ``this`` arg, so
+    they are filtered on ``text("this")`` rather than ``name``: sqlglot's
+    :attr:`Placeholder.name` falls back to ``"?"`` for them (which is truthy),
+    whereas ``text("this")`` is the empty string. ``find_all`` performs a
+    depth-first pre-order walk, which matches the left-to-right order in which
+    the generator renders the placeholders.
 
     Returns:
         Named placeholder nodes, in positional order.
     """
-    return [node for node in expr.find_all(exp.Placeholder) if node.name]
+    return [node for node in expr.find_all(exp.Placeholder) if node.text("this")]
 
 
 def extract_param_names(sql: str, dialect: str | None = None) -> set[str]:
@@ -249,9 +252,6 @@ def count_statements(sql: str, dialect: str) -> int:
     Returns:
         The count of top-level statements, ignoring empty fragments such as
         trailing semicolons.
-
-    Raises:
-        ParseError: If ``sql`` cannot be parsed under ``dialect``.
     """
     return len(_statements(sql, dialect))
 
@@ -272,9 +272,6 @@ def first_statement_kind(sql: str, dialect: str) -> str | None:
     Returns:
         ``"USE"``, ``"SET"``, or ``"DECLARE"`` when the first statement is
         that session-control statement; ``None`` otherwise.
-
-    Raises:
-        ParseError: If ``sql`` cannot be parsed under ``dialect``.
     """
     statements = _statements(sql, dialect)
     root = statements[0] if statements else None
@@ -351,10 +348,6 @@ def read_only_violation(sql: str, dialect: str) -> str | None:
     Returns:
         A concise rejection message (returned verbatim by the tool) when the
         statement is not provably read-only, or ``None`` when it is.
-
-    Raises:
-        ParseError: If ``sql`` cannot be parsed under ``dialect``; the caller
-            fail-closes on this.
     """
     root = sqlglot.parse_one(sql, read=dialect)
     write_node = root.find(*_WRITE_NODES)
@@ -382,9 +375,6 @@ def build_count_query(sql: str, dialect: str) -> str:
 
     Returns:
         The rendered count query, dialect-targeted.
-
-    Raises:
-        ParseError: If ``sql`` cannot be parsed under ``dialect``.
     """
     inner = sqlglot.parse_one(sql, read=dialect)
     # Build the derived table directly (rather than ``inner.subquery(...)``)
