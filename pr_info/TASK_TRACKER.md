@@ -21,6 +21,47 @@ This tracks **Feature Implementation** consisting of multiple **Tasks**.
 
 ## Tasks
 
-<!-- Tasks populated from pr_info/steps/ by prepare_task_tracker -->
+### Step 1: Consolidate dev toolchain via `mcp-tools-py`
+
+Detail: [step_1.md](./steps/step_1.md)
+
+- [ ] Implementation: reshape `[dev]` extra in `pyproject.toml` to the four-entry target shape (add `mcp-tools-py`; remove `black`, `isort`, `pylint`, `mypy`, `ruff`, `tach`, `vulture`, `pytest`, `pytest-asyncio`, `pytest-xdist`, `pydeps`; keep `mcp-workspace`, `mcp-coder`, `pycycle>=0.0.8`). Delete the `pydeps` line from the documented `dev` block in `mcp-tools-sql.md`. Resolve/install `.[dev]` locally and confirm `black --check src tests` is green
+- [ ] Quality checks: pylint, pytest, mypy — fix all issues
+- [ ] Commit message prepared
+
+### Step 2: `no-url-deps` script + `test` matrix entry
+
+Detail: [step_2.md](./steps/step_2.md)
+
+- [ ] Implementation: create `tools/check_no_url_deps.py` with the verbatim content; add the `no-url-deps` matrix entry to the `test` job in `.github/workflows/ci.yml`; confirm the script exits 0 with the OK message
+- [ ] Quality checks: pylint, pytest, mypy — fix all issues
+- [ ] Commit message prepared
+
+### Step 3: File-size guard + `.large-files-allowlist`
+
+Detail: [step_3.md](./steps/step_3.md)
+
+- [ ] Implementation: create `.large-files-allowlist` (two-line header + `mcp-tools-sql.md`); add the `file-size` matrix entry to the `test` job in `.github/workflows/ci.yml`; confirm the file-size command exits 0
+- [ ] Quality checks: pylint, pytest, mypy — fix all issues
+- [ ] Commit message prepared
+
+### Step 4: `pycycle` cyclic-import check (architecture matrix)
+
+Detail: [step_4.md](./steps/step_4.md)
+
+- [ ] Implementation: add the `pycycle` matrix entry to the `architecture` job in `.github/workflows/ci.yml`; run pycycle locally with the exact `--ignore` list and confirm no cycles (matrix line only, no `src/` edits)
+- [ ] Quality checks: pylint, pytest, mypy — fix all issues
+- [ ] Commit message prepared
+
+### Step 5: Broaden ruff command scope (`src` → `src tests`)
+
+Detail: [step_5.md](./steps/step_5.md)
+
+- [ ] Implementation: change the `ruff-docstrings` matrix command in `.github/workflows/ci.yml` from `ruff check src` to `ruff check src tests` (do not touch the `tests/**/*.py` per-file-ignore); confirm `ruff check src tests` exits 0
+- [ ] Quality checks: pylint, pytest, mypy — fix all issues
+- [ ] Commit message prepared
 
 ## Pull Request
+
+- [ ] Address PR review feedback
+- [ ] Final summary of changes
