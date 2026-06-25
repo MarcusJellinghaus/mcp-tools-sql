@@ -132,5 +132,5 @@ Detail: [step_5.md](./steps/step_5.md)
 
 ## Pull Request
 
-- [ ] PR review: verify all steps complete, all quality checks pass, and changes align with [summary.md](./steps/summary.md)
+- [x] PR review: verify all steps complete, all quality checks pass, and changes align with [summary.md](./steps/summary.md)
 - [ ] PR summary prepared (title + description covering the sqlparse→sqlglot migration and the new `count_records` tool)
