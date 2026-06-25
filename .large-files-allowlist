@@ -1,0 +1,3 @@
+# Files exceeding the 750-line limit, grandfathered in.
+# Reduce over time; do not add new entries.
+mcp-tools-sql.md

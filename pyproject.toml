@@ -39,18 +39,9 @@ all-backends = [
 dev = [
     "mcp-workspace",
     "mcp-coder",
-    "black",
-    "isort",
-    "pylint",
-    "mypy",
-    "ruff",
-    "tach>=0.15.0",
-    "pycycle>=0.0.8",
-    "vulture>=2.13",
-    "pydeps>=1.12.0",
-    "pytest",
-    "pytest-asyncio",
-    "pytest-xdist",
+    "mcp-tools-py",        # single source for ruff + black/isort/pylint/mypy/vulture/pytest...
+    "pycycle>=0.0.8",      # KEEP — mcp-tools-py ships it only in its own [dev] extra
+    "tach>=0.35.0",        # KEEP — mcp-tools-py ships it only in its own [dev] extra
 ]
 
 [project.scripts]

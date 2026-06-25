@@ -66,9 +66,11 @@ jobs:
           - {name: "black", cmd: "black --version && black --check src tests"}
           - {name: "isort", cmd: "isort --version && isort --check --profile=black --float-to-top src tests"}
           - {name: "pylint", cmd: "pylint --version && pylint -E ./src ./tests"}
-          - {name: "ruff-docstrings", cmd: "ruff version && ruff check src"}
+          - {name: "ruff-docstrings", cmd: "ruff version && ruff check src tests"}
           - {name: "pytest", cmd: "pytest --version && pytest tests -n auto -m 'not sqlite_integration and not mssql_integration and not postgresql_integration'"}
           - {name: "mypy", cmd: "mypy --version && mypy --strict src tests"}
+          - {name: "no-url-deps", cmd: "python tools/check_no_url_deps.py"}
+          - {name: "file-size", cmd: "mcp-coder check file-size --max-lines 750 --allowlist-file .large-files-allowlist"}
     name: ${{ matrix.check.name }}
     steps:
       - uses: actions/checkout@v6
@@ -231,6 +233,7 @@ jobs:
           - {name: "import-linter", cmd: "lint-imports --help > /dev/null && lint-imports"}
           - {name: "tach", cmd: "tach --version && tach check"}
           - {name: "vulture", cmd: "vulture --version && vulture src tests vulture_whitelist.py --min-confidence 60"}
+          - {name: "pycycle", cmd: "pycycle --version && pycycle --here --ignore .venv,__pycache__,build,dist,.git,.pytest_cache,.mypy_cache"}
     name: ${{ matrix.check.name }}
     steps:
       - uses: actions/checkout@v6
