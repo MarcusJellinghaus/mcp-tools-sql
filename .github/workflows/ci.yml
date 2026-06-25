@@ -70,6 +70,7 @@ jobs:
           - {name: "pytest", cmd: "pytest --version && pytest tests -n auto -m 'not sqlite_integration and not mssql_integration and not postgresql_integration'"}
           - {name: "mypy", cmd: "mypy --version && mypy --strict src tests"}
           - {name: "no-url-deps", cmd: "python tools/check_no_url_deps.py"}
+          - {name: "file-size", cmd: "mcp-coder check file-size --max-lines 750 --allowlist-file .large-files-allowlist"}
     name: ${{ matrix.check.name }}
     steps:
       - uses: actions/checkout@v6

@@ -41,9 +41,9 @@ Detail: [step_2.md](./steps/step_2.md)
 
 Detail: [step_3.md](./steps/step_3.md)
 
-- [ ] Implementation: create `.large-files-allowlist` (two-line header + `mcp-tools-sql.md`); add the `file-size` matrix entry to the `test` job in `.github/workflows/ci.yml`; confirm the file-size command exits 0
-- [ ] Quality checks: pylint, pytest, mypy — fix all issues
-- [ ] Commit message prepared
+- [x] Implementation: create `.large-files-allowlist` (two-line header + `mcp-tools-sql.md`); add the `file-size` matrix entry to the `test` job in `.github/workflows/ci.yml`; confirm the file-size command exits 0
+- [x] Quality checks: pylint, pytest, mypy — fix all issues
+- [x] Commit message prepared
 
 ### Step 4: `pycycle` cyclic-import check (architecture matrix)
 
