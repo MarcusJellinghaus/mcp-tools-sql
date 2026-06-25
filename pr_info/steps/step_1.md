@@ -42,7 +42,10 @@ No runtime data structures. The install set is unchanged (`mcp-tools-py` was alr
 transitive via `mcp-coder`); only the *declaration* of tool versions moves.
 
 ## Verification (the "test" for this step)
-1. `.[dev]` installs cleanly (CI does this; locally trust the resolver).
+1. **Resolve/install the reshaped `[dev]` set locally** before committing — do not
+   defer resolution to CI. Run `pip install -e ".[dev]"` (or `uv pip install ".[dev]"`
+   / `uv pip compile`) and confirm the new four-entry `dev` extra actually resolves
+   and installs cleanly here.
 2. `black --check src tests` stays green — the one delta to watch
    (`mcp-tools-py` floors `black>=26.5.1`).
 3. `mcp__tools-py__run_pylint_check`, `mcp__tools-py__run_pytest_check`
@@ -55,6 +58,8 @@ transitive via `mcp-coder`); only the *declaration* of tool versions moves.
 > `mcp-tools-py`; remove `black`, `isort`, `pylint`, `mypy`, `ruff`, `tach`,
 > `vulture`, `pytest`, `pytest-asyncio`, `pytest-xdist`, and `pydeps`; keep
 > `mcp-workspace`, `mcp-coder`, `pycycle>=0.0.8`). Delete only the `pydeps` line from
-> the documented `dev` block in `mcp-tools-sql.md`. Then run pylint, pytest (unit
+> the documented `dev` block in `mcp-tools-sql.md`. Before committing, confirm the
+> reshaped `[dev]` set resolves/installs locally (`pip install -e ".[dev]"` or the
+> `uv` equivalent) — don't defer resolution to CI. Then run pylint, pytest (unit
 > only) and mypy via the MCP tools and confirm `black --check src tests` is green.
 > Commit as one change.

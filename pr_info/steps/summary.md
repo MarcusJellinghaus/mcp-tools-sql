@@ -25,6 +25,18 @@ Items are independent and low-risk. Order follows the issue's natural grouping:
 dependency change first (touches the CI install set), then the cheap CI items, then
 the one-line ruff broadening.
 
+**Plan-step ↔ issue-item mapping.** The plan's step order intentionally differs from
+the issue's item numbering: it does the dependency change first, matching the issue's
+own "Sequencing" section (item 5 → group 1). The mapping is:
+
+| Plan step | Issue item |
+|-----------|------------|
+| step 1 — consolidate dev toolchain | item 5 (dev toolchain via `mcp-tools-py`) |
+| step 2 — `no-url-deps` | item 3 (no-url-deps) |
+| step 3 — file-size guard | item 1 (file-size guard) |
+| step 4 — `pycycle` | item 2 (pycycle) |
+| step 5 — broaden ruff scope | item 4 (ruff command scope) |
+
 ## Architectural / design changes
 
 **None to the application architecture.** The layered module structure, import
@@ -43,7 +55,9 @@ The changes are to the **project's quality-governance toolchain**:
   grandfather allowlist (`mcp-tools-sql.md`, 1053 lines — the only tracked file over
   the limit). Caps unbounded file growth.
 - **Cyclic-import detection.** `pycycle` catches import-time cycles that tach +
-  import-linter do not. Runs PR-only (in the `architecture` job).
+  import-linter do not. Runs PR-only (in the `architecture` job). A local pycycle run
+  confirmed **no pre-existing cycle**, so step 4 is purely the matrix-entry addition
+  (no `src/` changes); any future cycle fix would be a separate preceding commit.
 - **URL-dependency guard.** A stdlib-only `tools/check_no_url_deps.py` fails CI if
   `[project]` deps gain a `git+` / `@ http` / `@ file` spec that would break PyPI
   installs.
@@ -67,9 +81,10 @@ integration-test jobs.
 - `mcp__tools-py__run_pylint_check`, `mcp__tools-py__run_pytest_check`
   (`extra_args=["-n","auto","-m","not sqlite_integration and not mssql_integration and not postgresql_integration"]`),
   `mcp__tools-py__run_mypy_check` — all green.
-- Step 1 additionally: confirm `.[dev]` still installs and `black --check src tests`
-  stays green (the one place a version delta could surface — `mcp-tools-py` floors
-  `black>=26.5.1`).
+- Step 1 additionally: resolve/install the reshaped `[dev]` set locally before
+  committing (`pip install -e ".[dev]"` or the `uv` equivalent) — don't defer
+  resolution to CI — and confirm `black --check src tests` stays green (the one place
+  a version delta could surface — `mcp-tools-py` floors `black>=26.5.1`).
 
 ## Out of scope
 
