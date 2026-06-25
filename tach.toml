@@ -89,10 +89,7 @@ path = "mcp_tools_sql.count_tools"
 layer = "tool_implementation"
 depends_on = [
     { path = "mcp_tools_sql.backends" },
-    { path = "mcp_tools_sql.config" },
-    { path = "mcp_tools_sql.formatting" },
     { path = "mcp_tools_sql.tool_logging" },
-    { path = "mcp_tools_sql.tool_builder" },
     { path = "mcp_tools_sql.utils" },
 ]
 
