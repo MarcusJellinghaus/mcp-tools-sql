@@ -237,6 +237,30 @@ async def test_validate_sql_registered_as_builtin_tool(tmp_path: Path) -> None:
         backend.close()
 
 
+@pytest.mark.asyncio
+async def test_count_records_registered_as_builtin_tool(tmp_path: Path) -> None:
+    """`_register_builtin_tools()` registers `count_records` on the MCP server."""
+    from mcp.shared.memory import create_connected_server_and_client_session
+
+    args = _write_sqlite_configs(tmp_path)
+    qcfg = load_query_config(args.config)
+    dbcfg = load_database_config(args.database_config)
+    conn_cfg = resolve_connection(qcfg, dbcfg)
+    backend = create_backend(conn_cfg)
+    server = ToolServer(qcfg, backend, conn_cfg.backend, allow_updates=False)
+    server._register_builtin_tools()  # pylint: disable=protected-access
+
+    try:
+        async with create_connected_server_and_client_session(
+            server.mcp, raise_exceptions=True
+        ) as client:
+            result = await client.list_tools()
+            names = {t.name for t in result.tools}
+            assert "count_records" in names
+    finally:
+        backend.close()
+
+
 def test_startup_builtin_tools_counter_includes_programmatic_builtins(
     tmp_path: Path,
     monkeypatch: pytest.MonkeyPatch,

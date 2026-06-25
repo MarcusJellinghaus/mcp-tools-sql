@@ -193,6 +193,20 @@ class MSSQLBackend(DatabaseBackend):
         finally:
             cursor.close()
 
+    def execute_readonly_query(
+        self, sql: str, params: dict[str, Any] | None = None
+    ) -> list[dict[str, Any]]:
+        """Execute a SELECT, delegating to :meth:`execute_query`.
+
+        MSSQL's read-only guarantee comes from a documented read-only login
+        (``db_datareader`` + ``db_denydatawriter``), not a per-call session
+        setting, so this is a trivial delegation.
+
+        Returns:
+            Rows as a list of column-name keyed dicts.
+        """
+        return self.execute_query(sql, params)
+
     def execute_update(self, sql: str, params: dict[str, Any] | None = None) -> int:
         """Execute an UPDATE/INSERT.
 

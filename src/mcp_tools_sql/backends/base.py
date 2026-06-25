@@ -32,6 +32,27 @@ class DatabaseBackend(ABC):
         """
 
     @abstractmethod
+    def execute_readonly_query(
+        self, sql: str, params: dict[str, Any] | None = None
+    ) -> list[dict[str, Any]]:
+        """Execute a SELECT under a DB-enforced read-only guarantee.
+
+        The backstop (Layer 2) for read-only tools: even if the AST gate is
+        bypassed, the database itself rejects writes. Semantics are
+        asymmetric per backend:
+
+        - SQLite opens a fresh single-use connection with
+          ``PRAGMA query_only = ON`` (closed after use), leaving the
+          persistent connection untouched.
+        - MSSQL delegates to :meth:`execute_query`, relying on a documented
+          read-only login (``db_datareader`` + ``db_denydatawriter``).
+        - Postgres (future) would issue ``SET TRANSACTION READ ONLY``.
+
+        Implies connected: backends MUST connect lazily on first call. After
+        ``close()``, further calls raise ``RuntimeError``.
+        """
+
+    @abstractmethod
     def execute_update(self, sql: str, params: dict[str, Any] | None = None) -> int:
         """Execute an UPDATE/INSERT and return affected row count.
 

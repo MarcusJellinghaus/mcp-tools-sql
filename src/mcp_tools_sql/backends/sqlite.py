@@ -64,6 +64,35 @@ class SQLiteBackend(DatabaseBackend):
         cursor = self._connection.execute(sql, params or {})
         return [dict(row) for row in cursor.fetchall()]
 
+    def execute_readonly_query(
+        self, sql: str, params: dict[str, Any] | None = None
+    ) -> list[dict[str, Any]]:
+        """Execute a SELECT on a fresh ``PRAGMA query_only = ON`` connection.
+
+        Opens a brand-new single-use connection to the same database file,
+        sets ``query_only`` so the DB rejects any write, runs the query, and
+        closes the connection in ``finally``. The persistent connection is
+        never touched.
+
+        Returns:
+            Rows as a list of dicts.
+
+        Raises:
+            ValueError: If the connection path is empty.
+        """
+        path = self._config.path
+        if not path:
+            msg = "SQLite path must not be empty."
+            raise ValueError(msg)
+        conn = sqlite3.connect(path, check_same_thread=False)
+        try:
+            conn.row_factory = sqlite3.Row
+            conn.execute("PRAGMA query_only = ON")
+            cursor = conn.execute(sql, params or {})
+            return [dict(row) for row in cursor.fetchall()]
+        finally:
+            conn.close()
+
     def execute_update(self, sql: str, params: dict[str, Any] | None = None) -> int:
         """Execute an UPDATE/INSERT.
 

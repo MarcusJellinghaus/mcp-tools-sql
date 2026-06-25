@@ -123,6 +123,78 @@ class TestQueryExecution:
 
 
 # ---------------------------------------------------------------------------
+# Read-only query execution
+# ---------------------------------------------------------------------------
+
+
+@pytest.mark.sqlite_integration
+class TestReadOnlyQuery:
+    """Tests for ``SQLiteBackend.execute_readonly_query``."""
+
+    def test_returns_rows_as_dicts(self, sqlite_db: Path) -> None:
+        """Parity with execute_query: rows come back as column-keyed dicts."""
+        with _make_backend(str(sqlite_db)) as backend:
+            ro_rows = backend.execute_readonly_query(
+                "SELECT id, name FROM customers ORDER BY id"
+            )
+            rw_rows = backend.execute_query(
+                "SELECT id, name FROM customers ORDER BY id"
+            )
+            assert ro_rows == rw_rows
+            assert isinstance(ro_rows[0], dict)
+            assert ro_rows[0] == {"id": 1, "name": "Bank A"}
+
+    def test_accepts_params(self, sqlite_db: Path) -> None:
+        with _make_backend(str(sqlite_db)) as backend:
+            rows = backend.execute_readonly_query(
+                "SELECT name FROM customers WHERE country = :country",
+                {"country": "France"},
+            )
+            assert rows == [{"name": "Bank B"}]
+
+    def test_sees_committed_data(self, sqlite_db: Path) -> None:
+        """A fresh connection reads data committed via execute_update."""
+        with _make_backend(str(sqlite_db)) as backend:
+            backend.execute_update(
+                "INSERT INTO customers VALUES (:id, :name, :country)",
+                {"id": 3, "name": "Bank C", "country": "Spain"},
+            )
+            rows = backend.execute_readonly_query(
+                "SELECT name FROM customers WHERE id = :id", {"id": 3}
+            )
+            assert rows == [{"name": "Bank C"}]
+
+    def test_write_is_rejected(self, sqlite_db: Path) -> None:
+        """PRAGMA query_only = ON makes writes fail on the fresh connection."""
+        with _make_backend(str(sqlite_db)) as backend:
+            with pytest.raises(sqlite3.OperationalError):
+                backend.execute_readonly_query(
+                    "INSERT INTO customers VALUES (4, 'Bank D', 'Italy')"
+                )
+            # The blocked write never landed.
+            rows = backend.execute_query(
+                "SELECT COUNT(*) AS n FROM customers WHERE id = 4"
+            )
+            assert rows == [{"n": 0}]
+
+    def test_persistent_connection_unaffected(self, sqlite_db: Path) -> None:
+        """The fresh connection is closed; the backend stays usable."""
+        backend = _make_backend(str(sqlite_db))
+        backend.connect()
+        persistent = backend._connection
+        backend.execute_readonly_query("SELECT 1 AS one")
+        assert backend._connection is persistent
+        rows = backend.execute_query("SELECT 1 AS one")
+        assert rows == [{"one": 1}]
+        backend.close()
+
+    def test_empty_path_raises(self) -> None:
+        backend = SQLiteBackend(ConnectionConfig(backend="sqlite", path=""))
+        with pytest.raises(ValueError, match="must not be empty"):
+            backend.execute_readonly_query("SELECT 1")
+
+
+# ---------------------------------------------------------------------------
 # Error handling
 # ---------------------------------------------------------------------------
 

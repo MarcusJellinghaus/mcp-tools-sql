@@ -18,7 +18,7 @@ if TYPE_CHECKING:
 
 logger = logging.getLogger(__name__)
 
-PROGRAMMATIC_BUILTIN_TOOLS: tuple[str, ...] = ("validate_sql",)
+PROGRAMMATIC_BUILTIN_TOOLS: tuple[str, ...] = ("validate_sql", "count_records")
 
 
 def load_default_queries(path: Path | None = None) -> dict[str, QueryConfig]:
