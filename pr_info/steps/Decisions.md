@@ -19,6 +19,9 @@ Decisions from the plan-review discussion for issue #36.
   (`pip install -e ".[dev]"` or the `uv` equivalent) — do not defer dependency
   resolution to CI. This is in addition to the existing `black --check src tests`
   confirmation.
+- Round-2 review: clarified scope — in `mcp-tools-sql.md` only the `pydeps` line is
+  removed; the rest of the illustrative/grouped doc block is left as-is and must NOT
+  be rewritten to the 4-entry `pyproject.toml` shape (out-of-scope creep).
 
 ## C. Summary — step ↔ issue traceability
 

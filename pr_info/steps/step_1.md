@@ -27,7 +27,11 @@ dev = [
 
 In `mcp-tools-sql.md`, delete the single line `    "pydeps",  # dependency graphs`
 from the documented `dev` example. Leave the rest of that block as-is (it is
-illustrative prose, not enforced config).
+illustrative prose, not enforced config). Only the `pydeps` line is removed here;
+the rest of that illustrative/grouped doc block (which still lists
+`black/isort/pylint/mypy/ruff/tach/vulture/pytest...` as direct pins) is
+intentionally left untouched and must NOT be rewritten to the 4-entry
+`pyproject.toml` target shape — doing so would be out-of-scope creep.
 
 ## HOW
 - Edit `pyproject.toml` only inside the `dev = [ ... ]` list. Do not touch
