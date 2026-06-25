@@ -69,6 +69,7 @@ jobs:
           - {name: "ruff-docstrings", cmd: "ruff version && ruff check src"}
           - {name: "pytest", cmd: "pytest --version && pytest tests -n auto -m 'not sqlite_integration and not mssql_integration and not postgresql_integration'"}
           - {name: "mypy", cmd: "mypy --version && mypy --strict src tests"}
+          - {name: "no-url-deps", cmd: "python tools/check_no_url_deps.py"}
     name: ${{ matrix.check.name }}
     steps:
       - uses: actions/checkout@v6

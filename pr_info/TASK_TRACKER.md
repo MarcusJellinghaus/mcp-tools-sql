@@ -33,9 +33,9 @@ Detail: [step_1.md](./steps/step_1.md)
 
 Detail: [step_2.md](./steps/step_2.md)
 
-- [ ] Implementation: create `tools/check_no_url_deps.py` with the verbatim content; add the `no-url-deps` matrix entry to the `test` job in `.github/workflows/ci.yml`; confirm the script exits 0 with the OK message
-- [ ] Quality checks: pylint, pytest, mypy — fix all issues
-- [ ] Commit message prepared
+- [x] Implementation: create `tools/check_no_url_deps.py` with the verbatim content; add the `no-url-deps` matrix entry to the `test` job in `.github/workflows/ci.yml`; confirm the script exits 0 with the OK message
+- [x] Quality checks: pylint, pytest, mypy — fix all issues
+- [x] Commit message prepared
 
 ### Step 3: File-size guard + `.large-files-allowlist`
 
