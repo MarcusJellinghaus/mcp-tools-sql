@@ -49,9 +49,9 @@ Detail: [step_3.md](./steps/step_3.md)
 
 Detail: [step_4.md](./steps/step_4.md)
 
-- [ ] Implementation: add the `pycycle` matrix entry to the `architecture` job in `.github/workflows/ci.yml`; run pycycle locally with the exact `--ignore` list and confirm no cycles (matrix line only, no `src/` edits)
-- [ ] Quality checks: pylint, pytest, mypy — fix all issues
-- [ ] Commit message prepared
+- [x] Implementation: add the `pycycle` matrix entry to the `architecture` job in `.github/workflows/ci.yml`; run pycycle locally with the exact `--ignore` list and confirm no cycles (matrix line only, no `src/` edits)
+- [x] Quality checks: pylint, pytest, mypy — fix all issues
+- [x] Commit message prepared
 
 ### Step 5: Broaden ruff command scope (`src` → `src tests`)
 
