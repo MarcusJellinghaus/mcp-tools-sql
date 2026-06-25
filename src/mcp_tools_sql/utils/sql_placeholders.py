@@ -37,9 +37,11 @@ from sqlglot.errors import ParseError
 __all__ = [
     "ParseError",
     "basic_preflight",
+    "build_count_query",
     "count_statements",
     "extract_param_names",
     "first_statement_kind",
+    "read_only_violation",
     "substitute_named_with_literals",
     "to_dialect",
     "translate_named_to_qmark",
@@ -47,6 +49,31 @@ __all__ = [
 
 # Session-control statements rejected by callers that disallow session state.
 _SESSION_STATEMENT_KEYWORDS = frozenset({"USE", "SET", "DECLARE"})
+
+# Data-modifying / DDL node types rejected anywhere in the AST by the
+# read-only gate. ``find`` walks the whole tree, so a write node buried in a
+# CTE body (e.g. ``WITH x AS (DELETE ...) ...``) is still caught.
+_WRITE_NODES = (
+    exp.Insert,
+    exp.Update,
+    exp.Delete,
+    exp.Merge,
+    exp.Create,
+    exp.Drop,
+    exp.Alter,
+    exp.TruncateTable,
+)
+
+# STRICT, fail-closed allow-list of read-only root node types. Confirmed
+# empirically against sqlglot for both the ``sqlite`` and ``tsql`` dialects:
+#   ``SELECT``                -> exp.Select
+#   ``WITH ... SELECT``       -> exp.Select (carries a ``with`` arg)
+#   ``SELECT ... INTO`` (tsql)-> exp.Select (carries an ``into`` arg; rejected
+#                                separately below)
+#   ``... UNION ...``         -> exp.Union
+#   ``VALUES (...), (...)``   -> exp.Values
+# Any root NOT in this tuple is rejected -- never widen this to a catch-all.
+_READONLY_ROOTS = (exp.Select, exp.Union, exp.Values)
 
 
 def _statements(sql: str, dialect: str | None = None) -> list[exp.Expression]:
@@ -298,3 +325,76 @@ def basic_preflight(
     if missing:
         return f"Invalid parameters. ValidationError: missing parameter: {min(missing)}"
     return None
+
+
+def read_only_violation(sql: str, dialect: str) -> str | None:
+    """Return a rejection message if ``sql`` is not provably read-only.
+
+    This is the primary security gate for :func:`count_records`. It positively
+    proves a statement is read-only by AST inspection rather than blocklisting
+    keywords:
+
+    1. **No write nodes anywhere.** ``Insert``/``Update``/``Delete``/``Merge``/
+       ``Create``/``Drop``/``Alter``/``TruncateTable`` are rejected wherever they
+       appear in the tree -- including inside a CTE body -- because ``find``
+       walks the whole AST.
+    2. **No ``SELECT ... INTO``.** Under T-SQL this materialises a new table, so
+       any ``Select`` carrying an ``into`` arg is rejected.
+    3. **Fail-closed root allow-list.** The root node must itself be one of
+       :data:`_READONLY_ROOTS`; any other (parseable) root -- e.g. ``PRAGMA``,
+       ``EXPLAIN`` -- is rejected.
+
+    Args:
+        sql: The single SQL statement to inspect.
+        dialect: The sqlglot dialect to parse under (``"sqlite"`` or ``"tsql"``).
+
+    Returns:
+        A concise rejection message (returned verbatim by the tool) when the
+        statement is not provably read-only, or ``None`` when it is.
+
+    Raises:
+        ParseError: If ``sql`` cannot be parsed under ``dialect``; the caller
+            fail-closes on this.
+    """
+    root = sqlglot.parse_one(sql, read=dialect)
+    write_node = root.find(*_WRITE_NODES)
+    if write_node is not None:
+        kind = type(write_node).__name__.upper()
+        return f"Not read-only. {kind} statements are not permitted."
+    if any(select.args.get("into") for select in root.find_all(exp.Select)):
+        return "Not read-only. SELECT ... INTO is not permitted."
+    if not isinstance(root, _READONLY_ROOTS):
+        return "Not read-only. Only SELECT/WITH/VALUES queries can be counted."
+    return None
+
+
+def build_count_query(sql: str, dialect: str) -> str:
+    """Wrap ``sql`` in a ``SELECT COUNT(*)`` and render it for ``dialect``.
+
+    Builds the AST ``SELECT COUNT(*) AS row_count FROM (<sql>) AS count_sub``
+    and renders it through sqlglot's generator targeting ``dialect``. Any
+    ``:name`` placeholders in ``sql`` survive into the rendered wrapper as
+    bindable placeholders.
+
+    Args:
+        sql: The (already read-only-verified) SQL to wrap.
+        dialect: The sqlglot dialect to parse and render under.
+
+    Returns:
+        The rendered count query, dialect-targeted.
+
+    Raises:
+        ParseError: If ``sql`` cannot be parsed under ``dialect``.
+    """
+    inner = sqlglot.parse_one(sql, read=dialect)
+    # Build the derived table directly (rather than ``inner.subquery(...)``)
+    # so every read-only root renders uniformly: ``subquery`` lives on
+    # ``exp.Query`` (Select/Union) but not on ``exp.Values``, which the gate
+    # also accepts as a root.
+    count_sub = exp.Subquery(
+        this=inner, alias=exp.TableAlias(this=exp.to_identifier("count_sub"))
+    )
+    wrapped = exp.select(exp.alias_(exp.Count(this=exp.Star()), "row_count")).from_(
+        count_sub
+    )
+    return wrapped.sql(dialect=dialect)

@@ -77,9 +77,25 @@ Detail: [step_3.md](./steps/step_3.md)
 
 Detail: [step_4.md](./steps/step_4.md)
 
-- [ ] Implementation: add `read_only_violation(sql, dialect)` and `build_count_query(sql, dialect)` (plus `_WRITE_NODES`/`_READONLY_ROOTS`) to `sql_placeholders.py` via sqlglot AST inspection (reject write nodes, `SELECT…INTO`, non-read-only roots fail-closed); confirm root node set empirically; write TDD unit tests in `tests/test_sql_placeholders.py`
-- [ ] Quality checks: pylint, pytest (unit subset), mypy — fix all issues
-- [ ] Commit message prepared
+- [x] Implementation: add `read_only_violation(sql, dialect)` and `build_count_query(sql, dialect)` (plus `_WRITE_NODES`/`_READONLY_ROOTS`) to `sql_placeholders.py` via sqlglot AST inspection (reject write nodes, `SELECT…INTO`, non-read-only roots fail-closed); confirm root node set empirically; write TDD unit tests in `tests/test_sql_placeholders.py`
+- [x] Quality checks: pylint, pytest (unit subset), mypy — fix all issues
+- [x] Commit message prepared
+
+> **Step 4 notes:** pylint ✓, mypy ✓. Read-only roots confirmed empirically via
+> sqlglot spike: `SELECT`/`WITH…SELECT`/`SELECT…INTO` → `exp.Select`,
+> `UNION` → `exp.Union`, `VALUES` → `exp.Values`; `PRAGMA` → `exp.Pragma` (used
+> as the fail-closed non-root case). `build_count_query` builds the
+> `exp.Subquery` derived table directly (not `inner.subquery(...)`) so `VALUES`
+> roots — which are not `exp.Query` — also wrap uniformly. All 22 new
+> `tests/test_sql_placeholders.py` cases (`TestReadOnlyViolation` +
+> `TestBuildCountQuery`) pass.
+>
+> **Pre-existing (NOT from Step 4) failures** — the same Step-1-level
+> anonymous-`?` cases documented in the Step 2/3 notes
+> (`TestPlaceholderNodeSpike::test_anonymous_placeholder_has_empty_name`,
+> `TestTranslateNamedToQmark::test_roundtrip_single_named_placeholder`): sqlglot
+> reports `Placeholder.name == "?"` instead of `""`. Out of this step's
+> 2-file commit scope; surfaced rather than silently absorbed.
 
 ### Step 5: `count_records` tool — module + registration + architecture config
 

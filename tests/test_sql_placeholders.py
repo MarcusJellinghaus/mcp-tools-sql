@@ -18,7 +18,9 @@ import sqlglot
 from sqlglot import exp
 
 from mcp_tools_sql.utils.sql_placeholders import (
+    build_count_query,
     extract_param_names,
+    read_only_violation,
     substitute_named_with_literals,
     translate_named_to_qmark,
 )
@@ -239,3 +241,129 @@ class TestSubstituteNamedWithLiterals:
     def test_missing_key_raises_keyerror(self) -> None:
         with pytest.raises(KeyError):
             substitute_named_with_literals("SELECT :a", {})
+
+
+class TestReadOnlyViolation:
+    """Tests for the read-only AST gate ``read_only_violation``."""
+
+    def test_plain_select_is_read_only(self) -> None:
+        assert read_only_violation("SELECT * FROM t", "sqlite") is None
+
+    def test_with_select_is_read_only(self) -> None:
+        assert (
+            read_only_violation("WITH x AS (SELECT 1) SELECT * FROM x", "sqlite")
+            is None
+        )
+
+    def test_values_is_read_only(self) -> None:
+        assert read_only_violation("VALUES (1), (2)", "sqlite") is None
+
+    def test_union_is_read_only(self) -> None:
+        assert read_only_violation("SELECT 1 UNION SELECT 2", "sqlite") is None
+
+    def test_insert_rejected(self) -> None:
+        message = read_only_violation("INSERT INTO t VALUES (1)", "sqlite")
+        assert message is not None
+        assert "INSERT" in message
+
+    def test_update_rejected(self) -> None:
+        message = read_only_violation("UPDATE t SET a = 1", "sqlite")
+        assert message is not None
+        assert "UPDATE" in message
+
+    def test_delete_rejected(self) -> None:
+        message = read_only_violation("DELETE FROM t", "sqlite")
+        assert message is not None
+        assert "DELETE" in message
+
+    def test_drop_rejected(self) -> None:
+        message = read_only_violation("DROP TABLE t", "sqlite")
+        assert message is not None
+        assert "DROP" in message
+
+    def test_create_rejected(self) -> None:
+        message = read_only_violation("CREATE TABLE t (a int)", "sqlite")
+        assert message is not None
+        assert "CREATE" in message
+
+    def test_alter_rejected(self) -> None:
+        message = read_only_violation("ALTER TABLE t ADD COLUMN b int", "sqlite")
+        assert message is not None
+        assert "ALTER" in message
+
+    def test_truncate_rejected(self) -> None:
+        message = read_only_violation("TRUNCATE TABLE t", "tsql")
+        assert message is not None
+        assert "TRUNCATETABLE" in message
+
+    def test_merge_rejected(self) -> None:
+        message = read_only_violation(
+            "MERGE INTO t USING s ON t.a = s.a WHEN MATCHED THEN DELETE", "tsql"
+        )
+        assert message is not None
+        assert "MERGE" in message
+
+    def test_select_into_rejected(self) -> None:
+        message = read_only_violation("SELECT * INTO new_t FROM t", "tsql")
+        assert message is not None
+        assert "SELECT ... INTO" in message
+
+    def test_data_modifying_cte_rejected(self) -> None:
+        # The CTE wraps a DELETE; the root parses to a Delete node, which the
+        # write-node walk catches anywhere in the tree.
+        message = read_only_violation("WITH x AS (SELECT 1) DELETE FROM t", "tsql")
+        assert message is not None
+        assert "DELETE" in message
+
+    def test_non_readonly_root_rejected_fail_closed(self) -> None:
+        # ``PRAGMA`` parses cleanly to an exp.Pragma root which is NOT in the
+        # read-only allow-list -- it must be rejected by the fail-closed gate.
+        message = read_only_violation("PRAGMA table_info(t)", "sqlite")
+        assert message is not None
+        assert "SELECT/WITH/VALUES" in message
+
+    def test_unparseable_sql_propagates_parse_error(self) -> None:
+        with pytest.raises(sqlglot.errors.ParseError):
+            read_only_violation("SELECT FROM WHERE )(", "sqlite")
+
+
+class TestBuildCountQuery:
+    """Tests for the COUNT-wrap helper ``build_count_query``."""
+
+    def test_basic_wrapper_shape(self) -> None:
+        result = build_count_query("SELECT * FROM customers", "sqlite")
+        assert "COUNT(*)" in result
+        assert "row_count" in result
+        assert "count_sub" in result
+
+    def test_wrapper_is_valid_read_only(self) -> None:
+        # The wrapper itself must still parse to a read-only construct.
+        result = build_count_query("SELECT * FROM customers", "sqlite")
+        assert read_only_violation(result, "sqlite") is None
+
+    def test_placeholder_preserved_sqlite(self) -> None:
+        result = build_count_query("SELECT * FROM t WHERE id = :id", "sqlite")
+        assert ":id" in result
+        # The preserved ``:id`` is still a bindable placeholder node.
+        reparsed = sqlglot.parse_one(result, read="sqlite")
+        names = {ph.name for ph in reparsed.find_all(exp.Placeholder)}
+        assert "id" in names
+
+    def test_placeholder_preserved_tsql(self) -> None:
+        result = build_count_query("SELECT * FROM t WHERE id = :id", "tsql")
+        # Rendered T-SQL stays parseable under the tsql dialect.
+        reparsed = sqlglot.parse_one(result, read="tsql")
+        names = {ph.name for ph in reparsed.find_all(exp.Placeholder)}
+        assert "id" in names
+
+    def test_wraps_union_query(self) -> None:
+        result = build_count_query("SELECT 1 UNION SELECT 2", "sqlite")
+        assert "COUNT(*)" in result
+        assert "count_sub" in result
+
+    def test_wraps_values_query(self) -> None:
+        # ``VALUES`` is an accepted read-only root but is not an exp.Query, so
+        # the wrapper must build the derived table without ``.subquery``.
+        result = build_count_query("VALUES (1), (2)", "sqlite")
+        assert "COUNT(*)" in result
+        assert "count_sub" in result
