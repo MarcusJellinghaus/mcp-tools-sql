@@ -13,6 +13,7 @@ from mcp.shared.memory import create_connected_server_and_client_session
 from mcp_tools_sql.backends.mssql import MSSQLBackend
 from mcp_tools_sql.backends.sqlite import SQLiteBackend
 from mcp_tools_sql.config.models import ConnectionConfig
+from mcp_tools_sql.utils.sql_placeholders import basic_preflight
 from mcp_tools_sql.validation_tools import ValidationTools, _explain
 from tests.conftest import MSSQLTestEnv
 
@@ -152,17 +153,85 @@ async def test_preflight_set_statement(sqlite_db: Path) -> None:
 
 @pytest.mark.asyncio
 async def test_preflight_declare_statement(sqlite_db: Path) -> None:
-    """``DECLARE @x INT`` is rejected as a session-control statement."""
+    """``DECLARE @x INT`` is rejected as a session-control statement.
+
+    Registered as an ``mssql`` backend so the statement parses under the
+    ``tsql`` dialect (``DECLARE`` is not valid SQLite syntax); the
+    session-keyword verdict is produced before any DB round-trip.
+    """
     backend = _sqlite_backend(sqlite_db)
     backend.explain = MagicMock()  # type: ignore[method-assign]
     mcp = FastMCP("test-preflight-declare")
-    ValidationTools(backend, "sqlite").register(mcp)
+    ValidationTools(backend, "mssql").register(mcp)
     async with create_connected_server_and_client_session(
         mcp, raise_exceptions=True
     ) as client:
         text = await _call_validate(client, "DECLARE @x INT")
     assert text == "Invalid SQL. ValidationError: DECLARE statements not supported"
     assert backend.explain.call_count == 0
+
+
+@pytest.mark.asyncio
+async def test_preflight_unparseable_sql_fail_closed(sqlite_db: Path) -> None:
+    """Unparseable SQL is rejected (fail-closed) before any DB round-trip."""
+    backend = _sqlite_backend(sqlite_db)
+    backend.explain = MagicMock()  # type: ignore[method-assign]
+    mcp = FastMCP("test-preflight-fail-closed")
+    ValidationTools(backend, "sqlite").register(mcp)
+    async with create_connected_server_and_client_session(
+        mcp, raise_exceptions=True
+    ) as client:
+        text = await _call_validate(client, "SELECT FROM WHERE")
+    assert text.startswith("Invalid SQL. ParseError: ")
+    assert backend.explain.call_count == 0
+
+
+# ---------------------------------------------------------------------------
+# basic_preflight (shared helper) — direct unit tests
+# ---------------------------------------------------------------------------
+
+
+class TestBasicPreflight:
+    """Direct unit tests for the shared :func:`basic_preflight` helper."""
+
+    def test_empty_sql(self) -> None:
+        assert (
+            basic_preflight("", None, "sqlite")
+            == "Invalid SQL. ValidationError: empty SQL"
+        )
+
+    def test_whitespace_only_sql(self) -> None:
+        assert (
+            basic_preflight("  \n\t ", None, "sqlite")
+            == "Invalid SQL. ValidationError: empty SQL"
+        )
+
+    def test_multiple_statements(self) -> None:
+        assert (
+            basic_preflight("SELECT 1; SELECT 2", None, "sqlite")
+            == "Invalid SQL. ValidationError: multiple statements not supported"
+        )
+
+    def test_missing_param(self) -> None:
+        assert (
+            basic_preflight("SELECT :x", None, "sqlite")
+            == "Invalid parameters. ValidationError: missing parameter: x"
+        )
+
+    def test_unparseable_returns_parse_error(self) -> None:
+        verdict = basic_preflight("SELECT FROM WHERE", None, "sqlite")
+        assert verdict is not None
+        assert verdict.startswith("Invalid SQL. ParseError: ")
+
+    def test_valid_sql_passes(self) -> None:
+        assert basic_preflight("SELECT 1", None, "sqlite") is None
+
+    def test_does_not_reject_session_keywords(self) -> None:
+        # USE/SET/DECLARE are NOT rejected here: the session-keyword check
+        # lives only in validate_sql's _preflight, layered on top.
+        assert basic_preflight("USE other_db", None, "tsql") is None
+        assert basic_preflight("SET QUOTED_IDENTIFIER ON", None, "tsql") is None
+        assert basic_preflight("DECLARE @x INT", None, "tsql") is None
 
 
 # ---------------------------------------------------------------------------
@@ -376,7 +445,12 @@ async def test_valid_ddl_does_not_execute(sqlite_db: Path) -> None:
 
 @pytest.mark.asyncio
 async def test_syntax_error(sqlite_db: Path) -> None:
-    """Syntax error yields ``Invalid SQL. ...`` with the sqlite3 type name."""
+    """Syntax error yields ``Invalid SQL. ...`` via the fail-closed parse.
+
+    Under sqlglot the malformed statement is rejected at pre-flight as a
+    ``ParseError`` before any DB round-trip, rather than surfacing the
+    backend's ``OperationalError``.
+    """
     backend = _sqlite_backend(sqlite_db)
     mcp = FastMCP("test-syntax-error")
     ValidationTools(backend, "sqlite").register(mcp)
@@ -385,7 +459,7 @@ async def test_syntax_error(sqlite_db: Path) -> None:
     ) as client:
         text = await _call_validate(client, "SELEKT * FROM customers")
     assert text.startswith("Invalid SQL. ")
-    assert "OperationalError" in text
+    assert "ParseError" in text
 
 
 @pytest.mark.asyncio

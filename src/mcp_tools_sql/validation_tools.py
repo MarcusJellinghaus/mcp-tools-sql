@@ -5,14 +5,14 @@ from __future__ import annotations
 import sqlite3
 from typing import TYPE_CHECKING, Annotated, Any
 
-import sqlparse
 from pydantic import Field
-from sqlparse import tokens as T
 
 from mcp_tools_sql.tool_logging import log_tool_call
 from mcp_tools_sql.utils.sql_placeholders import (
-    extract_param_names,
+    basic_preflight,
+    first_statement_kind,
     substitute_named_with_literals,
+    to_dialect,
 )
 
 try:
@@ -41,59 +41,28 @@ _DESCRIPTION = (
 )
 
 
-def _count_statements(sql: str) -> int:
-    """Return the number of non-empty parsed statements in ``sql``.
-
-    A statement is counted only when it contains at least one token that is
-    not whitespace and not a comment, so trailing newlines or a lone ``;``
-    do not inflate the count.
-    """
-    return len(
-        [
-            s
-            for s in sqlparse.parse(sql)
-            if any(
-                not (t.is_whitespace or t.ttype in T.Comment)
-                for t in s.flatten()  # type: ignore[no-untyped-call]
-            )
-        ]
-    )
-
-
-def _first_keyword(sql: str) -> str | None:
-    """Return the uppercased value of the first meaningful token, or ``None``."""
-    statements = sqlparse.parse(sql)
-    if not statements:
-        return None
-    for tok in statements[0].flatten():  # type: ignore[no-untyped-call]
-        if tok.is_whitespace:
-            continue
-        if tok.ttype in T.Comment:
-            continue
-        if tok.ttype in T.Punctuation:
-            continue
-        value: str = tok.value
-        return value.upper()
-    return None
-
-
-def _preflight(sql: str, params: dict[str, Any] | None) -> str | None:
+def _preflight(sql: str, params: dict[str, Any] | None, dialect: str) -> str | None:
     """Run pre-flight checks on ``sql`` and its bound ``params``.
+
+    Delegates the shared checks (empty / fail-closed parse / multiple
+    statements / missing parameters) to :func:`basic_preflight`, then layers
+    the ``validate_sql``-specific session-keyword rejection on top.
+
+    Args:
+        sql: The SQL text to validate.
+        params: Bound values for ``:name`` placeholders, or ``None``.
+        dialect: The sqlglot dialect to parse under.
 
     Returns:
         Error verdict string when a pre-flight check fails, or ``None``
         when all checks pass.
     """
-    if sql.strip() == "":
-        return "Invalid SQL. ValidationError: empty SQL"
-    if _count_statements(sql) > 1:
-        return "Invalid SQL. ValidationError: multiple statements not supported"
-    keyword = _first_keyword(sql)
+    verdict = basic_preflight(sql, params, dialect)
+    if verdict is not None:
+        return verdict
+    keyword = first_statement_kind(sql, dialect)
     if keyword in _SESSION_KEYWORDS:
         return f"Invalid SQL. ValidationError: {keyword} statements not supported"
-    missing = extract_param_names(sql) - (params or {}).keys()
-    if missing:
-        return f"Invalid parameters. ValidationError: missing parameter: {min(missing)}"
     return None
 
 
@@ -146,7 +115,7 @@ class ValidationTools:
         ) -> str:
             async with log_tool_call("validate_sql", params or {}, sql=sql) as rec:
                 rec.record(rows=0, cols=0)
-                verdict = _preflight(sql, params)
+                verdict = _preflight(sql, params, to_dialect(backend_name))
                 if verdict is not None:
                     return verdict
                 try:

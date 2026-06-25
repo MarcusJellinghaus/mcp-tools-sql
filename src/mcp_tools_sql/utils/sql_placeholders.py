@@ -11,6 +11,12 @@ Exposes :func:`extract_param_names`, :func:`translate_named_to_qmark`, and
 ``explain`` path, where pyodbc's prepared-statement protocol does not
 return result rows under ``SET SHOWPLAN_TEXT ON``.
 
+It also hosts the shared, dialect-aware analysis helpers reused across the
+SQL-consuming tools: :func:`to_dialect`, :func:`count_statements`,
+:func:`first_statement_kind`, and the shared :func:`basic_preflight`.
+sqlglot's :class:`~sqlglot.errors.ParseError` is re-exported so callers can
+implement the fail-closed parse contract without importing sqlglot directly.
+
 Note:
     Rendered SQL is produced by sqlglot's generator, not echoed verbatim
     from the input. Whitespace, keyword casing, and comments may be
@@ -22,20 +28,44 @@ from __future__ import annotations
 import math
 from datetime import date, datetime
 from decimal import Decimal
-from typing import Any
+from typing import Any, cast
 
 import sqlglot
 from sqlglot import exp
+from sqlglot.errors import ParseError
+
+__all__ = [
+    "ParseError",
+    "basic_preflight",
+    "count_statements",
+    "extract_param_names",
+    "first_statement_kind",
+    "substitute_named_with_literals",
+    "to_dialect",
+    "translate_named_to_qmark",
+]
+
+# Session-control statements rejected by callers that disallow session state.
+_SESSION_STATEMENT_KEYWORDS = frozenset({"USE", "SET", "DECLARE"})
 
 
-def _statements(sql: str) -> list[exp.Expression]:
+def _statements(sql: str, dialect: str | None = None) -> list[exp.Expression]:
     """Parse ``sql`` into a list of top-level statement expressions.
+
+    Args:
+        sql: The SQL text to parse.
+        dialect: The sqlglot dialect to parse under, or ``None`` for the
+            dialect-neutral default parser.
 
     Returns:
         The non-empty parsed statements; trailing/empty fragments that
         sqlglot returns as ``None`` are dropped.
     """
-    return [stmt for stmt in sqlglot.parse(sql) if stmt is not None]
+    # ``parse`` with an explicit ``read`` is typed as returning the ``Expr``
+    # trait rather than the concrete ``Expression``; they are the same objects
+    # at runtime, so narrow back to ``Expression`` for downstream helpers.
+    parsed = cast("list[exp.Expression | None]", sqlglot.parse(sql, read=dialect))
+    return [stmt for stmt in parsed if stmt is not None]
 
 
 def _named_placeholders(expr: exp.Expression) -> list[exp.Placeholder]:
@@ -51,15 +81,26 @@ def _named_placeholders(expr: exp.Expression) -> list[exp.Placeholder]:
     return [node for node in expr.find_all(exp.Placeholder) if node.name]
 
 
-def extract_param_names(sql: str) -> set[str]:
+def extract_param_names(sql: str, dialect: str | None = None) -> set[str]:
     """Return the set of ``:name`` placeholder names in ``sql``.
+
+    Args:
+        sql: The SQL text to inspect.
+        dialect: The sqlglot dialect to parse under, or ``None`` for the
+            dialect-neutral default parser. Passing the backend dialect
+            lets dialect-specific statements (e.g. T-SQL ``DECLARE``) parse
+            without raising.
 
     Returns:
         Unordered, deduplicated set of placeholder names (without the
         leading ``:``). Placeholders inside quoted strings or comments
         are ignored because they are not placeholder nodes in the AST.
     """
-    return {ph.name for stmt in _statements(sql) for ph in _named_placeholders(stmt)}
+    return {
+        ph.name
+        for stmt in _statements(sql, dialect)
+        for ph in _named_placeholders(stmt)
+    }
 
 
 def translate_named_to_qmark(sql: str) -> tuple[str, list[str]]:
@@ -154,3 +195,106 @@ def substitute_named_with_literals(sql: str, params: dict[str, Any]) -> str:
             ph.replace(literal)
         rendered.append(stmt.sql())
     return "; ".join(rendered)
+
+
+def to_dialect(backend_name: str) -> str:
+    """Map a backend name to the sqlglot dialect used for parsing/rendering.
+
+    Args:
+        backend_name: The configured backend identifier (e.g. ``"sqlite"``,
+            ``"mssql"``, ``"pyodbc"``).
+
+    Returns:
+        ``"tsql"`` for MSSQL/pyodbc backends, ``"sqlite"`` otherwise.
+    """
+    if backend_name in {"mssql", "pyodbc"}:
+        return "tsql"
+    return "sqlite"
+
+
+def count_statements(sql: str, dialect: str) -> int:
+    """Return the number of non-empty parsed statements in ``sql``.
+
+    Args:
+        sql: The SQL text to parse.
+        dialect: The sqlglot dialect to parse under.
+
+    Returns:
+        The count of top-level statements, ignoring empty fragments such as
+        trailing semicolons.
+
+    Raises:
+        ParseError: If ``sql`` cannot be parsed under ``dialect``.
+    """
+    return len(_statements(sql, dialect))
+
+
+def first_statement_kind(sql: str, dialect: str) -> str | None:
+    """Return the session-control kind of the first statement, or ``None``.
+
+    Recognises ``USE`` / ``SET`` / ``DECLARE`` statements regardless of
+    whether sqlglot models them as dedicated nodes (:class:`exp.Use`,
+    :class:`exp.Set`, :class:`exp.Declare`) or as a generic
+    :class:`exp.Command` (the form some dialects emit, e.g. ``SET`` under
+    the ``sqlite`` dialect).
+
+    Args:
+        sql: The SQL text to parse.
+        dialect: The sqlglot dialect to parse under.
+
+    Returns:
+        ``"USE"``, ``"SET"``, or ``"DECLARE"`` when the first statement is
+        that session-control statement; ``None`` otherwise.
+
+    Raises:
+        ParseError: If ``sql`` cannot be parsed under ``dialect``.
+    """
+    statements = _statements(sql, dialect)
+    root = statements[0] if statements else None
+    if root is None:
+        return None
+    if isinstance(root, exp.Use):
+        return "USE"
+    if isinstance(root, exp.Set):
+        return "SET"
+    if isinstance(root, exp.Declare):
+        return "DECLARE"
+    if isinstance(root, exp.Command):
+        command = root.name.upper()
+        if command in _SESSION_STATEMENT_KEYWORDS:
+            return command
+    return None
+
+
+def basic_preflight(
+    sql: str, params: dict[str, Any] | None, dialect: str
+) -> str | None:
+    """Run the shared, dialect-aware pre-flight checks on ``sql``.
+
+    Applies the checks common to every SQL-consuming tool: empty SQL, the
+    fail-closed parse contract, multiple statements, and missing ``:name``
+    parameters. It deliberately does **not** apply any session-control
+    (``USE``/``SET``/``DECLARE``) check -- callers that need that layer it on
+    top (see :func:`mcp_tools_sql.validation_tools._preflight`).
+
+    Args:
+        sql: The SQL text to validate.
+        params: Bound values for ``:name`` placeholders, or ``None``.
+        dialect: The sqlglot dialect to parse under.
+
+    Returns:
+        An error verdict string when a check fails, or ``None`` when all
+        checks pass.
+    """
+    if sql.strip() == "":
+        return "Invalid SQL. ValidationError: empty SQL"
+    try:
+        statement_count = count_statements(sql, dialect)
+    except ParseError as exc:
+        return f"Invalid SQL. ParseError: {exc}"
+    if statement_count > 1:
+        return "Invalid SQL. ValidationError: multiple statements not supported"
+    missing = extract_param_names(sql, dialect) - (params or {}).keys()
+    if missing:
+        return f"Invalid parameters. ValidationError: missing parameter: {min(missing)}"
+    return None

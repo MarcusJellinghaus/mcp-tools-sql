@@ -33,9 +33,30 @@ Detail: [step_1.md](./steps/step_1.md)
 
 Detail: [step_2.md](./steps/step_2.md)
 
-- [ ] Implementation: add `to_dialect`, `count_statements`, `first_statement_kind`, `basic_preflight`, and `ParseError` re-export to `sql_placeholders.py`; re-base `validate_sql._preflight` to delegate to `basic_preflight` + layer session-keyword check; remove local `_count_statements`/`_first_keyword`; add fail-closed parse contract; update `tests/test_validation_tools.py` (TDD)
-- [ ] Quality checks: pylint, pytest (unit subset), mypy — fix all issues
-- [ ] Commit message prepared
+- [x] Implementation: add `to_dialect`, `count_statements`, `first_statement_kind`, `basic_preflight`, and `ParseError` re-export to `sql_placeholders.py`; re-base `validate_sql._preflight` to delegate to `basic_preflight` + layer session-keyword check; remove local `_count_statements`/`_first_keyword`; add fail-closed parse contract; update `tests/test_validation_tools.py` (TDD)
+- [x] Quality checks: pylint, pytest (unit subset), mypy — fix all issues
+- [x] Commit message prepared
+
+> **Step 2 notes:** pylint ✓, mypy ✓, and all `tests/test_validation_tools.py`
+> tests pass. `extract_param_names`/`_statements` gained an optional `dialect`
+> arg (kept the existing `:name` recognition for `count_records` reuse). The
+> `DECLARE` pre-flight test now runs under the `tsql` dialect because `DECLARE`
+> is invalid SQLite syntax under sqlglot.
+>
+> **Pre-existing (NOT from Step 2) failures observed in the full unit suite** —
+> all caused by Step 1's sqlglot migration of `extract_param_names`, verified
+> identical before/after this step's changes:
+> - `tests/test_tool_builder.py::TestExtractSqlParams::test_multiple_params`
+>   (`extract_sql_params` on the bare fragment `"WHERE a = :x AND b = :y"` now
+>   raises `ParseError` — sqlglot cannot parse fragments).
+> - `tests/verification/test_queries.py::test_verify_queries_detects_invalid_sql`
+>   and `tests/cli/test_verify.py::test_verify_cli_queries_updates_snapshot`
+>   (`extract_sql_params` on invalid SQL raises `ParseError`).
+> - `tests/test_sql_placeholders.py` anonymous-`?` tests (sqlglot reports
+>   `Placeholder.name == "?"` instead of `""`).
+>
+> These need a Step-1-level fix (out of this step's 3-file commit scope) and
+> are surfaced here rather than silently absorbed.
 
 ### Step 3: `execute_readonly_query` backend seam (ABC + SQLite + MSSQL)
 
