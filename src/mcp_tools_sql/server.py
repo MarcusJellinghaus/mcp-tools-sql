@@ -16,6 +16,7 @@ from mcp_tools_sql.config.loader import (
     load_query_config,
     resolve_connection,
 )
+from mcp_tools_sql.count_tools import CountTools
 from mcp_tools_sql.query_tools import QueryTools
 from mcp_tools_sql.schema_tools import (
     PROGRAMMATIC_BUILTIN_TOOLS,
@@ -57,6 +58,7 @@ class ToolServer:
         """Register schema-exploration tools from default_queries.toml and built-in validation tools."""
         SchemaTools(self._backend, self._backend_name).register(self._mcp)
         ValidationTools(self._backend, self._backend_name).register(self._mcp)
+        CountTools(self._backend, self._backend_name).register(self._mcp)
 
     def _register_configured_tools(self) -> None:
         QueryTools(self._backend, self._config.queries, self._backend_name).register(

@@ -85,6 +85,18 @@ depends_on = [
 ]
 
 [[modules]]
+path = "mcp_tools_sql.count_tools"
+layer = "tool_implementation"
+depends_on = [
+    { path = "mcp_tools_sql.backends" },
+    { path = "mcp_tools_sql.config" },
+    { path = "mcp_tools_sql.formatting" },
+    { path = "mcp_tools_sql.tool_logging" },
+    { path = "mcp_tools_sql.tool_builder" },
+    { path = "mcp_tools_sql.utils" },
+]
+
+[[modules]]
 path = "mcp_tools_sql.verification"
 layer = "tool_implementation"
 depends_on = [
@@ -142,6 +154,7 @@ depends_on = [
     { path = "mcp_tools_sql.query_tools" },
     { path = "mcp_tools_sql.update_tools" },
     { path = "mcp_tools_sql.validation_tools" },
+    { path = "mcp_tools_sql.count_tools" },
     { path = "mcp_tools_sql.backends" },
     { path = "mcp_tools_sql.config" },
     { path = "mcp_tools_sql.formatting" },

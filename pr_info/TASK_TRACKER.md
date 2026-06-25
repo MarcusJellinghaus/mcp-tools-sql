@@ -101,9 +101,32 @@ Detail: [step_4.md](./steps/step_4.md)
 
 Detail: [step_5.md](./steps/step_5.md)
 
-- [ ] Implementation: create `count_tools.py` with `CountTools` registering async `count_records(sql, params=None) -> str` (consume `basic_preflight`, `read_only_violation`, precise MSSQL leading-`WITH` rejection, `build_count_query` + `execute_readonly_query`, validate_sql exception mapping); register in `server._register_builtin_tools`; add `"count_records"` to `PROGRAMMATIC_BUILTIN_TOOLS`; add `count_tools` to `.importlinter` and `tach.toml`; write TDD tests in `tests/test_count_tools.py` and registration test in `tests/test_server.py`
-- [ ] Quality checks: pylint, pytest (unit subset), mypy, `run_lint_imports_check`, `run_tach_check` — fix all issues
-- [ ] Commit message prepared
+- [x] Implementation: create `count_tools.py` with `CountTools` registering async `count_records(sql, params=None) -> str` (consume `basic_preflight`, `read_only_violation`, precise MSSQL leading-`WITH` rejection, `build_count_query` + `execute_readonly_query`, validate_sql exception mapping); register in `server._register_builtin_tools`; add `"count_records"` to `PROGRAMMATIC_BUILTIN_TOOLS`; add `count_tools` to `.importlinter` and `tach.toml`; write TDD tests in `tests/test_count_tools.py` and registration test in `tests/test_server.py`
+- [x] Quality checks: pylint, pytest (unit subset), mypy, `run_lint_imports_check`, `run_tach_check` — fix all issues
+- [x] Commit message prepared
+
+> **Step 5 notes:** pylint ✓, mypy ✓, import-linter ✓ (2 contracts kept),
+> tach ✓ (`[]`). All 28 tests in `tests/test_count_tools.py` +
+> `tests/test_server.py` pass.
+>
+> **Empirical sqlglot finding:** the statement-level CTE arg is keyed
+> `with_` (trailing underscore) in the installed sqlglot, not `with` as the
+> step text assumed — confirmed via `Select.arg_types` and a parse spike
+> (`WITH x AS (SELECT 1) SELECT * FROM x` → `args["with_"]` is `exp.With`;
+> `SELECT * FROM t WITH (NOLOCK)` has **no** `With` node anywhere). The
+> `_has_leading_cte` gate checks both `with_` and `with` keys to stay
+> version-robust, and the `WITH (NOLOCK)` test confirms no false-positive.
+>
+> **Pre-existing (NOT from Step 5) failures** in the full unit subset — the
+> same Step-1-level sqlglot issues documented in the Step 2/3/4 notes, all
+> in files untouched by this step:
+> - `tests/test_sql_placeholders.py` anonymous-`?` cases
+>   (`name == "?"` not `""`).
+> - `tests/test_tool_builder.py::TestExtractSqlParams::test_multiple_params`
+>   (`extract_sql_params` on the bare fragment `WHERE a = :x AND b = :y`).
+> - `tests/verification/test_queries.py::test_verify_queries_detects_invalid_sql`
+>   and `tests/cli/test_verify.py::test_verify_cli_queries_updates_snapshot`
+>   (`extract_sql_params` on invalid SQL raises `ParseError`).
 
 ---
 
