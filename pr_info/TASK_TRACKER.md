@@ -57,9 +57,9 @@ Detail: [step_4.md](./steps/step_4.md)
 
 Detail: [step_5.md](./steps/step_5.md)
 
-- [ ] Implementation: change the `ruff-docstrings` matrix command in `.github/workflows/ci.yml` from `ruff check src` to `ruff check src tests` (do not touch the `tests/**/*.py` per-file-ignore); confirm `ruff check src tests` exits 0
-- [ ] Quality checks: pylint, pytest, mypy — fix all issues
-- [ ] Commit message prepared
+- [x] Implementation: change the `ruff-docstrings` matrix command in `.github/workflows/ci.yml` from `ruff check src` to `ruff check src tests` (do not touch the `tests/**/*.py` per-file-ignore); confirm `ruff check src tests` exits 0
+- [x] Quality checks: pylint, pytest, mypy — fix all issues
+- [x] Commit message prepared
 
 ## Pull Request
 
