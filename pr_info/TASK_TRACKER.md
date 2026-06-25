@@ -25,9 +25,9 @@ This tracks **Feature Implementation** consisting of multiple **Tasks**.
 
 Detail: [step_1.md](./steps/step_1.md)
 
-- [ ] Implementation: reshape `[dev]` extra in `pyproject.toml` to the four-entry target shape (add `mcp-tools-py`; remove `black`, `isort`, `pylint`, `mypy`, `ruff`, `tach`, `vulture`, `pytest`, `pytest-asyncio`, `pytest-xdist`, `pydeps`; keep `mcp-workspace`, `mcp-coder`, `pycycle>=0.0.8`). Delete the `pydeps` line from the documented `dev` block in `mcp-tools-sql.md`. Resolve/install `.[dev]` locally and confirm `black --check src tests` is green
-- [ ] Quality checks: pylint, pytest, mypy — fix all issues
-- [ ] Commit message prepared
+- [x] Implementation: reshape `[dev]` extra in `pyproject.toml` to the four-entry target shape (add `mcp-tools-py`; remove `black`, `isort`, `pylint`, `mypy`, `ruff`, `tach`, `vulture`, `pytest`, `pytest-asyncio`, `pytest-xdist`, `pydeps`; keep `mcp-workspace`, `mcp-coder`, `pycycle>=0.0.8`). Delete the `pydeps` line from the documented `dev` block in `mcp-tools-sql.md`. Resolve/install `.[dev]` locally and confirm `black --check src tests` is green
+- [x] Quality checks: pylint, pytest, mypy — fix all issues
+- [x] Commit message prepared
 
 ### Step 2: `no-url-deps` script + `test` matrix entry
 

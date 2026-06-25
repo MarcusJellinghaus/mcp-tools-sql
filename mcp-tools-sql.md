@@ -669,7 +669,6 @@ dev = [
     "black", "isort",                 # formatting
     "pylint", "mypy", "ruff",         # linting / type checking
     "tach", "pycycle", "vulture",     # architecture enforcement
-    "pydeps",                         # dependency graphs
     "pytest", "pytest-asyncio", "pytest-xdist",  # testing
 ]
 ```
