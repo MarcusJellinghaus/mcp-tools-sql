@@ -360,6 +360,17 @@ class TestQueries:
         b.execute_query("SELECT 1")
         cur.close.assert_called()
 
+    def test_execute_readonly_query_delegates(self, fake_pyodbc: Any) -> None:
+        """execute_readonly_query is a trivial delegate to execute_query."""
+        conn = fake_pyodbc.connect.return_value
+        cur = conn.cursor.return_value
+        cur.description = [("col",)]
+        cur.fetchall.return_value = [("v",)]
+        b = MSSQLBackend(_cfg())
+        rows = b.execute_readonly_query("SELECT col FROM t WHERE x = :x", {"x": 1})
+        cur.execute.assert_called_once_with("SELECT col FROM t WHERE x = ?", [1])
+        assert rows == [{"col": "v"}]
+
     def test_explain_wraps_with_showplan(self, fake_pyodbc: Any) -> None:
         cur = fake_pyodbc.connect.return_value.cursor.return_value
         cur.fetchall.return_value = [("plan-line",)]
@@ -520,6 +531,14 @@ class TestMSSQLIntegration:
                 {"id": 99, "name": "Bank Z", "country": "Spain"},
             )
         assert n == 1
+
+    def test_execute_readonly_query_delegates(self, mssql_db: MSSQLTestEnv) -> None:
+        """execute_readonly_query returns the same rows as execute_query."""
+        sql = f"SELECT name FROM {mssql_db.schema}.customers WHERE country = :country"
+        with MSSQLBackend(mssql_db.config) as b:
+            ro_rows = b.execute_readonly_query(sql, {"country": "Germany"})
+            rw_rows = b.execute_query(sql, {"country": "Germany"})
+        assert ro_rows == rw_rows == [{"name": "Bank A"}]
 
     def test_explain_returns_text_plan(self, mssql_db: MSSQLTestEnv) -> None:
         with MSSQLBackend(mssql_db.config) as b:

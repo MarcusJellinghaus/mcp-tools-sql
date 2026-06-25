@@ -62,9 +62,16 @@ Detail: [step_2.md](./steps/step_2.md)
 
 Detail: [step_3.md](./steps/step_3.md)
 
-- [ ] Implementation: add `execute_readonly_query` abstractmethod to `backends/base.py`; implement fresh `PRAGMA query_only=ON` per-call connection in `backends/sqlite.py`; delegate to `execute_query` in `backends/mssql.py`; write TDD tests in `tests/backends/test_sqlite.py` and `tests/backends/test_mssql.py`
-- [ ] Quality checks: pylint, pytest (unit subset), mypy — fix all issues
-- [ ] Commit message prepared
+- [x] Implementation: add `execute_readonly_query` abstractmethod to `backends/base.py`; implement fresh `PRAGMA query_only=ON` per-call connection in `backends/sqlite.py`; delegate to `execute_query` in `backends/mssql.py`; write TDD tests in `tests/backends/test_sqlite.py` and `tests/backends/test_mssql.py`
+- [x] Quality checks: pylint, pytest (unit subset), mypy — fix all issues
+- [x] Commit message prepared
+
+> **Step 3 notes:** pylint ✓, mypy ✓. New backend tests all pass
+> (`tests/backends/test_sqlite.py` + `test_mssql.py`: 73 passed, 8 MSSQL
+> integration skipped in CI). The 5 unit-subset failures observed in the full
+> run are the same pre-existing Step-1-level sqlglot failures documented in the
+> Step 2 notes (fragment/invalid-SQL `ParseError`, anonymous `?` name) — none
+> touch the `backends/` files changed in this step.
 
 ### Step 4: Read-only AST gate + COUNT-wrap helpers (pure functions)
 
