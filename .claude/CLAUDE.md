@@ -23,7 +23,7 @@ Use MCP tools for **all** operations. Never use `Read`, `Write`, `Edit`, or `Bas
 | Get reference projects | `mcp__mcp-workspace__get_reference_projects` |
 | Search reference files | `mcp__mcp-workspace__search_reference_files` |
 | Get base branch | `mcp__mcp-workspace__get_base_branch` |
-| Check file size | `mcp__mcp-workspace__check_file_size` (default max_lines=600) |
+| Check file size | `mcp__mcp-workspace__check_file_size` (default max_lines=750) |
 | Check branch status | `mcp__mcp-workspace__check_branch_status` |
 | Run pytest | `mcp__mcp-tools-py__run_pytest_check` |
 | Run pylint | `mcp__mcp-tools-py__run_pylint_check` |
@@ -86,6 +86,10 @@ mcp-coder gh-tool set-status <label>
 ## Writing style
 
 Be concise. If one line works, don't use three.
+
+## Asking questions
+
+Never use the AskUserQuestion tool. Ask questions as plain text in the chat.
 
 ## Obsidian knowledge base
 
