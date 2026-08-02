@@ -12,7 +12,8 @@ Add to `ConnectionConfig`:
 description: str = ""
 databases: list[DatabaseSpec] = []      # internal normalised shape
 default_database: str = ""
-# `database: str = ""` stays as a legacy INPUT alias, normalised away
+# `database: str = ""` stays as a legacy INPUT alias; keep it populated
+#   (set it equal to `default_database`) rather than clearing it
 ```
 New model:
 ```python
@@ -39,6 +40,13 @@ Two validators on `ConnectionConfig`:
 - legacy `database="sales"` (and no `databases`) → `[{"name":"sales"}]`,
   `default_database="sales"`.
 - `default_database` defaults to `databases[0].name` when unset.
+- **keep the legacy `database` field populated**: set it equal to the resolved
+  `default_database`. `resolve_connection` returns the `ConnectionConfig`
+  verbatim and `mssql.py:59` reads `config.database` for the ODBC `Database=`
+  until the server migrates to `resolve_targets` in Step 6 — clearing it would
+  leave Steps 3–5 with an empty catalog and turn loader/`resolve_connection`
+  tests red. (Alternatively, migrate the `mssql.py:59` reader in the same commit
+  that clears the field; keeping it populated is the smaller change.)
 
 `@model_validator(mode="after")` — validate:
 - `default_database` is a member of `databases`.
@@ -54,6 +62,7 @@ raw = data.get("databases") or ([data["database"]] if data.get("database") else 
 specs = [ {name:x} if str else {name:k, **v} for x/k,v in raw ]
 data["databases"] = specs
 data.setdefault("default_database", specs[0]["name"] if specs else "")
+data["database"] = data["default_database"]   # keep legacy field valid for Steps 3-5
 return data
 ```
 

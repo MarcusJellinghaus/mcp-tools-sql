@@ -5,8 +5,9 @@ See `pr_info/steps/summary.md` → "verify" (decisions 24, 25).
 ## WHERE
 - `src/mcp_tools_sql/verification/connection.py`, `queries.py`, `updates.py`,
   `orchestrator.py`
+- `src/mcp_tools_sql/config/loader.py` (delete dead `resolve_connection`)
 - Tests: `tests/verification/test_connection.py`, `test_queries.py`,
-  `test_updates.py`, `test_orchestrator.py`
+  `test_updates.py`, `test_orchestrator.py`, `tests/config/test_loader.py`
 
 ## WHAT
 - CONNECTION: probe **every** `(connection, database)` pair. One sub-section /
@@ -16,6 +17,14 @@ See `pr_info/steps/summary.md` → "verify" (decisions 24, 25).
   not blanked.
 - Exit code non-zero if any connection fails (already derived from `overall_ok`
   across sections — confirm it holds per-pair).
+- **Dead-code cleanup (same commit).** This step removes the last production
+  caller of `resolve_connection`: Step 6 migrated `server.py` and this step
+  replaces `_resolve_connection_for_verify` in `orchestrator.py`. With no
+  production callers left, **delete both `resolve_connection`
+  (`config/loader.py`) and `_resolve_connection_for_verify` (`orchestrator.py`)**
+  and drop their now-orphaned tests in `tests/config/test_loader.py` — no legacy
+  artifacts. (Before deleting, grep to confirm no other production caller remains;
+  `resolve_targets` is the sole resolver going forward.)
 
 ## HOW
 - Orchestrator builds `ResolvedTargets` (via `resolve_targets`) and a

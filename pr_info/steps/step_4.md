@@ -34,7 +34,8 @@ def resolve_targets(query_config: QueryFileConfig, db_config: DatabaseConfig) ->
 - `resolve_pinned(connection: str | None, database: str | None) -> ResolvedTarget`
   (decision 15: connection→file default; database→connection's default_database)
 
-Keep the existing `resolve_connection` for now (later steps migrate callers).
+Keep the existing `resolve_connection` for now (Step 6 migrates `server.py`,
+Step 13 migrates `orchestrator.py` and then deletes `resolve_connection`).
 
 ## HOW
 `resolve_targets` iterates `db_config.connections` in order, then each

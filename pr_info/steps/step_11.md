@@ -25,8 +25,15 @@ Assemble each tool via `build_tool_fn` so the conditional params can be added:
   plus `build_target_params_no_star(targets)` (like `build_target_params` but the
   `database` enum omits `"*"`). Reuse `build_target_params` with a `star: bool=False`
   flag rather than duplicating.
+  - **Dependency on Step 10:** adding a `star=False` default flips the previous
+    unconditional `"*"` behaviour, so the Step 10 `schema_tools` caller
+    `build_target_params(targets)` **must be updated to `build_target_params(targets,
+    star=True)`** in this step, or `database="*"` fan-out silently regresses.
+    validate/count pass `star=False`.
 - Core body signature: `async def core(sql, params, return_plan=..., *, connection=None, database=None)`.
-- Inside: `target = targets.resolve_pinned(connection, database)`;
+- Inside: `target = targets.resolve_pinned(connection, database)` (catch its
+  `ValueError` and **return** the message as the verdict — same friendly
+  cross-connection error as `build_schema_body`, Step 9);
   `backend = registry.backend_for(target)`; `dialect = to_dialect(target.backend_name)`;
   then the existing preflight / `_explain` / `read_only_violation` /
   `build_count_query` logic using that `backend` + `dialect`.
@@ -35,7 +42,10 @@ Assemble each tool via `build_tool_fn` so the conditional params can be added:
 
 ## ALGORITHM (validate core)
 ```
-target = targets.resolve_pinned(connection, database)
+try:
+    target = targets.resolve_pinned(connection, database)   # db=None -> conn default
+except ValueError as exc:
+    return str(exc)                          # friendly cross-connection verdict
 dialect = to_dialect(target.backend_name)
 verdict = _preflight(sql, params, dialect);  if verdict: return verdict
 plan = _explain(registry.backend_for(target), target.backend_name, sql, params)
@@ -51,6 +61,11 @@ Multi: `connection?`/`database?` keyword-only enums added.
   byte-identical to current tests.
 - Multi install: `database` param present (enum has no `"*"`); passing
   `database="hr"` resolves dialect + backend for that target (fake registry).
+- Multi install: `build_target_params(targets, star=True)` still yields the `"*"`
+  member (Step 10 fan-out) while `star=False` omits it (regression guard for the
+  shared flag).
+- Cross-connection mismatch (`connection="localdb", database="hr"`) **returns**
+  the friendly verdict string, not an unhandled exception.
 - `count_records` still rejects non-read-only SQL and CTE-on-tsql as before.
 
 ## LLM PROMPT

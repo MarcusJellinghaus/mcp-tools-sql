@@ -27,9 +27,12 @@ class SchemaTools:
 - `build_target_params`: return `[]` unless `targets.is_multi`. When multi, append
   a keyword-only `connection` param **only if `len(connection_names) > 1`**
   (`Literal[*connection_names]`, default = `file_default_connection`) and a
-  keyword-only `database` param (`Literal[*database_names]`, default = file
-  default connection's `default_database`). Build the enum via
-  `Literal.__getitem__(tuple(names))`.
+  keyword-only `database` param (`Literal[*database_names]`, **default =
+  `None`**). Leaving the default `None` lets `resolve_pinned` fall back to the
+  *selected* connection's `default_database` — so `read_tables(connection="other")`
+  without an explicit `database` resolves that connection's default instead of
+  raising because the file-default connection's default catalog is not a member
+  of `other`. Build the enum via `Literal.__getitem__(tuple(names))`.
 - `SchemaTools.register`: `sig = build_query_sig_params(config) + build_target_params(targets)`;
   `body = build_schema_body(...)`; `build_tool_fn`; `mcp.add_tool`. When not multi,
   `build_target_params` returns `[]` → signature byte-identical to today.
@@ -37,11 +40,22 @@ class SchemaTools:
   `targets.resolve_pinned(connection, database)`; get backend from registry;
   execute with `config.resolve_sql(target.backend_name)`; format via the existing
   `format_rows` path (identical to current `build_query_body`).
+- **Friendly resolve error.** `resolve_pinned` raises `ValueError` when the
+  `(connection, database)` pair is invalid — the union `database` enum spans all
+  connections, so `database="hr"` under `connection="localdb"` passes JSON-schema
+  validation but is not a member of `localdb`. Catch that `ValueError` and
+  **return** its message as the tool verdict (e.g. `"database 'hr' is not
+  configured for connection 'localdb'. Available: [...]"`) instead of letting it
+  surface as an unhandled tool error. `resolve_pinned`'s `ValueError` text must
+  already carry the available list (Step 4).
 
 ## ALGORITHM (build_schema_body)
 ```
 conn = kwargs.pop("connection", None); db = kwargs.pop("database", None)
-target = targets.resolve_pinned(conn, db)
+try:
+    target = targets.resolve_pinned(conn, db)   # db=None -> connection's default
+except ValueError as exc:
+    return str(exc)                             # friendly call-time verdict
 sql = config.resolve_sql(target.backend_name)
 rows = registry.backend_for(target).execute_query(sql, stripped or None)
 rows = apply_filter(rows, filter_col, pattern)     # unchanged
@@ -59,6 +73,12 @@ Single-target output identical to today (no `_database`, standard footer).
   names; params are `KEYWORD_ONLY`.
 - Multi install, `read_tables(schema=..., database="hr")` executes against the
   `(default_conn, hr)` backend (fake registry records the target).
+- Multi install with >1 connection: `read_tables(schema=..., connection="other")`
+  with no `database` resolves `other`'s `default_database` (default `None` →
+  connection default), not the file-default connection's catalog.
+- Cross-connection mismatch `read_tables(schema=..., connection="localdb",
+  database="hr")` **returns** the friendly verdict string (mentions the
+  connection and lists available databases), not an unhandled exception.
 - Bad `database` value rejected before execution (invalid enum / resolve error).
 
 ## LLM PROMPT
