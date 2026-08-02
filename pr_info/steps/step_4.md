@@ -29,7 +29,6 @@ def resolve_targets(query_config: QueryFileConfig, db_config: DatabaseConfig) ->
 `ResolvedTargets` methods:
 - `is_multi -> bool` (`len(targets) > 1`)
 - `connection_names -> list[str]`, `database_names -> list[str]` (dedup, order)
-- `get(connection, database) -> ResolvedTarget` (ValueError w/ available list)
 - `for_connection(connection) -> list[ResolvedTarget]` (fan-out set)
 - `resolve_pinned(connection: str | None, database: str | None) -> ResolvedTarget`
   (decision 15: connection→file default; database→connection's default_database)
@@ -73,7 +72,6 @@ verify. Order is config order (connections × databases).
   set, both descriptions empty.
 - two connections, one with two databases → target count, order, `database_names`
   union/dedup, `is_multi is True`.
-- `get()` unknown connection/database → `ValueError` listing available.
 - `resolve_pinned(None, None)` → default; `resolve_pinned("prod","hr")` → that
   target; `resolve_pinned("localdb","hr")` (hr not in localdb) → `ValueError`.
 - unknown file-default connection → `ValueError` whose message names the
@@ -86,7 +84,7 @@ verify. Order is config order (connections × databases).
 ## LLM PROMPT
 > Implement Step 4 from `pr_info/steps/step_4.md` (context in
 > `pr_info/steps/summary.md`). Add frozen `ResolvedTarget` and `ResolvedTargets`
-> (with `is_multi`, `connection_names`, `database_names`, `get`, `for_connection`,
+> (with `is_multi`, `connection_names`, `database_names`, `for_connection`,
 > `resolve_pinned`) to `config/models.py`, and `resolve_targets` to
 > `config/loader.py` building one target per `(connection, database)` via
 > `model_copy`. Leave `resolve_connection` in place. Write the resolution tests

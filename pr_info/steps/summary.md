@@ -101,7 +101,7 @@ class ResolvedTargets(BaseModel):     # config/models.py
     targets: list[ResolvedTarget]     # config order: conns × dbs
     default: ResolvedTarget
     file_default_connection: str
-    # is_multi, connection_names, database_names, get(), for_connection(),
+    # is_multi, connection_names, database_names, for_connection(),
     # resolve_pinned() as methods
 ```
 
@@ -110,7 +110,7 @@ class ResolvedTargets(BaseModel):     # config/models.py
 **Created**
 - `src/mcp_tools_sql/backends/registry.py`
 - `tests/backends/test_registry.py`
-- `pr_info/steps/summary.md` + `step_1.md` … `step_14.md`
+- `pr_info/steps/summary.md` + `step_1.md` … `step_15.md`
 
 **Modified — source**
 - `src/mcp_tools_sql/utils/sql_placeholders.py` (prereqs)
@@ -155,8 +155,9 @@ class ResolvedTargets(BaseModel):     # config/models.py
 | 10 | schema_tools: `database="*"` fan-out + `_database` + footer | schema_tools, query_helpers, formatting |
 | 11 | `validate_sql` / `count_records`: `database` param, per-call dialect | validation_tools, count_tools |
 | 12 | verify: static CONFIG cross-file checks | verification/config_files |
-| 13 | verify: per-pair CONNECTION + per-target M2 + exit code | verification/connection, queries, updates, orchestrator |
-| 14 | `init` multi-connection template + docs | cli/commands/init, docs |
+| 13 | verify: per-pair CONNECTION probing + orchestrator registry migration | verification/connection, orchestrator, loader (del `resolve_connection`) |
+| 14 | verify: per-target M2 (QUERIES/UPDATES) + skip rows + snapshot | verification/queries, updates, orchestrator |
+| 15 | `init` multi-connection template + docs | cli/commands/init, docs |
 
 Each step: write tests first, implement, and leave `pylint` / `pytest` / `mypy`
 green — exactly one commit.

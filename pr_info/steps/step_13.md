@@ -1,80 +1,79 @@
-# Step 13 — verify: per-pair CONNECTION + per-target M2 + exit code
+# Step 13 — verify: per-pair CONNECTION probing + orchestrator registry migration
 
-See `pr_info/steps/summary.md` → "verify" (decisions 24, 25).
+See `pr_info/steps/summary.md` → "verify" (decision 24). This step reworks only
+the CONNECTION section and the orchestrator's resolver; the per-target M2
+(QUERIES/UPDATES) rework is Step 14, so M2 rendering — and the verify snapshot —
+stay byte-identical here.
 
 ## WHERE
-- `src/mcp_tools_sql/verification/connection.py`, `queries.py`, `updates.py`,
-  `orchestrator.py`
+- `src/mcp_tools_sql/verification/connection.py`, `orchestrator.py`
 - `src/mcp_tools_sql/config/loader.py` (delete dead `resolve_connection`)
-- Tests: `tests/verification/test_connection.py`, `test_queries.py`,
-  `test_updates.py`, `test_orchestrator.py`, `tests/config/test_loader.py`,
-  `tests/cli/test_verify.py`
-- Fixture: `tests/cli/fixtures/verify_snapshot.txt` — the QUERIES + UPDATES
-  byte-for-byte snapshot asserted by `test_verify_cli_queries_updates_snapshot`.
-  This step reworks the M2 (QUERIES/UPDATES) rendering, so regenerate the fixture
-  to the new per-target row wording.
+- Tests: `tests/verification/test_connection.py`, `test_orchestrator.py`,
+  `tests/config/test_loader.py`, `tests/cli/test_verify.py`
 
 ## WHAT
 - CONNECTION: probe **every** `(connection, database)` pair. One sub-section /
   row-group per pair; `database` row becomes the per-pair catalog under test.
-- M2: each query/update EXPLAINed against **its own** resolved target; queries
-  whose target is unreachable are reported as skipped **naming the connection**,
-  not blanked.
+- Orchestrator builds `ResolvedTargets` (via `resolve_targets`) and a
+  `BackendRegistry`, replacing `_resolve_connection_for_verify`; it closes the
+  registry in `finally`.
+- **M2 unchanged in this step.** `verify_queries` / `verify_updates` keep their
+  current single-`open_backend` signature, fed `registry.backend_for(targets.default)`
+  so the QUERIES/UPDATES rendering (and its snapshot) stay byte-identical. The
+  reachability map + per-target resolution + skip rows land in Step 14.
 - Exit code non-zero if any connection fails (already derived from `overall_ok`
   across sections — confirm it holds per-pair).
-- **Dead-code cleanup (same commit).** This step removes the last production
-  caller of `resolve_connection`: Step 6 migrated `server.py` and this step
-  replaces `_resolve_connection_for_verify` in `orchestrator.py`. With no
-  production callers left, **delete both `resolve_connection`
-  (`config/loader.py`) and `_resolve_connection_for_verify` (`orchestrator.py`)**
-  and drop their now-orphaned tests in `tests/config/test_loader.py` — no legacy
-  artifacts. (Before deleting, grep to confirm no other production caller remains;
-  `resolve_targets` is the sole resolver going forward.)
+- **Dead-code cleanup (same commit).** Step 6 migrated `server.py` off
+  `resolve_connection`, and this step replaces `_resolve_connection_for_verify`
+  in `orchestrator.py`. With no production callers left, **delete both
+  `resolve_connection` (`config/loader.py`) and `_resolve_connection_for_verify`
+  (`orchestrator.py`)** and drop their now-orphaned tests in
+  `tests/config/test_loader.py` — no legacy artifacts. (Before deleting, grep to
+  confirm no other production caller remains; `resolve_targets` is the sole
+  resolver going forward.)
 
 ## HOW
-- Orchestrator builds `ResolvedTargets` (via `resolve_targets`) and a
-  `BackendRegistry`, replacing `_resolve_connection_for_verify`. It closes the
-  registry in `finally`.
 - `verify_connection(target, backend)` verifies one pair using the registry's
   backend (rename param from `connection` to `target`; use `target.config`).
   Loop it over `targets.targets`, prefixing row keys with the pair label.
-- `verify_queries`/`verify_updates` gain the `targets` + `registry`; per entry,
-  resolve its pinned target, and if that target's connection probe failed, emit a
-  `skipped (connection <name> unreachable)` row instead of EXPLAINing.
+- Orchestrator: `targets = resolve_targets(qcfg, dbcfg); registry = BackendRegistry()`;
+  probe each pair; pass `registry.backend_for(targets.default)` to the still-
+  unchanged `verify_queries` / `verify_updates`; `registry.close_all()` in
+  `finally`.
 
-## ALGORITHM (orchestrator M2)
+## ALGORITHM (orchestrator)
 ```
 targets = resolve_targets(qcfg, dbcfg); registry = BackendRegistry()
-reachable = {}                      # (conn,db) -> ok, from CONNECTION probes
-for t in targets.targets: probe -> CONNECTION rows; reachable[key]=ok
-verify_queries(qcfg.queries, targets, registry, reachable)   # per-target EXPLAIN/skip
-verify_updates(...)  ; finally registry.close_all()
+try:
+    for t in targets.targets: probe -> CONNECTION rows (verify_connection(t, registry.backend_for(t)))
+    verify_queries(qcfg.queries, registry.backend_for(targets.default))   # unchanged M2
+    verify_updates(qcfg.updates, registry.backend_for(targets.default))
+finally: registry.close_all()
 ```
 
 ## DATA
-CONNECTION result dict keyed per pair (e.g. `prod/sales.select_1`); M2 rows either
-real EXPLAIN verdicts or per-connection skip rows. Skip summary wording updated to
-mention unreachable connections.
+CONNECTION result dict keyed per pair (e.g. `prod/sales.select_1`). M2 rows and
+the verify snapshot are unchanged in this step.
 
 ## TESTS (write first)
 - Two databases on one connection → CONNECTION probes both; both `select_1` rows
   present.
-- A query pinned to an unreachable connection → skip row naming that connection;
-  a reachable query in the same run still gets a real verdict (not blanked).
-- Single-target config → CONNECTION/M2 output equivalent to today (one pair).
+- Single-target config → CONNECTION output equivalent to today (one pair).
 - Exit code non-zero when any pair fails.
-- `test_verify_cli_queries_updates_snapshot` still passes: regenerate
-  `tests/cli/fixtures/verify_snapshot.txt` to the new per-target QUERIES/UPDATES
-  row wording and confirm the CLI stdout matches it byte-for-byte (if the
-  single-target rendering is genuinely unchanged, the fixture stays identical —
-  either way, verify it rather than assuming).
+- `resolve_connection` / `_resolve_connection_for_verify` removed; grep confirms
+  no remaining caller and their orphaned tests are dropped.
+- `test_verify_cli_queries_updates_snapshot` still passes **unchanged** — M2 is
+  not reworked here, so the fixture must stay byte-for-byte identical (proves the
+  CONNECTION rework did not leak into M2).
 
 ## LLM PROMPT
 > Implement Step 13 from `pr_info/steps/step_13.md` (context in
-> `pr_info/steps/summary.md`). Rework the verify CONNECTION + M2 flow to probe
-> every `(connection, database)` pair (via `resolve_targets` + `BackendRegistry`,
-> closed in `finally`) and resolve each query/update to its own target, emitting
-> per-connection skip rows for unreachable targets instead of blanking M2. Keep
-> single-target output equivalent to today and the exit code non-zero on any
-> failure. Write tests first. Run pylint, pytest (`-n auto` + unit markers), mypy,
+> `pr_info/steps/summary.md`). Rework the verify CONNECTION section to probe every
+> `(connection, database)` pair via `resolve_targets` + `BackendRegistry` (closed
+> in `finally`), renaming `verify_connection`'s param to `target`. Keep M2
+> (QUERIES/UPDATES) untouched by feeding it `registry.backend_for(targets.default)`
+> so the snapshot stays identical. Delete the now-dead `resolve_connection` and
+> `_resolve_connection_for_verify` and their orphaned tests. Keep single-target
+> output equivalent to today and the exit code non-zero on any failure. Write
+> tests first. Run pylint, pytest (`-n auto` + unit markers), mypy,
 > lint-imports/tach; all green. One commit.

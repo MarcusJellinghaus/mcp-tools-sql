@@ -9,7 +9,12 @@ See `pr_info/steps/summary.md` → "Tool surface" and simplification A
 - Tests: `tests/test_schema_tools.py`, `tests/test_formatting.py`
 
 ## WHAT
-- `build_target_params`: add `"*"` to the `database` enum (fan-out sentinel).
+- `build_target_params`: gains a keyword-only `star: bool = False` parameter;
+  when `star=True`, `"*"` is appended to the `database` enum (fan-out sentinel).
+  The `schema_tools` caller passes `star=True`. Introducing the flag here (rather
+  than later) means non-fan-out callers (`validate_sql` / `count_records`,
+  Step 11) simply take the `star=False` default and never see `"*"` — no
+  signature rework or caller patching in Step 11.
 - `build_schema_body`: when `database == "*"`, execute against **all** databases of
   the resolved connection, tag each row with a `_database` column, merge in config
   order, cap the merged total at `max_rows`, and render a per-database footer.

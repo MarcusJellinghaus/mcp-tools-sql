@@ -22,14 +22,10 @@ Both tools resolve backend + dialect **per call** from optional keyword-only
 ## HOW
 Assemble each tool via `build_tool_fn` so the conditional params can be added:
 - base params `[sql, params, return_plan]` (validate) / `[sql, params]` (count)
-  plus `build_target_params_no_star(targets)` (like `build_target_params` but the
-  `database` enum omits `"*"`). Reuse `build_target_params` with a `star: bool=False`
-  flag rather than duplicating.
-  - **Dependency on Step 10:** adding a `star=False` default flips the previous
-    unconditional `"*"` behaviour, so the Step 10 `schema_tools` caller
-    `build_target_params(targets)` **must be updated to `build_target_params(targets,
-    star=True)`** in this step, or `database="*"` fan-out silently regresses.
-    validate/count pass `star=False`.
+  plus `build_target_params(targets, star=False)` — the `star` flag (introduced
+  in Step 10) omits `"*"` from the `database` enum for these non-fan-out tools.
+  `star=False` is the default, so no change to the Step 10 `schema_tools` caller
+  (which already passes `star=True`) is needed here.
 - Core body signature: `async def core(sql, params, return_plan=..., *, connection=None, database=None)`.
 - Inside: `target = targets.resolve_pinned(connection, database)` (catch its
   `ValueError` and **return** the message as the verdict — same friendly
