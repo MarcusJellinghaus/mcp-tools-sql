@@ -1,59 +1,76 @@
-# Step 12 — verify: static CONFIG cross-file checks
+# Step 12 — `validate_sql` / `count_records`: `database` param, per-call dialect
 
-See `pr_info/steps/summary.md` → "verify" (decision 9, static rules). No DB access.
+See `pr_info/steps/summary.md` → "Tool surface" (decision 12). No `database="*"`
+for these tools.
 
 ## WHERE
-- `src/mcp_tools_sql/verification/config_files.py`
-- Tests: `tests/verification/test_config_files.py`, `tests/cli/test_verify.py`
-  (snapshot fixture may need regeneration)
+- `src/mcp_tools_sql/validation_tools.py`, `src/mcp_tools_sql/count_tools.py`
+- `src/mcp_tools_sql/server.py` (pass registry + targets)
+- Tests: `tests/test_validation_tools.py`, `tests/test_count_tools.py`,
+  `tests/test_server.py`
 
 ## WHAT
-Extend `verify_config_files` with static cross-file rows (added after the existing
-parse rows, before `overall_ok`), each `make_entry(ok=..., value=..., error=...)`:
-1. query file `connection` names a real entry in `connections`
-2. each connection's `default_database` ∈ its `databases`
-3. `databases` non-empty; exactly one for postgresql; `["main"]` for sqlite
-4. each `[queries.*].connection`, if set, names a real connection
-5. each `[queries.*].database`, if set, ∈ that connection's `databases`
-6. same for `[updates.*]`
-7. legacy `database` not conflicting with explicit `databases`
+```python
+class ValidationTools:
+    def __init__(self, registry: BackendRegistry, targets: ResolvedTargets) -> None: ...
+class CountTools:
+    def __init__(self, registry: BackendRegistry, targets: ResolvedTargets) -> None: ...
+```
+Both tools resolve backend + dialect **per call** from optional keyword-only
+`connection`/`database` params (conditional, `Literal` enums, no `"*"`).
 
 ## HOW
-Load both configs (already available via `load_query_config` /
-`load_database_config`). Rules 2/3/7 are largely enforced by the Step 3 model
-validators — surface those as PASS rows here (and as an `[ERR]` row if model
-validation raised). Rules 1/4/5/6 are cross-file and checked here explicitly.
-Keep insertion order stable (verify snapshot asserts byte-equality).
+Assemble each tool via `build_tool_fn` so the conditional params can be added:
+- base params `[sql, params, return_plan]` (validate) / `[sql, params]` (count)
+  plus `build_target_params(targets, star=False)` — the `star` flag (introduced
+  in Step 11) omits `"*"` from the `database` enum for these non-fan-out tools.
+  `star=False` is the default, so no change to the Step 11 `schema_tools` caller
+  (which already passes `star=True`) is needed here.
+- Core body signature: `async def core(sql, params, return_plan=..., *, connection=None, database=None)`.
+- Inside: `target = targets.resolve_pinned(connection, database)` (catch its
+  `ValueError` and **return** the message as the verdict — same friendly
+  cross-connection error as `build_schema_body`, Step 10);
+  `backend = registry.backend_for(target)`; `dialect = to_dialect(target.backend_name)`;
+  then the existing preflight / `_explain` / `read_only_violation` /
+  `build_count_query` logic using that `backend` + `dialect`.
+- `_explain(backend, backend_name, sql, params)` already takes backend_name — pass
+  `target.backend_name`.
 
-## ALGORITHM
+## ALGORITHM (validate core)
 ```
-load qcfg, dbcfg (guarded)
-row("connection_valid", qcfg.connection in dbcfg.connections)
-for scope in (queries, updates):
-    for name, cfg in scope:
-        if cfg.connection: row(f"{scope}.{name}.connection", cfg.connection in conns)
-        if cfg.database:   row(..., cfg.database in conns[resolved].databases)
-recompute overall_ok
+try:
+    target = targets.resolve_pinned(connection, database)   # db=None -> conn default
+except ValueError as exc:
+    return str(exc)                          # friendly cross-connection verdict
+dialect = to_dialect(target.backend_name)
+verdict = _preflight(sql, params, dialect);  if verdict: return verdict
+plan = _explain(registry.backend_for(target), target.backend_name, sql, params)
+return "Valid." (+ plan if return_plan)
 ```
 
 ## DATA
-Standard verifier result dict; new rows keyed descriptively; `overall_ok`
-recomputed to include them.
+Single-target: signatures byte-identical to today (`build_target_params` → `[]`).
+Multi: `connection?`/`database?` keyword-only enums added.
 
 ## TESTS (write first)
-- Valid multi-connection config → all new rows PASS.
-- Unknown file `connection` → its row `[ERR]` (fixes the "section vanishes"
-  bug — decision 9 side effect).
-- `[queries.x].database` not in the connection's databases → `[ERR]`.
-- `[queries.x].connection` unknown → `[ERR]`.
-- Single-target legacy config → new rows PASS, no behaviour change.
-- Regenerate/adjust `tests/cli/fixtures/verify_snapshot.txt` if ordering changes.
+- Single sqlite target: `validate_sql`/`count_records` signatures + behaviour
+  byte-identical to current tests.
+- Multi install: `database` param present (enum has no `"*"`); passing
+  `database="hr"` resolves dialect + backend for that target (fake registry).
+- Multi install: `build_target_params(targets, star=True)` still yields the `"*"`
+  member (Step 11 fan-out) while `star=False` omits it (regression guard for the
+  shared flag).
+- Cross-connection mismatch (`connection="localdb", database="hr"`) **returns**
+  the friendly verdict string, not an unhandled exception.
+- `count_records` still rejects non-read-only SQL and CTE-on-tsql as before.
 
 ## LLM PROMPT
 > Implement Step 12 from `pr_info/steps/step_12.md` (context in
-> `pr_info/steps/summary.md`). Add static cross-file checks (rules 1–7) to
-> `verification/config_files.py` as ordered result rows with no database access,
-> recomputing `overall_ok`. Write tests first (valid multi config passes; unknown
-> connection, bad per-query database/connection each `[ERR]`; single-target legacy
-> unchanged) and update the verify snapshot fixture if ordering shifts. Run pylint,
-> pytest (`-n auto` + unit markers), mypy, lint-imports/tach; all green. One commit.
+> `pr_info/steps/summary.md`). Make `ValidationTools`/`CountTools` take
+> `(registry, targets)` and assemble their tools via `build_tool_fn` with base
+> params plus `build_target_params(targets, star=False)`; resolve backend +
+> `to_dialect` per call from `connection`/`database` kwargs (default → default
+> target). Keep all existing preflight/explain/read-only/count logic. Update
+> `server`. Single-target signatures/behaviour must stay byte-identical. Write
+> tests first. Run pylint, pytest (`-n auto` + unit markers), mypy,
+> lint-imports/tach; all green. One commit.

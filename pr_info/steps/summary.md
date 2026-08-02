@@ -18,11 +18,17 @@ explicitly sanctioned by the issue and both **requirement-preserving**:
   is capped at `max_rows`, and the post-fetch-filter special-case disappears.
   Fan-out targets are *schema-introspection* result sets (bounded metadata), so
   reading them whole is fine.
-- **No unified pinned/fan-out execution abstraction.** Fan-out has exactly one
-  consumer (the four builtins in `schema_tools`), so pinned `query_*`/`update_*`
-  keep binding their backend at registration time (decision 6/11 — target is
-  pinned in TOML) and `schema_tools` gets a small dedicated call-time body. This
-  matches the issue's own "low churn" estimate for `query_tools`/`update_tools`.
+- **No unified pinned/fan-out execution abstraction — one shared
+  execution+format core instead.** We do **not** build the issue's list-returning
+  `resolve → execute_all` abstraction (the `ExecutionTarget`/`execute_all`
+  sketch). Pinned `query_*`/`update_*` keep binding their backend at registration
+  time (decision 6/11 — target is pinned in TOML). `schema_tools` gets its own
+  call-time body (`build_schema_body`) that resolves the target(s) at call time.
+  Both `build_query_body` and `build_schema_body` delegate to a single shared
+  `execute_and_format` helper (extracted in Step 9) for the common
+  max_rows/filter/logging/format tail — so the shared core has one home without
+  forcing the two families through one resolver. This matches the issue's own
+  "low churn" estimate for `query_tools`/`update_tools`.
 
 ## Architectural / design changes
 
@@ -110,7 +116,7 @@ class ResolvedTargets(BaseModel):     # config/models.py
 **Created**
 - `src/mcp_tools_sql/backends/registry.py`
 - `tests/backends/test_registry.py`
-- `pr_info/steps/summary.md` + `step_1.md` … `step_15.md`
+- `pr_info/steps/summary.md` + `step_1.md` … `step_16.md`
 
 **Modified — source**
 - `src/mcp_tools_sql/utils/sql_placeholders.py` (prereqs)
@@ -151,13 +157,14 @@ class ResolvedTargets(BaseModel):     # config/models.py
 | 6 | Server wiring (behaviour unchanged, single default target) | server |
 | 7 | Pinned per-target backend for `query_*` / `update_*` | query_tools, update_tools |
 | 8 | `read_databases` tool (config-only, when >1 target) | schema_tools + server |
-| 9 | schema_tools: runtime single-target `connection`/`database` params | schema_tools, query_helpers |
-| 10 | schema_tools: `database="*"` fan-out + `_database` + footer | schema_tools, query_helpers, formatting |
-| 11 | `validate_sql` / `count_records`: `database` param, per-call dialect | validation_tools, count_tools |
-| 12 | verify: static CONFIG cross-file checks | verification/config_files |
-| 13 | verify: per-pair CONNECTION probing + orchestrator registry migration | verification/connection, orchestrator, loader (del `resolve_connection`) |
-| 14 | verify: per-target M2 (QUERIES/UPDATES) + skip rows + snapshot | verification/queries, updates, orchestrator |
-| 15 | `init` multi-connection template + docs | cli/commands/init, docs |
+| 9 | Extract shared `execute_and_format` core from `build_query_body` (pure refactor) | query_helpers |
+| 10 | schema_tools: runtime single-target `connection`/`database` params | schema_tools, query_helpers |
+| 11 | schema_tools: `database="*"` fan-out + `_database` + footer | schema_tools, query_helpers, formatting |
+| 12 | `validate_sql` / `count_records`: `database` param, per-call dialect | validation_tools, count_tools |
+| 13 | verify: static CONFIG cross-file checks | verification/config_files |
+| 14 | verify: per-pair CONNECTION probing + orchestrator registry migration | verification/connection, orchestrator, loader (del `resolve_connection`) |
+| 15 | verify: per-target M2 (QUERIES/UPDATES) + skip rows + snapshot | verification/queries, updates, orchestrator |
+| 16 | `init` multi-connection template + docs | cli/commands/init, docs |
 
 Each step: write tests first, implement, and leave `pylint` / `pytest` / `mypy`
 green — exactly one commit.

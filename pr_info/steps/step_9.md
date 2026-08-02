@@ -1,122 +1,60 @@
-# Step 9 — schema_tools: runtime single-target `connection`/`database` params
+# Step 9 — Extract shared `execute_and_format` core from `build_query_body`
 
-See `pr_info/steps/summary.md` → "Tool surface" (decision 16). Fan-out (`*`) is
-Step 10; this step does runtime resolution of exactly one target.
+See `pr_info/steps/summary.md` → "Architectural / design changes". This is a
+**pure, behaviour-preserving refactor** that lands *before* the schema-tool
+feature work (Step 10) so that step can delegate to a single execution+format
+core instead of duplicating it. No feature behaviour changes here.
 
 ## WHERE
-- `src/mcp_tools_sql/query_helpers.py` (add `build_target_params`,
-  `execute_and_format` shared core, `build_schema_body`; refactor
-  `build_query_body` to delegate to `execute_and_format`)
-- `src/mcp_tools_sql/schema_tools.py` (SchemaTools takes registry + targets)
-- `src/mcp_tools_sql/server.py` (pass registry + targets to SchemaTools)
-- Tests: `tests/test_query_helpers` cases in `tests/test_schema_tools.py`,
-  `tests/test_server.py`
+- `src/mcp_tools_sql/query_helpers.py`
+- Tests: `tests/test_query_tools.py` (existing assertions, unchanged)
 
 ## WHAT
+Extract the execution+format tail of `build_query_body` into a reusable helper:
 ```python
-def build_target_params(targets: ResolvedTargets) -> list[inspect.Parameter]:
-    """Keyword-only connection/database params, only when targets.is_multi."""
-
 async def execute_and_format(name, resolved_sql, sql_params, backend, config,
                              filter_kwarg, truncation_hint, kwargs) -> str:
     """Shared body core: max_rows cap + note, filter pop, param strip,
-    log_tool_call, execute_query, apply_filter, format_rows. Extracted from
-    build_query_body so query_* and schema tools share ONE execution+format
-    path (removes the two-consumer duplication)."""
-
-def build_schema_body(name, config, registry: BackendRegistry,
-                      targets: ResolvedTargets, truncation_hint) -> Callable[..., Awaitable[str]]:
-    """Resolve ONE target from connection/database kwargs, then delegate to
-    execute_and_format (no reimplementation of the body core)."""
-
-class SchemaTools:
-    def __init__(self, registry: BackendRegistry, targets: ResolvedTargets) -> None: ...
+    log_tool_call, execute_query, apply_filter, format_rows."""
 ```
-
-**Refactor `build_query_body` in the same commit** to delegate to
-`execute_and_format` (its closure captures `backend`/`resolved_sql`/`sql_params`
-at registration, then calls the shared core). Externally `build_query_body` is
-unchanged, so `query_tools` / `update_tools` and their tests do not churn.
+`build_query_body` keeps its public signature and behaviour; its registration-time
+closure captures `backend`/`resolved_sql`/`sql_params` and now calls
+`execute_and_format` for the shared tail.
 
 ## HOW
-- `build_target_params`: return `[]` unless `targets.is_multi`. When multi, append
-  a keyword-only `connection` param **only if `len(connection_names) > 1`**
-  (`Literal[*connection_names]`, default = `file_default_connection`) and a
-  keyword-only `database` param (`Literal[*database_names]`, **default =
-  `None`**). Leaving the default `None` lets `resolve_pinned` fall back to the
-  *selected* connection's `default_database` — so `read_tables(connection="other")`
-  without an explicit `database` resolves that connection's default instead of
-  raising because the file-default connection's default catalog is not a member
-  of `other`. Build the enum via `Literal.__getitem__(tuple(names))`.
-- `SchemaTools.register`: `sig = build_query_sig_params(config) + build_target_params(targets)`;
-  `body = build_schema_body(...)`; `build_tool_fn`; `mcp.add_tool`. When not multi,
-  `build_target_params` returns `[]` → signature byte-identical to today.
-- `build_schema_body`: pop `connection`/`database` kwargs; resolve one target via
-  `targets.resolve_pinned(connection, database)`; get backend from registry;
-  compute `resolved_sql = config.resolve_sql(target.backend_name)` (and its
-  `sql_params`) per call; then **delegate to `execute_and_format`** — the same
-  shared core `build_query_body` now uses. No max_rows/filter/logging/format
-  logic is reimplemented in `build_schema_body`.
-- **Friendly resolve error.** `resolve_pinned` raises `ValueError` when the
-  `(connection, database)` pair is invalid — the union `database` enum spans all
-  connections, so `database="hr"` under `connection="localdb"` passes JSON-schema
-  validation but is not a member of `localdb`. Catch that `ValueError` and
-  **return** its message as the tool verdict (e.g. `"database 'hr' is not
-  configured for connection 'localdb'. Available: [...]"`) instead of letting it
-  surface as an unhandled tool error. `resolve_pinned`'s `ValueError` text must
-  already carry the available list (Step 4).
+Move the max_rows / filter / logging / execute / format logic verbatim out of
+`build_query_body`'s inner function into `execute_and_format`, then have
+`build_query_body`'s body call it. No other call sites change — this is
+"move, don't change": `query_tools` / `update_tools` and their tests do not churn.
 
-## ALGORITHM (build_schema_body)
+## ALGORITHM
 ```
-conn = kwargs.pop("connection", None); db = kwargs.pop("database", None)
-try:
-    target = targets.resolve_pinned(conn, db)   # db=None -> connection's default
-except ValueError as exc:
-    return str(exc)                             # friendly call-time verdict
-sql = config.resolve_sql(target.backend_name); params = extract_sql_params(sql)
-backend = registry.backend_for(target)
-return await execute_and_format(name, sql, params, backend, config,
-                                filter_kwarg, truncation_hint, kwargs)
-# execute_and_format owns: max_rows cap + note, filter pop, param strip,
-# log_tool_call, execute_query, apply_filter, format_rows — same core as
-# build_query_body (single source of truth).
+# build_query_body(name, config, backend, backend_name, hint):
+resolved_sql = config.resolve_sql(backend_name); params = extract_sql_params(...)
+async def body(**kwargs):
+    return await execute_and_format(name, resolved_sql, params, backend, config,
+                                    filter_kwarg, hint, kwargs)
+return body
 ```
 
 ## DATA
-Single-target output identical to today (no `_database`, standard footer).
+No data-shape or signature change. Output byte-identical for every existing tool.
 
 ## TESTS (write first)
-- Single sqlite target: `read_tables` signature/output byte-identical to current
-  tests (regression — reuse existing `test_schema_tools` assertions).
-- Existing `test_query_tools` assertions still pass unchanged after
-  `build_query_body` is refactored onto `execute_and_format` (proves the shared
-  core is behaviour-preserving for the pinned path).
-- `build_target_params`: `[]` when not multi; with 2 connections → both params;
-  with 1 connection/2 databases → only `database` param; enums list the right
-  names; params are `KEYWORD_ONLY`.
-- Multi install, `read_tables(schema=..., database="hr")` executes against the
-  `(default_conn, hr)` backend (fake registry records the target).
-- Multi install with >1 connection: `read_tables(schema=..., connection="other")`
-  with no `database` resolves `other`'s `default_database` (default `None` →
-  connection default), not the file-default connection's catalog.
-- Cross-connection mismatch `read_tables(schema=..., connection="localdb",
-  database="hr")` **returns** the friendly verdict string (mentions the
-  connection and lists available databases), not an unhandled exception.
-- Bad `database` value rejected before execution (invalid enum / resolve error).
+- Existing `test_query_tools` assertions pass **unchanged** (tool names,
+  signatures, execution, max_rows note, filter, formatting) — proves the tail was
+  moved without behaviour change.
+- One focused unit test of `execute_and_format` (max_rows cap note + filter
+  applied) to pin the extracted contract directly.
 
 ## LLM PROMPT
 > Implement Step 9 from `pr_info/steps/step_9.md` (context in
-> `pr_info/steps/summary.md`). Extract the execution+format core of
-> `build_query_body` into a shared `execute_and_format` helper (max_rows/filter/
-> logging/format) and refactor `build_query_body` to delegate to it. Add
-> `build_target_params` and `build_schema_body` (which resolves one target then
-> delegates to `execute_and_format` — no duplicated body logic) to
-> `query_helpers.py`; make `SchemaTools` take `(registry, targets)` and assemble
-> each builtin's signature as `build_query_sig_params(config) +
-> build_target_params(targets)` with a runtime-resolving body (single target, no
-> `*` yet). Params are keyword-only `Literal` enums shown only when multi;
-> single-target output stays byte-identical and existing `test_query_tools`
-> assertions must still pass. Update `server`. Write tests first (byte-identical
-> single target; conditional params; per-database runtime bind). Run pylint,
-> pytest (`-n auto` + unit markers), mypy, lint-imports/tach; all green. One
-> commit.
+> `pr_info/steps/summary.md`). Extract the execution+format tail of
+> `build_query_body` (max_rows cap + note, filter pop, param strip, log_tool_call,
+> execute_query, apply_filter, format_rows) into a new `execute_and_format` helper
+> in `query_helpers.py`, and make `build_query_body` delegate to it with its
+> registration-time closure otherwise unchanged. This is a behaviour-preserving
+> refactor: existing `test_query_tools` assertions must pass unchanged. Add one
+> focused `execute_and_format` unit test. Run `mcp__tools-py__run_pylint_check`,
+> `mcp__tools-py__run_pytest_check` (`-n auto` + unit markers),
+> `mcp__tools-py__run_mypy_check`, and lint-imports/tach; all green. One commit.

@@ -1,71 +1,107 @@
-# Step 10 — schema_tools: `database="*"` fan-out + `_database` + footer
+# Step 10 — schema_tools: runtime single-target `connection`/`database` params
 
-See `pr_info/steps/summary.md` → "Tool surface" and simplification A
-(fetch-all → merge → truncate; exact per-database counts for free).
+See `pr_info/steps/summary.md` → "Tool surface" (decision 16). Fan-out (`*`) is
+Step 11; this step does runtime resolution of exactly one target, delegating to
+the shared `execute_and_format` core extracted in Step 9.
 
 ## WHERE
-- `src/mcp_tools_sql/query_helpers.py` (extend `build_target_params`, `build_schema_body`)
-- `src/mcp_tools_sql/formatting.py` (add `format_fanout_rows`)
-- Tests: `tests/test_schema_tools.py`, `tests/test_formatting.py`
+- `src/mcp_tools_sql/query_helpers.py` (add `build_target_params`,
+  `build_schema_body`; both reuse the Step 9 `execute_and_format` core)
+- `src/mcp_tools_sql/schema_tools.py` (SchemaTools takes registry + targets)
+- `src/mcp_tools_sql/server.py` (pass registry + targets to SchemaTools)
+- Tests: `tests/test_schema_tools.py`, `tests/test_server.py`
 
 ## WHAT
-- `build_target_params`: gains a keyword-only `star: bool = False` parameter;
-  when `star=True`, `"*"` is appended to the `database` enum (fan-out sentinel).
-  The `schema_tools` caller passes `star=True`. Introducing the flag here (rather
-  than later) means non-fan-out callers (`validate_sql` / `count_records`,
-  Step 11) simply take the `star=False` default and never see `"*"` — no
-  signature rework or caller patching in Step 11.
-- `build_schema_body`: when `database == "*"`, execute against **all** databases of
-  the resolved connection, tag each row with a `_database` column, merge in config
-  order, cap the merged total at `max_rows`, and render a per-database footer.
-  A per-target failure is reported **inline**, not raised.
-- `format_fanout_rows(rows, counts, errors, max_rows, truncation_hint) -> str`.
+```python
+def build_target_params(targets: ResolvedTargets) -> list[inspect.Parameter]:
+    """Keyword-only connection/database params, only when targets.is_multi."""
+
+def build_schema_body(name, config, registry: BackendRegistry,
+                      targets: ResolvedTargets, truncation_hint) -> Callable[..., Awaitable[str]]:
+    """Resolve ONE target from connection/database kwargs, then delegate to
+    execute_and_format (the shared core extracted in Step 9 — no reimplementation
+    of the body core)."""
+
+class SchemaTools:
+    def __init__(self, registry: BackendRegistry, targets: ResolvedTargets) -> None: ...
+```
+
+`build_query_body` already delegates to `execute_and_format` (Step 9), so
+`build_schema_body` reuses the same core. Externally `build_query_body` is
+unchanged, so `query_tools` / `update_tools` and their tests do not churn.
 
 ## HOW
-- `_database` column is added **only** on the fan-out path (single-target output
-  unchanged from Step 9).
-- Targets: `targets.for_connection(connection or file_default)`. All share one
-  connection → one `backend_name` → `resolve_sql`/`to_dialect` resolved once.
-- `format_fanout_rows`: when `len(counts) <= 1` and no errors, delegate to
-  `format_rows` for byte-identical single output; otherwise render table, then a
-  truncation footer `"Showing N of T rows. Matched: db1 a, db2 b. <hint>"`, then
-  one line per errored database.
+- `build_target_params`: return `[]` unless `targets.is_multi`. When multi, append
+  a keyword-only `connection` param **only if `len(connection_names) > 1`**
+  (`Literal[*connection_names]`, default = `file_default_connection`) and a
+  keyword-only `database` param (`Literal[*database_names]`, **default =
+  `None`**). Leaving the default `None` lets `resolve_pinned` fall back to the
+  *selected* connection's `default_database` — so `read_tables(connection="other")`
+  without an explicit `database` resolves that connection's default instead of
+  raising because the file-default connection's default catalog is not a member
+  of `other`. Build the enum via `Literal.__getitem__(tuple(names))`.
+- `SchemaTools.register`: `sig = build_query_sig_params(config) + build_target_params(targets)`;
+  `body = build_schema_body(...)`; `build_tool_fn`; `mcp.add_tool`. When not multi,
+  `build_target_params` returns `[]` → signature byte-identical to today.
+- `build_schema_body`: pop `connection`/`database` kwargs; resolve one target via
+  `targets.resolve_pinned(connection, database)`; get backend from registry;
+  compute `resolved_sql = config.resolve_sql(target.backend_name)` (and its
+  `sql_params`) per call; then **delegate to `execute_and_format`** (Step 9). No
+  max_rows/filter/logging/format logic is reimplemented in `build_schema_body`.
+- **Friendly resolve error.** `resolve_pinned` raises `ValueError` when the
+  `(connection, database)` pair is invalid — the union `database` enum spans all
+  connections, so `database="hr"` under `connection="localdb"` passes JSON-schema
+  validation but is not a member of `localdb`. Catch that `ValueError` and
+  **return** its message as the tool verdict (e.g. `"database 'hr' is not
+  configured for connection 'localdb'. Available: [...]"`) instead of letting it
+  surface as an unhandled tool error. `resolve_pinned`'s `ValueError` text must
+  already carry the available list (Step 4).
 
-## ALGORITHM (fan-out branch)
+## ALGORITHM (build_schema_body)
 ```
-rows, counts, errors = [], {}, []
-sql = config.resolve_sql(conn_backend_name)
-for t in targets.for_connection(conn):
-    try:
-        r = apply_filter(registry.backend_for(t).execute_query(sql, params), col, pat)
-        for row in r: row["_database"] = t.database
-        counts[t.database] = len(r); rows += r        # exact count, free
-    except Exception as e: errors.append((t.database, str(e)))
-return format_fanout_rows(rows, counts, errors, requested, hint)
+conn = kwargs.pop("connection", None); db = kwargs.pop("database", None)
+try:
+    target = targets.resolve_pinned(conn, db)   # db=None -> connection's default
+except ValueError as exc:
+    return str(exc)                             # friendly call-time verdict
+sql = config.resolve_sql(target.backend_name); params = extract_sql_params(sql)
+backend = registry.backend_for(target)
+return await execute_and_format(name, sql, params, backend, config,
+                                filter_kwarg, truncation_hint, kwargs)
+# execute_and_format (Step 9) owns: max_rows cap + note, filter pop, param strip,
+# log_tool_call, execute_query, apply_filter, format_rows — the single source of
+# truth shared with build_query_body.
 ```
 
 ## DATA
-Merged `list[dict]` with a `_database` key (config order). Footer counts are exact
-because each target is fully fetched. Truncation caps the merged list at the end.
+Single-target output identical to today (no `_database`, standard footer).
 
-## TESTS (write first, fake registry + fake backends)
-- `database="*"` merges rows from two fake databases with a `_database` column in
-  config order.
-- Per-database footer counts are exact; merged total capped at `max_rows`; footer
-  appears only on truncation.
-- One target raising → its error rendered inline, other target's rows still shown.
-- `name_filter` under fan-out filters per target before merge (matches beyond the
-  cap are not silently dropped — filter then cap).
-- `format_fanout_rows` with one db and no errors == `format_rows` output.
+## TESTS (write first)
+- Single sqlite target: `read_tables` signature/output byte-identical to current
+  tests (regression — reuse existing `test_schema_tools` assertions).
+- `build_target_params`: `[]` when not multi; with 2 connections → both params;
+  with 1 connection/2 databases → only `database` param; enums list the right
+  names; params are `KEYWORD_ONLY`.
+- Multi install, `read_tables(schema=..., database="hr")` executes against the
+  `(default_conn, hr)` backend (fake registry records the target).
+- Multi install with >1 connection: `read_tables(schema=..., connection="other")`
+  with no `database` resolves `other`'s `default_database` (default `None` →
+  connection default), not the file-default connection's catalog.
+- Cross-connection mismatch `read_tables(schema=..., connection="localdb",
+  database="hr")` **returns** the friendly verdict string (mentions the
+  connection and lists available databases), not an unhandled exception.
+- Bad `database` value rejected before execution (invalid enum / resolve error).
 
 ## LLM PROMPT
 > Implement Step 10 from `pr_info/steps/step_10.md` (context in
-> `pr_info/steps/summary.md`). Extend `build_target_params` to add `"*"` to the
-> `database` enum and `build_schema_body` with a fan-out branch that fetches all
-> databases of the connection, tags rows with `_database`, merges in config order,
-> caps the merged total at `max_rows`, and renders per-database footer counts plus
-> inline per-target errors via a new `format_fanout_rows` in `formatting.py`. Use
-> the fetch-all/merge/truncate strategy (no SQL TOP/LIMIT). `_database` appears
-> only under fan-out; single-target output stays byte-identical. Write tests first
-> (fake registry). Run pylint, pytest (`-n auto` + unit markers), mypy,
-> lint-imports/tach; all green. One commit.
+> `pr_info/steps/summary.md`). Add `build_target_params` and `build_schema_body`
+> (which resolves one target then delegates to the Step 9 `execute_and_format`
+> core — no duplicated body logic) to `query_helpers.py`; make `SchemaTools` take
+> `(registry, targets)` and assemble each builtin's signature as
+> `build_query_sig_params(config) + build_target_params(targets)` with a
+> runtime-resolving body (single target, no `*` yet). Params are keyword-only
+> `Literal` enums shown only when multi; single-target output stays byte-identical
+> and existing `test_schema_tools` assertions must still pass. Update `server`.
+> Write tests first (byte-identical single target; conditional params; per-database
+> runtime bind; friendly cross-connection verdict). Run pylint, pytest (`-n auto`
+> + unit markers), mypy, lint-imports/tach; all green. One commit.

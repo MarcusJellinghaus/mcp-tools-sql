@@ -1,50 +1,67 @@
-# Step 15 — `init` multi-connection template + docs
+# Step 15 — verify: per-target M2 (QUERIES/UPDATES) + skip rows + snapshot
 
-See `pr_info/steps/summary.md` → "Config shape" and "Files created / modified".
+See `pr_info/steps/summary.md` → "verify" (decision 25). Builds on the CONNECTION
+per-pair probing + orchestrator registry migration from Step 14.
 
 ## WHERE
-- `src/mcp_tools_sql/cli/commands/init.py`
-- `docs/architecture/architecture.md`, `docs/cli.md`, `README.md`
-- Tests: `tests/cli/test_init.py`
+- `src/mcp_tools_sql/verification/queries.py`, `updates.py`, `orchestrator.py`
+- Tests: `tests/verification/test_queries.py`, `test_updates.py`,
+  `test_orchestrator.py`, `tests/cli/test_verify.py`
+- Fixture: `tests/cli/fixtures/verify_snapshot.txt` — the QUERIES + UPDATES
+  byte-for-byte snapshot asserted by `test_verify_cli_queries_updates_snapshot`.
+  This step reworks M2 rendering, so regenerate the fixture to the new per-target
+  row wording.
 
 ## WHAT
-- Update the database-config templates so mssql/postgresql show the new
-  `databases` / `default_database` (and optional `description`) shape, keeping a
-  commented note that legacy `database = "..."` still works. sqlite template
-  unchanged (still just `path`).
-- Document the two-axis model, `database="*"` fan-out, `read_databases`, the
-  pinned `[queries.*].connection`/`database`, and the security caveat (decision 26:
-  `databases` is a routing/discovery list, **not** an authorization boundary).
+- M2: each query/update EXPLAINed against **its own** resolved target; queries
+  whose target is unreachable are reported as skipped **naming the connection**,
+  not blanked.
+- `verify_queries` / `verify_updates` gain `targets` + `registry` + a
+  `reachable` map (from Step 14's CONNECTION probes); per entry, resolve its
+  pinned target, and if that target's connection probe failed, emit a
+  `skipped (connection <name> unreachable)` row instead of EXPLAINing.
+- Orchestrator threads `targets`, `registry`, and the `reachable` map into M2,
+  replacing the single-`default` backend it passed in Step 14.
 
 ## HOW
-Edit the `_DATABASE_CONFIG_MSSQL` / `_DATABASE_CONFIG_POSTGRESQL` string templates.
-For mssql, show `databases = ["sales", "hr"]` + `default_database = "sales"`.
-For postgresql, show a single-entry `databases = ["mydb"]` (exactly one allowed).
-Add a README config table row and an `architecture.md` §5 note on the conditional
-tool surface + `read_databases` naming.
+- Step 14 already builds `ResolvedTargets` + `BackendRegistry` and probes each
+  pair for CONNECTION. Capture that as `reachable: dict[(conn, db), bool]` and
+  pass it to M2.
+- Per query/update: `target = targets.resolve_pinned(cfg.connection or None,
+  cfg.database or None)`; if `reachable[(target.connection, target.database)]` is
+  False, emit the skip row; else EXPLAIN against `registry.backend_for(target)`.
 
-## ALGORITHM
-None (template strings + docs).
+## ALGORITHM (orchestrator M2)
+```
+reachable = {}                      # (conn,db) -> ok, from CONNECTION probes (Step 14)
+for t in targets.targets: probe -> CONNECTION rows; reachable[key] = ok
+verify_queries(qcfg.queries, targets, registry, reachable)   # per-target EXPLAIN/skip
+verify_updates(qcfg.updates, targets, registry, reachable)
+# registry.close_all() in the orchestrator finally (already present from Step 14)
+```
 
 ## DATA
-Template strings; documentation prose. No runtime behaviour change.
+M2 rows are either real EXPLAIN verdicts or per-connection skip rows. Skip
+summary wording updated to mention unreachable connections.
 
 ## TESTS (write first)
-- `init --backend mssql` writes a config that `load_database_config` parses into a
-  `ConnectionConfig` with `databases == ["sales","hr"]`, `default_database ==
-  "sales"` (round-trip through the Step 3 model).
-- `init --backend postgresql` round-trips to a single-database connection.
-- `init --backend sqlite` unchanged.
-- Existing init snapshot/behaviour tests updated.
+- A query pinned to an unreachable connection → skip row naming that connection;
+  a reachable query in the same run still gets a real verdict (not blanked).
+- Single-target config → M2 output equivalent to today (one reachable pair).
+- Two databases on one connection, a query pinned to each → each EXPLAINed
+  against its own target.
+- `test_verify_cli_queries_updates_snapshot`: regenerate
+  `tests/cli/fixtures/verify_snapshot.txt` to the new per-target QUERIES/UPDATES
+  row wording and confirm the CLI stdout matches it byte-for-byte.
 
 ## LLM PROMPT
 > Implement Step 15 from `pr_info/steps/step_15.md` (context in
-> `pr_info/steps/summary.md`). Update the mssql/postgresql database-config
-> templates in `cli/commands/init.py` to the `databases`/`default_database` shape
-> (legacy `database` noted as still supported; sqlite unchanged), and document the
-> two-axis model, `database="*"` fan-out, `read_databases`, pinned query
-> connection/database, and the decision-26 security caveat in `README.md`,
-> `docs/architecture/architecture.md` §5, and `docs/cli.md`. Write/adjust
-> `tests/cli/test_init.py` first (templates round-trip through the config model).
-> Run pylint, pytest (`-n auto` + unit markers), mypy, lint-imports/tach; all
-> green. One commit.
+> `pr_info/steps/summary.md`). Rework verify M2 so `verify_queries` /
+> `verify_updates` take `(scope, targets, registry, reachable)` and resolve each
+> query/update to its own pinned target — EXPLAINing reachable targets and
+> emitting per-connection skip rows for unreachable ones instead of blanking M2.
+> Thread the reachability map from Step 14's CONNECTION probes through the
+> orchestrator. Keep single-target output equivalent to today. Regenerate the
+> verify snapshot fixture to the new wording. Write tests first. Run pylint,
+> pytest (`-n auto` + unit markers), mypy, lint-imports/tach; all green. One
+> commit.
