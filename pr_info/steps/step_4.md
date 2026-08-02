@@ -42,7 +42,10 @@ Step 13 migrates `orchestrator.py` and then deletes `resolve_connection`).
 connection's `databases` in order, building one `ResolvedTarget` per pair with
 `config=conn.model_copy(update={"database": db.name})`. `default` = target for
 `(query_config.connection, that connection's default_database)`. Reuse
-`resolve_connection`'s "not found" error wording for the file-default connection.
+`resolve_connection`'s error wording for the file-default connection: an **empty**
+`connection` raises `"No connection name specified in query config"` and an
+**unknown** one raises `"Connection '<name>' not found. Available: [...]"`. Guard
+the `default` lookup so neither case leaks a bare `StopIteration`.
 
 ## ALGORITHM (resolve_targets)
 ```
@@ -52,7 +55,12 @@ for cname, conn in db_config.connections.items():
         is_def = (cname == file_conn and db.name == conn.default_database)
         targets.append(ResolvedTarget(cname, db.name, conn.model_copy(database=db.name),
                                       conn.backend, is_def, conn.description, db.description))
-default = next(t for t in targets if t.is_default)   # ValueError if file_conn unknown
+default = next((t for t in targets if t.is_default), None)
+if default is None:                                  # empty or unknown file_conn
+    available = list(db_config.connections.keys())
+    raise ValueError(              # reuse resolve_connection's wording
+        "No connection name specified in query config" if not file_conn
+        else f"Connection '{file_conn}' not found. Available: {available}")
 return ResolvedTargets(targets, default, file_conn)
 ```
 
@@ -68,7 +76,12 @@ verify. Order is config order (connections × databases).
 - `get()` unknown connection/database → `ValueError` listing available.
 - `resolve_pinned(None, None)` → default; `resolve_pinned("prod","hr")` → that
   target; `resolve_pinned("localdb","hr")` (hr not in localdb) → `ValueError`.
-- unknown file-default connection → `ValueError`.
+- unknown file-default connection → `ValueError` whose message names the
+  connection and lists available connections (`"Connection '...' not found.
+  Available: [...]"`), not a bare `StopIteration`.
+- empty file-default connection (`connection = ""`) → `ValueError` with the
+  `"No connection name specified in query config"` wording (backward-compatible
+  with `resolve_connection`).
 
 ## LLM PROMPT
 > Implement Step 4 from `pr_info/steps/step_4.md` (context in

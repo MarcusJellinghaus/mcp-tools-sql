@@ -50,7 +50,10 @@ Two validators on `ConnectionConfig`:
 
 `@model_validator(mode="after")` — validate:
 - `default_database` is a member of `databases`.
-- mssql: `databases` non-empty (≥1).
+- mssql (and its `pyodbc` alias — `create_backend` maps both to `MSSQLBackend`,
+  so the rule must cover `backend in ("mssql", "pyodbc")`): `databases`
+  non-empty (≥1). Otherwise a `pyodbc` connection with neither `database` nor
+  `databases` slips past validation and resolves to zero targets.
 - postgresql: exactly one entry.
 - legacy `database` set together with an explicit `databases` that disagrees →
   `ValueError` (rule 7).
@@ -76,6 +79,8 @@ Backward compatible: existing single-`database` configs load unchanged.
 - `default_database` not in `databases` → `ValidationError`.
 - postgresql with 2 databases → `ValidationError`; with 1 → ok.
 - mssql with empty databases → `ValidationError`.
+- `pyodbc` backend with neither `database` nor `databases` → `ValidationError`
+  (same rule as mssql, since `create_backend` maps `pyodbc` to `MSSQLBackend`).
 - legacy `database` conflicting with explicit `databases` → `ValidationError`.
 - `QueryConfig`/`UpdateConfig` accept optional `connection`/`database`, default `""`.
 
