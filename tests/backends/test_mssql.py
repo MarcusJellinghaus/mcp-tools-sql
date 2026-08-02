@@ -327,6 +327,23 @@ class TestQueries:
         cur.execute.assert_called_once_with("SELECT col FROM t WHERE x = ?", [1])
         assert rows == [{"col": "v"}]
 
+    def test_execute_query_preserves_bracket_quoting(self, fake_pyodbc: Any) -> None:
+        # T-SQL bracket-quoted identifiers must survive the ``:name`` -> ``?``
+        # translation intact: the tsql dialect keeps ``[id]`` as ``[id]`` rather
+        # than corrupting it into ``ARRAY(id)``.
+        conn = fake_pyodbc.connect.return_value
+        cur = conn.cursor.return_value
+        cur.description = [("id",)]
+        cur.fetchall.return_value = [(1,)]
+        b = MSSQLBackend(_cfg())
+        b.execute_query("SELECT [id] FROM [orders] WHERE [id] = :id", {"id": 1})
+        translated_sql = cur.execute.call_args.args[0]
+        assert "[id]" in translated_sql
+        assert "[orders]" in translated_sql
+        assert "ARRAY(" not in translated_sql
+        assert translated_sql.endswith("?")
+        assert cur.execute.call_args.args[1] == [1]
+
     def test_execute_update_returns_rowcount(self, fake_pyodbc: Any) -> None:
         cur = fake_pyodbc.connect.return_value.cursor.return_value
         cur.rowcount = 3

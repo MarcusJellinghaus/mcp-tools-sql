@@ -23,9 +23,9 @@ This tracks **Feature Implementation** consisting of multiple **Tasks**.
 
 ### Step 1: Prereq — dialect-aware placeholder translation
 Detail: [step_1.md](./steps/step_1.md)
-- [ ] Implementation (tests + production code): `dialect` param on `translate_named_to_qmark` / `substitute_named_with_literals`, threaded from `mssql.py` and `validation_tools._explain`
-- [ ] Quality checks: pylint, pytest (`-n auto` + unit markers), mypy — fix all issues
-- [ ] Commit message prepared
+- [x] Implementation (tests + production code): `dialect` param on `translate_named_to_qmark` / `substitute_named_with_literals`, threaded from `mssql.py` and `validation_tools._explain`
+- [x] Quality checks: pylint, pytest (`-n auto` + unit markers), mypy — fix all issues
+- [x] Commit message prepared
 
 ### Step 2: Prereq — `build_count_query` strips `ORDER BY`
 Detail: [step_2.md](./steps/step_2.md)

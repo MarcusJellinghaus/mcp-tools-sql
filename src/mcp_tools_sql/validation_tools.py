@@ -75,7 +75,7 @@ def _explain(
     """Return the execution plan, dispatching on backend type."""
     if backend_name == "sqlite":
         return backend.explain(sql, params)
-    explain_sql = substitute_named_with_literals(sql, params or {})
+    explain_sql = substitute_named_with_literals(sql, params or {}, "tsql")
     with backend.get_isolated_connection() as conn:
         cursor = conn.cursor()
         try:
