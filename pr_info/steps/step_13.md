@@ -7,7 +7,12 @@ See `pr_info/steps/summary.md` → "verify" (decisions 24, 25).
   `orchestrator.py`
 - `src/mcp_tools_sql/config/loader.py` (delete dead `resolve_connection`)
 - Tests: `tests/verification/test_connection.py`, `test_queries.py`,
-  `test_updates.py`, `test_orchestrator.py`, `tests/config/test_loader.py`
+  `test_updates.py`, `test_orchestrator.py`, `tests/config/test_loader.py`,
+  `tests/cli/test_verify.py`
+- Fixture: `tests/cli/fixtures/verify_snapshot.txt` — the QUERIES + UPDATES
+  byte-for-byte snapshot asserted by `test_verify_cli_queries_updates_snapshot`.
+  This step reworks the M2 (QUERIES/UPDATES) rendering, so regenerate the fixture
+  to the new per-target row wording.
 
 ## WHAT
 - CONNECTION: probe **every** `(connection, database)` pair. One sub-section /
@@ -58,6 +63,11 @@ mention unreachable connections.
   a reachable query in the same run still gets a real verdict (not blanked).
 - Single-target config → CONNECTION/M2 output equivalent to today (one pair).
 - Exit code non-zero when any pair fails.
+- `test_verify_cli_queries_updates_snapshot` still passes: regenerate
+  `tests/cli/fixtures/verify_snapshot.txt` to the new per-target QUERIES/UPDATES
+  row wording and confirm the CLI stdout matches it byte-for-byte (if the
+  single-target rendering is genuinely unchanged, the fixture stays identical —
+  either way, verify it rather than assuming).
 
 ## LLM PROMPT
 > Implement Step 13 from `pr_info/steps/step_13.md` (context in

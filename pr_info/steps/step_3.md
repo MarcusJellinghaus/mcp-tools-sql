@@ -40,13 +40,23 @@ Two validators on `ConnectionConfig`:
 - legacy `database="sales"` (and no `databases`) → `[{"name":"sales"}]`,
   `default_database="sales"`.
 - `default_database` defaults to `databases[0].name` when unset.
-- **keep the legacy `database` field populated**: set it equal to the resolved
-  `default_database`. `resolve_connection` returns the `ConnectionConfig`
-  verbatim and `mssql.py:59` reads `config.database` for the ODBC `Database=`
-  until the server migrates to `resolve_targets` in Step 6 — clearing it would
-  leave Steps 3–5 with an empty catalog and turn loader/`resolve_connection`
-  tests red. (Alternatively, migrate the `mssql.py:59` reader in the same commit
-  that clears the field; keeping it populated is the smaller change.)
+- **rule 7 conflict check runs here, against the raw authored values, before any
+  normalisation.** If the user authored **both** a legacy `database` **and** an
+  explicit `databases` (or `default_database`) that disagree — e.g.
+  `database="hr"` with `databases=["sales"]`, or `database="hr"` with
+  `default_database="sales"` — raise `ValueError`. This must happen in the
+  before-validator because normalisation overwrites `database`, so the after-
+  validator can no longer see the original authored value. Only after this check
+  passes (or `database` is absent / already consistent) do the steps below
+  overwrite it.
+- **keep the legacy `database` field populated**: after the conflict check, set it
+  equal to the resolved `default_database`. `resolve_connection` returns the
+  `ConnectionConfig` verbatim and `mssql.py:59` reads `config.database` for the
+  ODBC `Database=` until the server migrates to `resolve_targets` in Step 6 —
+  clearing it would leave Steps 3–5 with an empty catalog and turn
+  loader/`resolve_connection` tests red. (Alternatively, migrate the `mssql.py:59`
+  reader in the same commit that clears the field; keeping it populated is the
+  smaller change.)
 
 `@model_validator(mode="after")` — validate:
 - `default_database` is a member of `databases`.
@@ -55,17 +65,25 @@ Two validators on `ConnectionConfig`:
   non-empty (≥1). Otherwise a `pyodbc` connection with neither `database` nor
   `databases` slips past validation and resolves to zero targets.
 - postgresql: exactly one entry.
-- legacy `database` set together with an explicit `databases` that disagrees →
-  `ValueError` (rule 7).
+- (Rule 7 — legacy `database` conflicting with an explicit `databases` /
+  `default_database` — is enforced in the before-validator above, against the raw
+  authored values, since normalisation destroys the original `database` value.)
 
 ## ALGORITHM (before-validator)
 ```
 if backend == "sqlite": return {..., databases:[{name:"main"}], default_database:"main"}
-raw = data.get("databases") or ([data["database"]] if data.get("database") else [])
+legacy = data.get("database")                  # raw authored value, may be None
+raw = data.get("databases") or ([legacy] if legacy else [])
 specs = [ {name:x} if str else {name:k, **v} for x/k,v in raw ]
+default_db = data.get("default_database") or (specs[0]["name"] if specs else "")
+# rule 7: compare the raw authored legacy value BEFORE it is overwritten
+if legacy and data.get("databases") is not None:
+    names = [s["name"] for s in specs]
+    if legacy not in names or (data.get("default_database") and legacy != default_db):
+        raise ValueError("`database` conflicts with `databases`/`default_database`")
 data["databases"] = specs
-data.setdefault("default_database", specs[0]["name"] if specs else "")
-data["database"] = data["default_database"]   # keep legacy field valid for Steps 3-5
+data["default_database"] = default_db
+data["database"] = default_db                  # keep legacy field valid for Steps 3-5
 return data
 ```
 
