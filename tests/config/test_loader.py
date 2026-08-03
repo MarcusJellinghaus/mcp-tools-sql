@@ -266,7 +266,10 @@ class TestEnvVarExpansion:
         monkeypatch.setenv("MY_PW", "secret")
         config_file = tmp_path / "config.toml"
         config_file.write_text(
-            "[connections.default]\n" 'backend = "mssql"\n' 'password = "${MY_PW}"\n',
+            "[connections.default]\n"
+            'backend = "mssql"\n'
+            'database = "mydb"\n'
+            'password = "${MY_PW}"\n',
             encoding="utf-8",
         )
 
@@ -315,7 +318,10 @@ class TestEnvVarExpansion:
         monkeypatch.setenv("MY_PORT", "1433")
         config_file = tmp_path / "config.toml"
         config_file.write_text(
-            "[connections.default]\n" 'backend = "mssql"\n' 'port = "${MY_PORT}"\n',
+            "[connections.default]\n"
+            'backend = "mssql"\n'
+            'database = "mydb"\n'
+            'port = "${MY_PORT}"\n',
             encoding="utf-8",
         )
 

@@ -35,9 +35,9 @@ Detail: [step_2.md](./steps/step_2.md)
 
 ### Step 3: Config models — multi-database fields
 Detail: [step_3.md](./steps/step_3.md)
-- [ ] Implementation (tests + production code): `DatabaseSpec`, `ConnectionConfig` databases/default_database/description + before/after validators, pinned `QueryConfig`/`UpdateConfig` fields
-- [ ] Quality checks: pylint, pytest (`-n auto` + unit markers), mypy — fix all issues
-- [ ] Commit message prepared
+- [x] Implementation (tests + production code): `DatabaseSpec`, `ConnectionConfig` databases/default_database/description + before/after validators, pinned `QueryConfig`/`UpdateConfig` fields
+- [x] Quality checks: pylint, pytest (`-n auto` + unit markers), mypy — fix all issues
+- [x] Commit message prepared
 
 ### Step 4: Config resolution — `resolve_targets` + Resolved* models
 Detail: [step_4.md](./steps/step_4.md)
