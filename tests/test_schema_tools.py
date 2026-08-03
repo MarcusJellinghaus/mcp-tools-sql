@@ -12,6 +12,7 @@ import pytest
 from mcp.server.fastmcp import FastMCP
 from mcp.shared.memory import create_connected_server_and_client_session
 
+from mcp_tools_sql.backends.base import DatabaseBackend
 from mcp_tools_sql.backends.sqlite import SQLiteBackend
 from mcp_tools_sql.config.models import (
     BackendQueryConfig,
@@ -738,3 +739,210 @@ async def test_multi_install_exposes_selector_params_in_schema(
         assert "sales" in db_schema
         assert "hr" in db_schema
         assert "warehouse" in db_schema
+
+
+# ---------------------------------------------------------------------------
+# build_schema_body — database="*" fan-out (Step 11)
+# ---------------------------------------------------------------------------
+
+
+class _FanoutBackend(DatabaseBackend):
+    """A minimal backend that returns preset rows (or raises) on query."""
+
+    def __init__(
+        self,
+        rows: list[dict[str, Any]],
+        *,
+        raises: Exception | None = None,
+    ) -> None:
+        self._rows = rows
+        self._raises = raises
+
+    def connect(self) -> None:
+        """No-op connect."""
+
+    def close(self) -> None:
+        """No-op close."""
+
+    def execute_query(
+        self, sql: str, params: dict[str, Any] | None = None
+    ) -> list[dict[str, Any]]:
+        """Return fresh copies of the preset rows, or raise if configured.
+
+        Returns:
+            Shallow copies of the seeded rows so downstream ``_database``
+            tagging never mutates the fixture.
+        """
+        if self._raises is not None:
+            raise self._raises
+        return [dict(r) for r in self._rows]
+
+    def execute_readonly_query(
+        self, sql: str, params: dict[str, Any] | None = None
+    ) -> list[dict[str, Any]]:
+        """Unused in these tests.
+
+        Raises:
+            NotImplementedError: Always.
+        """
+        raise NotImplementedError
+
+    def execute_update(self, sql: str, params: dict[str, Any] | None = None) -> int:
+        """Unused in these tests.
+
+        Raises:
+            NotImplementedError: Always.
+        """
+        raise NotImplementedError
+
+    def explain(self, sql: str, params: dict[str, Any] | None = None) -> str:
+        """Unused in these tests.
+
+        Raises:
+            NotImplementedError: Always.
+        """
+        raise NotImplementedError
+
+    def get_isolated_connection(self) -> Any:
+        """Unused in these tests.
+
+        Raises:
+            NotImplementedError: Always.
+        """
+        raise NotImplementedError
+
+
+def _fanout_registry(
+    sales: _FanoutBackend,
+    hr: _FanoutBackend,
+    warehouse: _FanoutBackend | None = None,
+) -> RecordingRegistry:
+    """Seed a registry for the ``_multi_targets`` connections."""
+    return RecordingRegistry(
+        {
+            ("default", "sales"): sales,
+            ("default", "hr"): hr,
+            ("other", "warehouse"): warehouse or _FanoutBackend([]),
+        }
+    )
+
+
+def _filter_config() -> QueryConfig:
+    """A read_columns-style query whose ``name`` column drives the glob filter."""
+    return QueryConfig(
+        description="List columns",
+        sql="SELECT name FROM columns",
+        filter_column="name",
+    )
+
+
+@pytest.mark.asyncio
+async def test_fanout_merges_rows_with_database_column_in_config_order() -> None:
+    """`database='*'` merges every db's rows tagged with `_database`, in order."""
+    registry = _fanout_registry(
+        _FanoutBackend([{"name": "alice"}, {"name": "amy"}]),
+        _FanoutBackend([{"name": "carol"}]),
+    )
+    body = build_schema_body(
+        "read_tables", _tables_config(), registry, _multi_targets(), ""
+    )
+
+    text = await body(database="*")
+
+    assert "_database" in text
+    assert text.index("alice") < text.index("carol")  # config order: sales, hr
+    assert "sales" in text
+    assert "hr" in text
+    # Fan-out hit both databases of the default connection, in config order.
+    assert [(c.connection, c.database) for c in registry.calls] == [
+        ("default", "sales"),
+        ("default", "hr"),
+    ]
+
+
+@pytest.mark.asyncio
+async def test_fanout_footer_counts_exact_and_capped_on_truncation() -> None:
+    """Merged total caps at max_rows; footer shows exact per-db counts."""
+    registry = _fanout_registry(
+        _FanoutBackend([{"id": i} for i in range(3)]),
+        _FanoutBackend([{"id": i} for i in range(4)]),
+    )
+    body = build_schema_body(
+        "read_tables", _tables_config(), registry, _multi_targets(), ""
+    )
+
+    text = await body(database="*", max_rows=5)
+
+    assert "Showing 5 of 7 rows." in text
+    assert "Matched: sales 3, hr 4." in text
+
+
+@pytest.mark.asyncio
+async def test_fanout_footer_absent_without_truncation() -> None:
+    """When the merged total fits, no truncation footer is rendered."""
+    registry = _fanout_registry(
+        _FanoutBackend([{"id": 1}]),
+        _FanoutBackend([{"id": 2}]),
+    )
+    body = build_schema_body(
+        "read_tables", _tables_config(), registry, _multi_targets(), ""
+    )
+
+    text = await body(database="*", max_rows=100)
+
+    assert "Showing" not in text
+    assert "Matched:" not in text
+
+
+@pytest.mark.asyncio
+async def test_fanout_one_target_error_rendered_inline() -> None:
+    """A failing database is reported inline; the other's rows still show."""
+    registry = _fanout_registry(
+        _FanoutBackend([{"name": "alice"}]),
+        _FanoutBackend([], raises=RuntimeError("boom")),
+    )
+    body = build_schema_body(
+        "read_tables", _tables_config(), registry, _multi_targets(), ""
+    )
+
+    text = await body(database="*")
+
+    assert "alice" in text  # surviving target's rows
+    assert "hr:" in text  # errored database named
+    assert "boom" in text  # its error surfaced
+
+
+@pytest.mark.asyncio
+async def test_fanout_name_filter_applies_per_target_before_merge() -> None:
+    """`name_filter` filters each target before the merge/cap, not after."""
+    registry = _fanout_registry(
+        _FanoutBackend([{"name": "alpha"}, {"name": "beta"}]),
+        _FanoutBackend([{"name": "alfred"}, {"name": "gamma"}]),
+    )
+    body = build_schema_body(
+        "read_columns", _filter_config(), registry, _multi_targets(), ""
+    )
+
+    text = await body(database="*", name_filter="al*")
+
+    assert "alpha" in text  # matched in sales
+    assert "alfred" in text  # matched in hr
+    assert "beta" not in text
+    assert "gamma" not in text
+
+
+@pytest.mark.asyncio
+async def test_pinned_database_has_no_database_column() -> None:
+    """The single-target path never adds a `_database` column (Step 10 intact)."""
+    registry = _fanout_registry(
+        _FanoutBackend([{"name": "alice"}]),
+        _FanoutBackend([{"name": "carol"}]),
+    )
+    body = build_schema_body(
+        "read_tables", _tables_config(), registry, _multi_targets(), ""
+    )
+
+    text = await body(database="hr")
+
+    assert "carol" in text
+    assert "_database" not in text

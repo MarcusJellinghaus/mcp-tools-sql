@@ -2,7 +2,11 @@
 
 from __future__ import annotations
 
-from mcp_tools_sql.formatting import format_rows, format_update_result
+from mcp_tools_sql.formatting import (
+    format_fanout_rows,
+    format_rows,
+    format_update_result,
+)
 
 
 class TestFormatRows:
@@ -98,6 +102,89 @@ class TestFormatRows:
         last_line = result.strip().split("\n")[-1]
         assert last_line.endswith("rows.")
         assert "Use filter to narrow" not in result
+
+
+class TestFormatFanoutRows:
+    """Tests for the format_fanout_rows function."""
+
+    def test_single_db_no_errors_equals_format_rows(self) -> None:
+        """One database, no errors → byte-identical to format_rows output."""
+        rows = [
+            {"name": "alice", "_database": "sales"},
+            {"name": "bob", "_database": "sales"},
+        ]
+        counts = {"sales": 2}
+        result = format_fanout_rows(rows, counts, [], max_rows=100)
+        assert result == format_rows(rows, 100)
+
+    def test_single_db_no_errors_passes_hint_through(self) -> None:
+        """Delegation preserves the truncation hint for the single-db case."""
+        rows = [{"id": i, "_database": "sales"} for i in range(20)]
+        counts = {"sales": 20}
+        result = format_fanout_rows(
+            rows, counts, [], max_rows=5, truncation_hint="Refine query."
+        )
+        assert result == format_rows(rows, 5, truncation_hint="Refine query.")
+
+    def test_two_dbs_no_truncation_shows_all_without_footer(self) -> None:
+        """Two databases below the cap render the merged table with no footer."""
+        rows = [
+            {"name": "alice", "_database": "sales"},
+            {"name": "carol", "_database": "hr"},
+        ]
+        counts = {"sales": 1, "hr": 1}
+        result = format_fanout_rows(rows, counts, [], max_rows=100)
+        assert "alice" in result
+        assert "carol" in result
+        assert "_database" in result
+        assert "Showing" not in result
+        assert "Matched:" not in result
+
+    def test_two_dbs_truncation_shows_exact_per_db_footer(self) -> None:
+        """On truncation the footer lists exact per-database counts."""
+        rows = [{"id": i, "_database": "sales"} for i in range(3)] + [
+            {"id": i, "_database": "hr"} for i in range(4)
+        ]
+        counts = {"sales": 3, "hr": 4}
+        result = format_fanout_rows(rows, counts, [], max_rows=5)
+        assert "Showing 5 of 7 rows." in result
+        assert "Matched: sales 3, hr 4." in result
+
+    def test_footer_only_on_truncation(self) -> None:
+        """Exactly max_rows merged rows → no footer even with multiple dbs."""
+        rows = [{"id": 1, "_database": "sales"}, {"id": 2, "_database": "hr"}]
+        counts = {"sales": 1, "hr": 1}
+        result = format_fanout_rows(rows, counts, [], max_rows=2)
+        assert "Showing" not in result
+        assert "Matched:" not in result
+
+    def test_errors_rendered_inline(self) -> None:
+        """A failed database is rendered inline; other rows still shown."""
+        rows = [{"name": "alice", "_database": "sales"}]
+        counts = {"sales": 1}
+        errors = [("hr", "connection refused")]
+        result = format_fanout_rows(rows, counts, errors, max_rows=100)
+        assert "alice" in result
+        assert "hr: connection refused" in result
+
+    def test_errors_only_no_rows(self) -> None:
+        """All databases failing renders no table body but lists every error."""
+        errors = [("sales", "boom"), ("hr", "kaboom")]
+        result = format_fanout_rows([], {}, errors, max_rows=100)
+        assert "No results found." in result
+        assert "sales: boom" in result
+        assert "hr: kaboom" in result
+
+    def test_truncation_footer_hint_appended(self) -> None:
+        """The truncation hint is appended after the per-db footer breakdown."""
+        rows = [{"id": i, "_database": "sales"} for i in range(3)] + [
+            {"id": i, "_database": "hr"} for i in range(3)
+        ]
+        counts = {"sales": 3, "hr": 3}
+        result = format_fanout_rows(
+            rows, counts, [], max_rows=4, truncation_hint="Use filter to narrow."
+        )
+        assert "Matched: sales 3, hr 3. Use filter to narrow." in result
 
 
 class TestFormatUpdateResult:

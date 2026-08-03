@@ -105,14 +105,15 @@ class SchemaTools:
     def register(self, mcp: FastMCP) -> None:
         """Load default_queries.toml and register all schema tools on ``mcp``.
 
-        Each tool resolves its ``(connection, database)`` target at call time
-        (single target for now — fan-out is Step 11). For single-target installs
+        Each tool resolves its ``(connection, database)`` target at call time,
+        with ``database="*"`` fanning out across every database of the resolved
+        connection (hence ``star=True``). For single-target installs
         ``build_target_params`` adds nothing, so the signature is byte-identical
         to a pinned build.
         """
         for name, config in load_default_queries().items():
             sig_params = build_query_sig_params(config) + build_target_params(
-                self._targets
+                self._targets, star=True
             )
             body = build_schema_body(
                 name,

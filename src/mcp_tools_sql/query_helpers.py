@@ -15,7 +15,7 @@ from typing import TYPE_CHECKING, Annotated, Any, Literal, Optional, cast
 
 from pydantic import Field
 
-from mcp_tools_sql.formatting import format_rows
+from mcp_tools_sql.formatting import format_fanout_rows, format_rows
 from mcp_tools_sql.tool_logging import log_tool_call
 from mcp_tools_sql.utils.data_type_utility.type_mapping import resolve_python_type
 from mcp_tools_sql.utils.sql_placeholders import ParseError, extract_param_names
@@ -128,6 +128,23 @@ def build_query_sig_params(config: QueryConfig) -> list[inspect.Parameter]:
     return sig_params
 
 
+def _cap_max_rows(config: QueryConfig, requested: int) -> tuple[int, str]:
+    """Clamp ``requested`` to ``config.max_rows_hard``.
+
+    Returns:
+        A ``(capped, note)`` pair. ``note`` is a human-readable explanation to
+        append to output when the request exceeded the hard limit, else "".
+    """
+    hard: int = cast(int, config.max_rows_hard)
+    if requested > hard:
+        note = (
+            f"\n\nRequested max_rows={requested} exceeds hard limit "
+            f"{hard}; capped at {hard}."
+        )
+        return hard, note
+    return requested, ""
+
+
 async def execute_and_format(
     name: str,
     resolved_sql: str,
@@ -150,15 +167,9 @@ async def execute_and_format(
         The formatted result text, with a max_rows cap note appended when the
         requested limit exceeded the hard limit.
     """
-    requested: int = kwargs.pop("max_rows", config.max_rows_default)
-    hard: int = cast(int, config.max_rows_hard)
-    note = ""
-    if requested > hard:
-        note = (
-            f"\n\nRequested max_rows={requested} exceeds hard limit "
-            f"{hard}; capped at {hard}."
-        )
-        requested = hard
+    requested, note = _cap_max_rows(
+        config, kwargs.pop("max_rows", config.max_rows_default)
+    )
     filter_pattern: str | None = (
         kwargs.pop(filter_kwarg, None) if filter_kwarg else None
     )
@@ -205,7 +216,11 @@ def build_query_body(
     return body
 
 
-def build_target_params(targets: ResolvedTargets) -> list[inspect.Parameter]:
+def build_target_params(
+    targets: ResolvedTargets,
+    *,
+    star: bool = False,
+) -> list[inspect.Parameter]:
     """Build the keyword-only ``connection``/``database`` selector parameters.
 
     These runtime target-selection params are shown only for multi-target
@@ -219,6 +234,12 @@ def build_target_params(targets: ResolvedTargets) -> list[inspect.Parameter]:
       is always added under multi. Its default is ``None`` so ``resolve_pinned``
       falls back to the *selected* connection's ``default_database`` rather than
       the file-default connection's catalog.
+
+    Args:
+        targets: The resolved targets to derive the enum members from.
+        star: When True, append the ``"*"`` fan-out sentinel to the ``database``
+            enum. Only the ``schema_tools`` fan-out caller passes ``star=True``;
+            pinned callers take the default and never see ``"*"``.
 
     Returns:
         The keyword-only selector params, or an empty list when not multi.
@@ -241,8 +262,13 @@ def build_target_params(targets: ResolvedTargets) -> list[inspect.Parameter]:
             )
         )
 
-    db_enum: Any = Literal.__getitem__(tuple(targets.database_names))
+    db_names = list(targets.database_names)
+    if star:
+        db_names.append("*")
+    db_enum: Any = Literal.__getitem__(tuple(db_names))
     db_desc = "Database (catalog) to run against; defaults to the connection default."
+    if star:
+        db_desc += " Use '*' to fan out across all databases of the connection."
     params.append(
         inspect.Parameter(
             "database",
@@ -262,23 +288,73 @@ def build_schema_body(
     targets: ResolvedTargets,
     truncation_hint: str,
 ) -> Callable[..., Awaitable[str]]:
-    """Build a runtime-resolving schema tool body over one resolved target.
+    """Build a runtime-resolving schema tool body over one or all targets.
 
     Unlike :func:`build_query_body` (which pins its backend at registration
-    time), this body resolves exactly one ``(connection, database)`` target from
-    the call-time ``connection``/``database`` kwargs, then delegates to the
-    shared :func:`execute_and_format` core — no execution/format logic is
-    reimplemented here.
+    time), this body resolves its ``(connection, database)`` target from the
+    call-time ``connection``/``database`` kwargs. For a pinned database it
+    resolves exactly one target and delegates to the shared
+    :func:`execute_and_format` core. For ``database="*"`` it fans out across
+    **every** database of the resolved connection, tags each row with a
+    ``_database`` column, merges in config order, caps the merged total at
+    ``max_rows``, and renders a per-database footer plus inline per-target
+    errors via :func:`format_fanout_rows`. The ``_database`` column appears
+    only on the fan-out path — single-target output is unchanged.
 
     Returns:
-        An async callable that resolves one target then executes and formats it,
-        or returns a friendly verdict string when the target pair is invalid.
+        An async callable that resolves its target(s) then executes and formats
+        the result, or returns a friendly verdict string when the pinned target
+        pair is invalid.
     """
     filter_kwarg = f"{config.filter_column}_filter" if config.filter_column else None
 
+    async def fanout(conn: str, kwargs: dict[str, Any]) -> str:
+        """Execute against every database of ``conn`` and merge the rows."""
+        fan_targets = targets.for_connection(conn)
+        if not fan_targets:
+            return (
+                f"Connection '{conn}' not found. "
+                f"Available: {targets.connection_names}"
+            )
+        requested, note = _cap_max_rows(
+            config, kwargs.pop("max_rows", config.max_rows_default)
+        )
+        filter_pattern: str | None = (
+            kwargs.pop(filter_kwarg, None) if filter_kwarg else None
+        )
+        # All targets of one connection share a backend_name → resolve SQL once.
+        resolved_sql = config.resolve_sql(fan_targets[0].backend_name)
+        sql_params = extract_sql_params(resolved_sql)
+        stripped = {k: v for k, v in kwargs.items() if k in sql_params}
+
+        merged: list[dict[str, Any]] = []
+        counts: dict[str, int] = {}
+        errors: list[tuple[str, str]] = []
+        async with log_tool_call(name, stripped, sql=resolved_sql) as rec:
+            for target in fan_targets:
+                try:
+                    rows = registry.backend_for(target).execute_query(
+                        resolved_sql, stripped or None
+                    )
+                    if filter_kwarg:
+                        rows = apply_filter(rows, config.filter_column, filter_pattern)
+                    for row in rows:
+                        row["_database"] = target.database
+                    counts[target.database] = len(rows)
+                    merged.extend(rows)
+                except Exception as exc:  # noqa: BLE001
+                    errors.append((target.database, str(exc)))
+            rec.record(rows=len(merged), cols=len(merged[0]) if merged else 0)
+        formatted = format_fanout_rows(
+            merged, counts, errors, requested, truncation_hint=truncation_hint
+        )
+        return formatted + note
+
     async def body(**kwargs: Any) -> str:
-        conn = kwargs.pop("connection", None)
+        conn = kwargs.pop("connection", None) or targets.file_default_connection
         db = kwargs.pop("database", None)
+        if db == "*":
+            return await fanout(conn, kwargs)
         try:
             target = targets.resolve_pinned(conn, db)
         except ValueError as exc:

@@ -83,9 +83,9 @@ Detail: [step_10.md](./steps/step_10.md)
 
 ### Step 11: schema_tools — `database="*"` fan-out + `_database` + footer
 Detail: [step_11.md](./steps/step_11.md)
-- [ ] Implementation (tests + production code): `star` flag on `build_target_params`, fan-out branch in `build_schema_body`, `format_fanout_rows` in formatting
-- [ ] Quality checks: pylint, pytest (`-n auto` + unit markers), mypy — fix all issues
-- [ ] Commit message prepared
+- [x] Implementation (tests + production code): `star` flag on `build_target_params`, fan-out branch in `build_schema_body`, `format_fanout_rows` in formatting
+- [x] Quality checks: pylint, pytest (`-n auto` + unit markers), mypy — fix all issues
+- [x] Commit message prepared
 
 ### Step 12: `validate_sql` / `count_records` — `database` param, per-call dialect
 Detail: [step_12.md](./steps/step_12.md)
