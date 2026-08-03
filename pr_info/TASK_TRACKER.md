@@ -107,9 +107,9 @@ Detail: [step_14.md](./steps/step_14.md)
 
 ### Step 15: verify — per-target M2 (QUERIES/UPDATES) + skip rows + snapshot
 Detail: [step_15.md](./steps/step_15.md)
-- [ ] Implementation (tests + production code): per-target EXPLAIN/skip in `verify_queries`/`verify_updates` via reachability map; regenerate verify snapshot fixture
-- [ ] Quality checks: pylint, pytest (`-n auto` + unit markers), mypy — fix all issues
-- [ ] Commit message prepared
+- [x] Implementation (tests + production code): per-target EXPLAIN/skip in `verify_queries`/`verify_updates` via reachability map; regenerate verify snapshot fixture
+- [x] Quality checks: pylint, pytest (`-n auto` + unit markers), mypy — fix all issues
+- [x] Commit message prepared
 
 ### Step 16: `init` multi-connection template + docs
 Detail: [step_16.md](./steps/step_16.md)

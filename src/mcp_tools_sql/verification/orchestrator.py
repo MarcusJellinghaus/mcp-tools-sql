@@ -119,7 +119,7 @@ def render_skip_m2_summary(query_count: int, update_count: int) -> str:
 def _verify_connections(
     targets: ResolvedTargets,
     registry: BackendRegistry,
-) -> tuple[dict[str, Any], bool]:
+) -> tuple[dict[str, Any], bool, dict[tuple[str, str], bool]]:
     """Probe every ``(connection, database)`` pair via the registry.
 
     Merges each pair's rows into one CONNECTION result dict, prefixing every
@@ -129,11 +129,15 @@ def _verify_connections(
     the error and probing continues.
 
     Returns:
-        Tuple ``(connection_result, default_ok)`` where ``default_ok`` is True
-        when the file-default target's probe passed (so M2 may run against it).
+        Tuple ``(connection_result, default_ok, reachable)`` where
+        ``default_ok`` is True when the file-default target's probe passed (so
+        M2 may run against it), and ``reachable`` maps each
+        ``(connection, database)`` pair to whether its probe passed (consumed
+        by the per-target M2 verifiers).
     """
     result: dict[str, Any] = {}
     default_ok = False
+    reachable: dict[tuple[str, str], bool] = {}
     for target in targets.targets:
         label = f"{target.connection}/{target.database}"
         try:
@@ -144,8 +148,10 @@ def _verify_connections(
             backend = None
             probe_error = str(exc)
         pair_result = verify_connection(target, backend, probe_error=probe_error)
+        pair_ok = pair_result.get("overall_ok", False)
+        reachable[(target.connection, target.database)] = pair_ok
         if target.is_default:
-            default_ok = pair_result.get("overall_ok", False)
+            default_ok = pair_ok
         for key, entry in pair_result.items():
             if key == "overall_ok":
                 continue
@@ -153,7 +159,7 @@ def _verify_connections(
     result["overall_ok"] = all(
         entry["ok"] for key, entry in result.items() if key != "overall_ok"
     )
-    return result, default_ok
+    return result, default_ok, reachable
 
 
 def verify_all(
@@ -190,21 +196,21 @@ def verify_all(
     if resolved_targets is not None:
         registry = BackendRegistry()
         try:
-            connection_result, default_ok = _verify_connections(
+            connection_result, default_ok, reachable = _verify_connections(
                 resolved_targets, registry
             )
             sections.append(("CONNECTION", connection_result))
             if default_ok:
                 query_config = _load_query_config_for_m2(config_path)
                 if query_config is not None:
-                    default_backend = registry.backend_for(resolved_targets.default)
                     sections.append(
                         (
                             "QUERIES",
                             verify_queries(
                                 query_config.queries,
-                                resolved_targets.default.backend_name,
-                                default_backend,
+                                resolved_targets,
+                                registry,
+                                reachable,
                             ),
                         )
                     )
@@ -213,8 +219,9 @@ def verify_all(
                             "UPDATES",
                             verify_updates(
                                 query_config.updates,
-                                resolved_targets.default.backend_name,
-                                default_backend,
+                                resolved_targets,
+                                registry,
+                                reachable,
                             ),
                         )
                     )

@@ -259,3 +259,53 @@ def test_verify_all_connection_overall_ok_false_when_a_pair_fails(
     assert connection_section["overall_ok"] is False
     # Default pair failed → M2 skipped.
     assert skip_summary is not None
+
+
+def test_verify_all_skips_query_pinned_to_unreachable_connection(
+    tmp_path: Path,
+    sqlite_db: Path,
+) -> None:
+    """Reachable default + a query pinned to a down connection → per-target skip.
+
+    The default connection is reachable, so M2 runs; a query pinned to the
+    unreachable ``prod`` connection is reported as a skip row naming ``prod``
+    while an unpinned query in the same run still gets a real verdict.
+    """
+    query_cfg = tmp_path / "mcp-tools-sql.toml"
+    query_cfg.write_text(
+        'connection = "default"\n'
+        "\n"
+        "[queries.local]\n"
+        'sql = "SELECT * FROM customers"\n'
+        "max_rows_default = 10\n"
+        "\n"
+        "[queries.remote]\n"
+        'sql = "SELECT * FROM customers"\n'
+        "max_rows_default = 10\n"
+        'connection = "prod"\n',
+        encoding="utf-8",
+    )
+
+    db_cfg = tmp_path / "db-config.toml"
+    db_cfg.write_text(
+        "[connections.default]\n"
+        'backend = "sqlite"\n'
+        f'path = "{sqlite_db.as_posix()}"\n'
+        "\n"
+        "[connections.prod]\n"
+        'backend = "sqlite"\n'
+        'path = ""\n',
+        encoding="utf-8",
+    )
+
+    sections, skip_summary = verify_all(query_cfg, db_cfg)
+
+    queries_section = dict(sections)["QUERIES"]
+    # Unpinned query resolves to the reachable default → real verdict.
+    assert queries_section["local.sql"]["ok"] is True
+    assert queries_section["local.sql"]["value"] == "EXPLAIN ok"
+    # Pinned-to-down query is skipped, naming the connection.
+    assert queries_section["remote.sql"].get("warn") is True
+    assert "prod" in queries_section["remote.sql"]["value"]
+    # Default reachable → M2 ran, not skipped wholesale.
+    assert skip_summary is None
