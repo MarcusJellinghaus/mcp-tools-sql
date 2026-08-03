@@ -47,9 +47,9 @@ Detail: [step_4.md](./steps/step_4.md)
 
 ### Step 5: `BackendRegistry`
 Detail: [step_5.md](./steps/step_5.md)
-- [ ] Implementation (tests + production code): `backends/registry.py` with lazy `backend_for` cache + `close_all`; confirm lint-imports/tach boundaries hold
-- [ ] Quality checks: pylint, pytest (`-n auto` + unit markers), mypy — fix all issues
-- [ ] Commit message prepared
+- [x] Implementation (tests + production code): `backends/registry.py` with lazy `backend_for` cache + `close_all`; confirm lint-imports/tach boundaries hold
+- [x] Quality checks: pylint, pytest (`-n auto` + unit markers), mypy — fix all issues
+- [x] Commit message prepared
 
 ### Step 6: Server wiring (behaviour unchanged, single default target)
 Detail: [step_6.md](./steps/step_6.md)
