@@ -20,6 +20,9 @@ def _raw_to_specs(raw: Any) -> list[dict[str, Any]]:
     Accepts the list form (``["sales", "hr"]`` or ``[{"name": "sales"}]``) and
     the table form (``{"sales": {"description": "..."}}``), preserving the
     declared order.
+
+    Returns:
+        A list of ``{"name": ..., ...}`` spec dicts in declared order.
     """
     specs: list[dict[str, Any]] = []
     if isinstance(raw, dict):
@@ -62,6 +65,13 @@ class ConnectionConfig(BaseModel):
 
         Runs the rule 7 conflict check against the raw authored values *before*
         the legacy ``database`` field is overwritten.
+
+        Returns:
+            The mutated input data with normalised database fields.
+
+        Raises:
+            ValueError: If the legacy ``database`` conflicts with an explicit
+                ``databases``/``default_database``.
         """
         if not isinstance(data, dict):
             return data
@@ -91,7 +101,15 @@ class ConnectionConfig(BaseModel):
 
     @model_validator(mode="after")
     def _validate_databases(self) -> Self:
-        """Validate membership and per-backend cardinality rules."""
+        """Validate membership and per-backend cardinality rules.
+
+        Returns:
+            The validated model instance.
+
+        Raises:
+            ValueError: If the default database is not among the configured
+                databases, or a backend's database cardinality rule is violated.
+        """
         names = [d.name for d in self.databases]
         if self.default_database and self.default_database not in names:
             raise ValueError(
@@ -227,17 +245,17 @@ class ResolvedTargets(BaseModel):
 
     @property
     def is_multi(self) -> bool:
-        """Return True when more than one target is configured."""
+        """True when more than one target is configured."""
         return len(self.targets) > 1
 
     @property
     def connection_names(self) -> list[str]:
-        """Return the distinct connection names in config order."""
+        """The distinct connection names in config order."""
         return list(dict.fromkeys(t.connection for t in self.targets))
 
     @property
     def database_names(self) -> list[str]:
-        """Return the distinct database names in config order."""
+        """The distinct database names in config order."""
         return list(dict.fromkeys(t.database for t in self.targets))
 
     def for_connection(self, connection: str) -> list[ResolvedTarget]:

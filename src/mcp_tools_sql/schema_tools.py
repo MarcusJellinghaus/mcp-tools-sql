@@ -83,7 +83,11 @@ def build_read_databases_tool(
     ]
 
     async def read_databases() -> str:
-        """List the configured (connection, database) targets."""
+        """List the configured (connection, database) targets.
+
+        Returns:
+            The formatted table of configured targets.
+        """
         return format_rows(rows, max_rows=len(rows))
 
     return read_databases

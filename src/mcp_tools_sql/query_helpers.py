@@ -309,7 +309,12 @@ def build_schema_body(
     filter_kwarg = f"{config.filter_column}_filter" if config.filter_column else None
 
     async def fanout(conn: str, kwargs: dict[str, Any]) -> str:
-        """Execute against every database of ``conn`` and merge the rows."""
+        """Execute against every database of ``conn`` and merge the rows.
+
+        Returns:
+            The merged, formatted rows, or a friendly verdict string when
+            ``conn`` is not a known connection.
+        """
         fan_targets = targets.for_connection(conn)
         if not fan_targets:
             return (
