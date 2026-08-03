@@ -127,6 +127,51 @@ def build_query_sig_params(config: QueryConfig) -> list[inspect.Parameter]:
     return sig_params
 
 
+async def execute_and_format(
+    name: str,
+    resolved_sql: str,
+    sql_params: set[str],
+    backend: DatabaseBackend,
+    config: QueryConfig,
+    filter_kwarg: str | None,
+    truncation_hint: str,
+    kwargs: dict[str, Any],
+) -> str:
+    """Shared execution+format tail for query-style tool bodies.
+
+    Applies the ``max_rows`` hard-limit cap (appending a note when clamped),
+    pops the filter kwarg, strips ``kwargs`` down to declared SQL params, logs
+    the call, executes the query, applies the optional filter, and formats the
+    rows. Used by both ``build_query_body`` (pinned) and the runtime schema
+    bodies so the common tail has a single home.
+
+    Returns:
+        The formatted result text, with a max_rows cap note appended when the
+        requested limit exceeded the hard limit.
+    """
+    requested: int = kwargs.pop("max_rows", config.max_rows_default)
+    hard: int = cast(int, config.max_rows_hard)
+    note = ""
+    if requested > hard:
+        note = (
+            f"\n\nRequested max_rows={requested} exceeds hard limit "
+            f"{hard}; capped at {hard}."
+        )
+        requested = hard
+    filter_pattern: str | None = (
+        kwargs.pop(filter_kwarg, None) if filter_kwarg else None
+    )
+
+    stripped = {k: v for k, v in kwargs.items() if k in sql_params}
+
+    async with log_tool_call(name, stripped, sql=resolved_sql) as rec:
+        rows = backend.execute_query(resolved_sql, stripped or None)
+        if filter_kwarg:
+            rows = apply_filter(rows, config.filter_column, filter_pattern)
+        rec.record(rows=len(rows), cols=len(rows[0]) if rows else 0)
+        return format_rows(rows, requested, truncation_hint=truncation_hint) + note
+
+
 def build_query_body(
     name: str,
     config: QueryConfig,
@@ -145,26 +190,15 @@ def build_query_body(
     filter_kwarg = f"{config.filter_column}_filter" if config.filter_column else None
 
     async def body(**kwargs: Any) -> str:
-        requested: int = kwargs.pop("max_rows", config.max_rows_default)
-        hard: int = cast(int, config.max_rows_hard)
-        note = ""
-        if requested > hard:
-            note = (
-                f"\n\nRequested max_rows={requested} exceeds hard limit "
-                f"{hard}; capped at {hard}."
-            )
-            requested = hard
-        filter_pattern: str | None = (
-            kwargs.pop(filter_kwarg, None) if filter_kwarg else None
+        return await execute_and_format(
+            name,
+            resolved_sql,
+            sql_params,
+            backend,
+            config,
+            filter_kwarg,
+            truncation_hint,
+            kwargs,
         )
-
-        stripped = {k: v for k, v in kwargs.items() if k in sql_params}
-
-        async with log_tool_call(name, stripped, sql=resolved_sql) as rec:
-            rows = backend.execute_query(resolved_sql, stripped or None)
-            if filter_kwarg:
-                rows = apply_filter(rows, config.filter_column, filter_pattern)
-            rec.record(rows=len(rows), cols=len(rows[0]) if rows else 0)
-            return format_rows(rows, requested, truncation_hint=truncation_hint) + note
 
     return body

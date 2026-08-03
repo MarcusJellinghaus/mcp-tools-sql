@@ -19,7 +19,7 @@ from mcp_tools_sql.config.models import (
     QueryParamConfig,
     ResolvedTargets,
 )
-from mcp_tools_sql.query_helpers import extract_sql_params
+from mcp_tools_sql.query_helpers import execute_and_format, extract_sql_params
 from mcp_tools_sql.query_tools import QueryTools
 from tests.target_helpers import RecordingRegistry, make_target, single_target
 
@@ -27,6 +27,41 @@ from tests.target_helpers import RecordingRegistry, make_target, single_target
 def test_extract_sql_params_skips_string_literal() -> None:
     """Delegation guarantee: placeholders inside string literals are ignored."""
     assert extract_sql_params("SELECT ':foo' AS x WHERE id = :bar") == {"bar"}
+
+
+@pytest.mark.asyncio
+async def test_execute_and_format_caps_max_rows_and_filters() -> None:
+    """execute_and_format clamps max_rows (with note) and applies the filter."""
+
+    class _StubBackend:
+        def execute_query(
+            self, sql: str, params: dict[str, Any] | None = None
+        ) -> list[dict[str, Any]]:
+            return [{"name": "Bank A"}, {"name": "Bank B"}, {"name": "Bank C"}]
+
+    config = QueryConfig(
+        description="",
+        sql="SELECT name FROM customers",
+        max_rows_default=5,
+        max_rows_hard=10,
+        filter_column="name",
+    )
+
+    text = await execute_and_format(
+        "customers",
+        "SELECT name FROM customers",
+        set(),
+        _StubBackend(),  # type: ignore[arg-type]
+        config,
+        "name_filter",
+        "hint",
+        {"max_rows": 500, "name_filter": "Bank A"},
+    )
+
+    assert "Requested max_rows=500 exceeds hard limit 10" in text
+    assert "capped at 10" in text
+    assert "Bank A" in text
+    assert "Bank B" not in text
 
 
 def _sqlite_backend(db_path: Path) -> SQLiteBackend:

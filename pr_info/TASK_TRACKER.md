@@ -71,9 +71,9 @@ Detail: [step_8.md](./steps/step_8.md)
 
 ### Step 9: Extract shared `execute_and_format` core (pure refactor)
 Detail: [step_9.md](./steps/step_9.md)
-- [ ] Implementation (tests + production code): move execution+format tail out of `build_query_body` into `execute_and_format`; delegate
-- [ ] Quality checks: pylint, pytest (`-n auto` + unit markers), mypy — fix all issues
-- [ ] Commit message prepared
+- [x] Implementation (tests + production code): move execution+format tail out of `build_query_body` into `execute_and_format`; delegate
+- [x] Quality checks: pylint, pytest (`-n auto` + unit markers), mypy — fix all issues
+- [x] Commit message prepared
 
 ### Step 10: schema_tools — runtime single-target `connection`/`database` params
 Detail: [step_10.md](./steps/step_10.md)
