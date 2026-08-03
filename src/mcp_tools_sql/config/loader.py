@@ -9,7 +9,6 @@ import tomllib
 from pathlib import Path
 
 from mcp_tools_sql.config.models import (
-    ConnectionConfig,
     DatabaseConfig,
     QueryFileConfig,
     ResolvedTarget,
@@ -136,30 +135,6 @@ def load_database_config(path: Path | None = None) -> DatabaseConfig:
     return DatabaseConfig.model_validate(expanded)
 
 
-def resolve_connection(
-    query_config: QueryFileConfig,
-    db_config: DatabaseConfig,
-) -> ConnectionConfig:
-    """Look up the named connection from database config.
-
-    Returns:
-        The resolved connection configuration.
-
-    Raises:
-        ValueError: If the connection name is missing or not found
-            in db_config.connections.
-    """
-    name = query_config.connection
-    if not name:
-        msg = "No connection name specified in query config"
-        raise ValueError(msg)
-    if name not in db_config.connections:
-        available = list(db_config.connections.keys())
-        msg = f"Connection '{name}' not found. Available: {available}"
-        raise ValueError(msg)
-    return db_config.connections[name]
-
-
 def resolve_targets(
     query_config: QueryFileConfig,
     db_config: DatabaseConfig,
@@ -176,7 +151,7 @@ def resolve_targets(
 
     Raises:
         ValueError: If the file default connection name is missing or not found
-            in db_config.connections (reusing resolve_connection's wording).
+            in db_config.connections.
     """
     file_conn = query_config.connection
     targets: list[ResolvedTarget] = []

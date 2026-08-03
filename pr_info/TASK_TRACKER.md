@@ -101,9 +101,9 @@ Detail: [step_13.md](./steps/step_13.md)
 
 ### Step 14: verify — per-pair CONNECTION probing + orchestrator registry migration
 Detail: [step_14.md](./steps/step_14.md)
-- [ ] Implementation (tests + production code): probe every `(connection, database)` pair via registry; delete dead `resolve_connection` / `_resolve_connection_for_verify`; M2 + snapshot stay byte-identical
-- [ ] Quality checks: pylint, pytest (`-n auto` + unit markers), mypy — fix all issues
-- [ ] Commit message prepared
+- [x] Implementation (tests + production code): probe every `(connection, database)` pair via registry; delete dead `resolve_connection` / `_resolve_connection_for_verify`; M2 + snapshot stay byte-identical
+- [x] Quality checks: pylint, pytest (`-n auto` + unit markers), mypy — fix all issues
+- [x] Commit message prepared
 
 ### Step 15: verify — per-target M2 (QUERIES/UPDATES) + skip rows + snapshot
 Detail: [step_15.md](./steps/step_15.md)

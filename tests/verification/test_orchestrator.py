@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 from pathlib import Path
+from unittest.mock import MagicMock
 
 import pytest
 
@@ -10,6 +11,16 @@ from mcp_tools_sql.verification.orchestrator import (
     collect_install_instructions,
     verify_all,
 )
+
+
+def _stub_ok_backend() -> MagicMock:
+    """Return a stub backend whose ``SELECT 1`` probe succeeds."""
+    backend = MagicMock(name="stub_backend")
+    backend.connect.return_value = None
+    backend.execute_query.return_value = [{"v": 1}]
+    backend.close.return_value = None
+    return backend
+
 
 # ---------------------------------------------------------------------------
 # collect_install_instructions
@@ -151,3 +162,100 @@ def test_verify_all_omits_install_instructions_when_empty(
     titles = [title for title, _ in sections]
     # Happy sqlite path → no install hints → no INSTALL INSTRUCTIONS section.
     assert "INSTALL INSTRUCTIONS" not in titles
+
+
+# ---------------------------------------------------------------------------
+# CONNECTION: per-pair probing
+# ---------------------------------------------------------------------------
+
+
+def test_verify_all_connection_single_pair_is_prefixed(
+    valid_sqlite_configs: tuple[Path, Path],
+) -> None:
+    """Single-target config → one CONNECTION row-group labelled by the pair."""
+    query_cfg, db_cfg = valid_sqlite_configs
+
+    sections, _ = verify_all(query_cfg, db_cfg)
+
+    connection_section = dict(sections)["CONNECTION"]
+    keys = [k for k in connection_section if k != "overall_ok"]
+    assert keys, "expected at least one CONNECTION row"
+    assert all(k.startswith("default/main.") for k in keys)
+    assert connection_section["default/main.select_1"]["ok"] is True
+
+
+def test_verify_all_connection_probes_every_pair(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """Two databases on one connection → both pairs probed, both select_1 rows."""
+    monkeypatch.setattr(
+        "mcp_tools_sql.backends.registry.create_backend",
+        MagicMock(return_value=_stub_ok_backend()),
+    )
+    monkeypatch.setattr(
+        "mcp_tools_sql.verification.connection.socket.gethostbyname",
+        MagicMock(return_value="10.0.0.1"),
+    )
+
+    query_cfg = tmp_path / "mcp-tools-sql.toml"
+    query_cfg.write_text('connection = "prod"\n', encoding="utf-8")
+
+    db_cfg = tmp_path / "db-config.toml"
+    db_cfg.write_text(
+        "[connections.prod]\n"
+        'backend = "mssql"\n'
+        'host = "h"\n'
+        'databases = ["sales", "hr"]\n'
+        'password = "pw"\n',
+        encoding="utf-8",
+    )
+
+    sections, _ = verify_all(query_cfg, db_cfg)
+
+    connection_section = dict(sections)["CONNECTION"]
+    assert "prod/sales.select_1" in connection_section
+    assert "prod/hr.select_1" in connection_section
+    assert connection_section["prod/sales.select_1"]["ok"] is True
+    assert connection_section["prod/hr.select_1"]["ok"] is True
+
+
+def test_verify_all_connection_overall_ok_false_when_a_pair_fails(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """A failing pair flips the merged CONNECTION ``overall_ok`` to False."""
+    failing = MagicMock(name="failing_backend")
+    failing.connect.return_value = None
+    failing.execute_query.side_effect = RuntimeError("cannot connect")
+    failing.close.return_value = None
+    monkeypatch.setattr(
+        "mcp_tools_sql.backends.registry.create_backend",
+        MagicMock(return_value=failing),
+    )
+    monkeypatch.setattr(
+        "mcp_tools_sql.verification.connection.socket.gethostbyname",
+        MagicMock(return_value="10.0.0.1"),
+    )
+
+    query_cfg = tmp_path / "mcp-tools-sql.toml"
+    query_cfg.write_text('connection = "prod"\n', encoding="utf-8")
+
+    db_cfg = tmp_path / "db-config.toml"
+    db_cfg.write_text(
+        "[connections.prod]\n"
+        'backend = "mssql"\n'
+        'host = "h"\n'
+        'databases = ["sales", "hr"]\n'
+        'password = "pw"\n',
+        encoding="utf-8",
+    )
+
+    sections, skip_summary = verify_all(query_cfg, db_cfg)
+
+    connection_section = dict(sections)["CONNECTION"]
+    assert connection_section["prod/sales.select_1"]["ok"] is False
+    assert connection_section["prod/hr.select_1"]["ok"] is False
+    assert connection_section["overall_ok"] is False
+    # Default pair failed → M2 skipped.
+    assert skip_summary is not None

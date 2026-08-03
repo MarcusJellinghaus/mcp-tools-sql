@@ -8,9 +8,9 @@ import subprocess
 import sys
 from typing import Any
 
-from mcp_tools_sql.backends.base import DatabaseBackend, create_backend
+from mcp_tools_sql.backends.base import DatabaseBackend
 from mcp_tools_sql.backends.mssql import build_sanitized_connection_string
-from mcp_tools_sql.config.models import ConnectionConfig
+from mcp_tools_sql.config.models import ResolvedTarget
 from mcp_tools_sql.verification._helpers import make_entry
 
 logger = logging.getLogger(__name__)
@@ -100,18 +100,24 @@ def _check_kerberos_ticket() -> tuple[bool, str, str]:
 
 
 def verify_connection(
-    connection: ConnectionConfig,
-) -> tuple[dict[str, Any], DatabaseBackend | None]:
-    """Verify connectivity to the configured database.
+    target: ResolvedTarget,
+    backend: DatabaseBackend | None,
+    *,
+    probe_error: str = "",
+) -> dict[str, Any]:
+    """Verify connectivity for a single ``(connection, database)`` target.
 
-    Builds a backend via ``create_backend(connection)`` and runs ``SELECT 1``.
-    On success the backend is left **open** and returned as the second tuple
-    element so M2 sections can reuse it; the caller is responsible for
-    closing it. On failure the second tuple element is ``None``.
+    Emits the config-derived rows (backend, driver, host/port, the per-pair
+    ``database`` catalog, credentials, DNS, Kerberos, connection string) and a
+    ``select_1`` probe run against *backend* — the registry-owned backend for
+    this target. The registry owns the backend lifecycle, so this function
+    never creates or closes it. When *backend* is ``None`` (its creation
+    failed) the ``select_1`` row fails with *probe_error*.
 
     Returns:
-        A 2-tuple of (result_dict, open_backend_or_None).
+        A verifier result dict for this pair, including ``overall_ok``.
     """
+    connection = target.config
     result: dict[str, Any] = {}
     result["backend"] = make_entry(ok=True, value=connection.backend)
 
@@ -187,24 +193,19 @@ def verify_connection(
             ok=True, value=build_sanitized_connection_string(connection)
         )
 
-    open_backend: DatabaseBackend | None = None
-    backend: DatabaseBackend | None = None
-    try:
-        backend = create_backend(connection)
-        backend.connect()
-        backend.execute_query("SELECT 1")
-        result["select_1"] = make_entry(ok=True, value="ok")
-        open_backend = backend
-    except Exception as exc:  # pylint: disable=broad-except
-        result["select_1"] = make_entry(ok=False, value="failed", error=str(exc))
-        if backend is not None:
-            try:
-                backend.close()
-            except Exception:  # pylint: disable=broad-except
-                pass
-        open_backend = None
+    if backend is None:
+        result["select_1"] = make_entry(
+            ok=False, value="failed", error=probe_error or "backend unavailable"
+        )
+    else:
+        try:
+            backend.connect()
+            backend.execute_query("SELECT 1")
+            result["select_1"] = make_entry(ok=True, value="ok")
+        except Exception as exc:  # pylint: disable=broad-except
+            result["select_1"] = make_entry(ok=False, value="failed", error=str(exc))
 
     result["overall_ok"] = all(
         entry["ok"] for key, entry in result.items() if key != "overall_ok"
     )
-    return result, open_backend
+    return result

@@ -8,10 +8,27 @@ from unittest.mock import MagicMock
 
 import pytest
 
-from mcp_tools_sql.backends.base import DatabaseBackend
+from mcp_tools_sql.backends.base import create_backend
 from mcp_tools_sql.backends.sqlite import SQLiteBackend
-from mcp_tools_sql.config.models import ConnectionConfig
+from mcp_tools_sql.config.models import ConnectionConfig, ResolvedTarget
 from mcp_tools_sql.verification import verify_connection
+
+
+def _target(
+    config: ConnectionConfig,
+    *,
+    connection: str = "conn",
+    database: str = "main",
+    is_default: bool = True,
+) -> ResolvedTarget:
+    """Wrap a ConnectionConfig in a ResolvedTarget for one pair."""
+    return ResolvedTarget(
+        connection=connection,
+        database=database,
+        config=config,
+        backend_name=config.backend,
+        is_default=is_default,
+    )
 
 
 def _sqlite_connection(path: Path) -> ConnectionConfig:
@@ -19,38 +36,50 @@ def _sqlite_connection(path: Path) -> ConnectionConfig:
     return ConnectionConfig(backend="sqlite", path=str(path))
 
 
+@pytest.fixture
+def ok_backend() -> MagicMock:
+    """Return a stub backend whose ``SELECT 1`` probe always succeeds."""
+    backend = MagicMock(name="ok_backend")
+    backend.connect.return_value = None
+    backend.execute_query.return_value = [{"v": 1}]
+    backend.close.return_value = None
+    return backend
+
+
 def test_verify_connection_sqlite_select_1_ok(tmp_path: Path) -> None:
-    """Real sqlite tmp file → all rows ok=True, select_1 value 'ok'."""
+    """Real sqlite tmp file + registry backend → all rows ok, select_1 'ok'."""
     db_path = tmp_path / "real.sqlite"
     db_path.write_bytes(b"")
-    result, open_backend = verify_connection(_sqlite_connection(db_path))
+    config = _sqlite_connection(db_path)
+    backend = create_backend(config)
     try:
+        result = verify_connection(_target(config), backend)
+        assert isinstance(backend, SQLiteBackend)
         assert result["backend"]["ok"] is True
         assert result["path"]["ok"] is True
         assert result["select_1"]["ok"] is True
         assert result["select_1"]["value"] == "ok"
         assert result["overall_ok"] is True
     finally:
-        if open_backend is not None:
-            open_backend.close()
+        backend.close()
 
 
 def test_verify_connection_sqlite_missing_path() -> None:
-    """Empty path → ok=False with helpful error and select_1 fails."""
-    conn = ConnectionConfig(backend="sqlite", path="")
-    result, open_backend = verify_connection(conn)
+    """Empty path → ok=False with helpful error and select_1 fails on connect."""
+    config = ConnectionConfig(backend="sqlite", path="")
+    backend = create_backend(config)
     try:
+        result = verify_connection(_target(config), backend)
         assert result["path"]["ok"] is False
         assert "must be set" in result["path"]["error"]
         assert result["select_1"]["ok"] is False
         assert result["overall_ok"] is False
     finally:
-        if open_backend is not None:
-            open_backend.close()
+        backend.close()
 
 
-def test_verify_connection_unimplemented_backend_is_err() -> None:
-    """`postgresql` (no impl) → select_1 fails via create_backend ValueError."""
+def test_verify_connection_none_backend_uses_probe_error() -> None:
+    """A None backend (creation failed) → select_1 fails with the probe error."""
     conn = ConnectionConfig(
         backend="postgresql",
         host="localhost",
@@ -58,16 +87,49 @@ def test_verify_connection_unimplemented_backend_is_err() -> None:
         database="db",
         password="pw",
     )
-    result, open_backend = verify_connection(conn)
-    try:
-        assert result["select_1"]["ok"] is False
-        assert "Unsupported backend" in result["select_1"]["error"]
-    finally:
-        if open_backend is not None:
-            open_backend.close()
+    result = verify_connection(
+        _target(conn, database="db"),
+        None,
+        probe_error="Unsupported backend: postgresql",
+    )
+    assert result["select_1"]["ok"] is False
+    assert "Unsupported backend" in result["select_1"]["error"]
+    assert result["overall_ok"] is False
 
 
-def test_verify_connection_credentials_password_set() -> None:
+def test_verify_connection_none_backend_default_error() -> None:
+    """A None backend with no probe error → generic 'backend unavailable'."""
+    conn = ConnectionConfig(backend="sqlite", path="/x")
+    result = verify_connection(_target(conn), None)
+    assert result["select_1"]["ok"] is False
+    assert result["select_1"]["error"] == "backend unavailable"
+
+
+def test_verify_connection_database_row_is_pinned_catalog(
+    ok_backend: MagicMock,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """The ``database`` row reflects the per-pair pinned catalog under test."""
+    monkeypatch.setattr(
+        "mcp_tools_sql.verification.connection.socket.gethostbyname",
+        MagicMock(return_value="10.0.0.1"),
+    )
+    conn = ConnectionConfig.model_validate(
+        {
+            "backend": "mssql",
+            "host": "h",
+            "port": 1433,
+            "databases": ["sales", "hr"],
+            "trusted_connection": True,
+        }
+    )
+    pinned = conn.model_copy(update={"database": "hr"})
+    result = verify_connection(_target(pinned, database="hr"), ok_backend)
+    assert result["database"]["ok"] is True
+    assert result["database"]["value"] == "hr"
+
+
+def test_verify_connection_credentials_password_set(ok_backend: MagicMock) -> None:
     """Password resolved → credentials row ok=True with value 'password'."""
     conn = ConnectionConfig(
         backend="mssql",
@@ -76,30 +138,24 @@ def test_verify_connection_credentials_password_set() -> None:
         database="d",
         password="resolved",
     )
-    result, open_backend = verify_connection(conn)
-    try:
-        assert result["credentials"]["ok"] is True
-        assert result["credentials"]["value"] == "password"
-    finally:
-        if open_backend is not None:
-            open_backend.close()
+    result = verify_connection(_target(conn, database="d"), ok_backend)
+    assert result["credentials"]["ok"] is True
+    assert result["credentials"]["value"] == "password"
 
 
-def test_verify_connection_credentials_trusted_only() -> None:
+def test_verify_connection_credentials_trusted_only(ok_backend: MagicMock) -> None:
     """trusted_connection=true (no password) → value 'trusted_connection'."""
     conn = ConnectionConfig(
         backend="mssql", host="h", port=1433, database="d", trusted_connection=True
     )
-    result, open_backend = verify_connection(conn)
-    try:
-        assert result["credentials"]["ok"] is True
-        assert result["credentials"]["value"] == "trusted_connection"
-    finally:
-        if open_backend is not None:
-            open_backend.close()
+    result = verify_connection(_target(conn, database="d"), ok_backend)
+    assert result["credentials"]["ok"] is True
+    assert result["credentials"]["value"] == "trusted_connection"
 
 
-def test_verify_connection_credentials_trusted_and_password() -> None:
+def test_verify_connection_credentials_trusted_and_password(
+    ok_backend: MagicMock,
+) -> None:
     """Both trusted_connection and password set → value mentions both."""
     conn = ConnectionConfig(
         backend="mssql",
@@ -109,28 +165,24 @@ def test_verify_connection_credentials_trusted_and_password() -> None:
         trusted_connection=True,
         password="resolved",
     )
-    result, open_backend = verify_connection(conn)
-    try:
-        assert result["credentials"]["ok"] is True
-        assert "trusted_connection" in result["credentials"]["value"]
-        assert "password" in result["credentials"]["value"]
-    finally:
-        if open_backend is not None:
-            open_backend.close()
+    result = verify_connection(_target(conn, database="d"), ok_backend)
+    assert result["credentials"]["ok"] is True
+    assert "trusted_connection" in result["credentials"]["value"]
+    assert "password" in result["credentials"]["value"]
 
 
-def test_verify_connection_credentials_missing_for_mssql() -> None:
+def test_verify_connection_credentials_missing_for_mssql(
+    ok_backend: MagicMock,
+) -> None:
     """No password or trusted_connection for mssql → credentials row ok=False."""
     conn = ConnectionConfig(backend="mssql", host="h", port=1433, database="d")
-    result, open_backend = verify_connection(conn)
-    try:
-        assert result["credentials"]["ok"] is False
-    finally:
-        if open_backend is not None:
-            open_backend.close()
+    result = verify_connection(_target(conn, database="d"), ok_backend)
+    assert result["credentials"]["ok"] is False
 
 
-def test_verify_connection_host_port_value_with_port_zero() -> None:
+def test_verify_connection_host_port_value_with_port_zero(
+    ok_backend: MagicMock,
+) -> None:
     """port=0 → host_port row shows just the host, not ``host:0``."""
     conn = ConnectionConfig(
         backend="mssql",
@@ -139,16 +191,14 @@ def test_verify_connection_host_port_value_with_port_zero() -> None:
         database="d",
         trusted_connection=True,
     )
-    result, open_backend = verify_connection(conn)
-    try:
-        assert result["host_port"]["value"] == r"myserver\inst"
-        assert ":0" not in result["host_port"]["value"]
-    finally:
-        if open_backend is not None:
-            open_backend.close()
+    result = verify_connection(_target(conn, database="d"), ok_backend)
+    assert result["host_port"]["value"] == r"myserver\inst"
+    assert ":0" not in result["host_port"]["value"]
 
 
-def test_verify_connection_host_port_value_with_explicit_port() -> None:
+def test_verify_connection_host_port_value_with_explicit_port(
+    ok_backend: MagicMock,
+) -> None:
     """port > 0 → host_port row shows ``host:port``."""
     conn = ConnectionConfig(
         backend="mssql",
@@ -157,16 +207,13 @@ def test_verify_connection_host_port_value_with_explicit_port() -> None:
         database="d",
         trusted_connection=True,
     )
-    result, open_backend = verify_connection(conn)
-    try:
-        assert result["host_port"]["value"] == "h:1234"
-    finally:
-        if open_backend is not None:
-            open_backend.close()
+    result = verify_connection(_target(conn, database="d"), ok_backend)
+    assert result["host_port"]["value"] == "h:1234"
 
 
 def test_verify_connection_dns_lookup_success(
     monkeypatch: pytest.MonkeyPatch,
+    ok_backend: MagicMock,
 ) -> None:
     """gethostbyname returns an IP → dns_lookup row ok with that IP."""
     monkeypatch.setattr(
@@ -179,19 +226,16 @@ def test_verify_connection_dns_lookup_success(
         database="d",
         trusted_connection=True,
     )
-    result, open_backend = verify_connection(conn)
-    try:
-        assert result["dns_lookup"]["ok"] is True
-        assert result["dns_lookup"]["value"] == "10.1.2.3"
-    finally:
-        if open_backend is not None:
-            open_backend.close()
+    result = verify_connection(_target(conn, database="d"), ok_backend)
+    assert result["dns_lookup"]["ok"] is True
+    assert result["dns_lookup"]["value"] == "10.1.2.3"
 
 
 def test_verify_connection_dns_lookup_strips_named_instance(
     monkeypatch: pytest.MonkeyPatch,
+    ok_backend: MagicMock,
 ) -> None:
-    """Named-instance host: only the host part is looked up, instance is stripped."""
+    """Named-instance host: only the host part is looked up, instance stripped."""
     mock = MagicMock(return_value="10.1.2.3")
     monkeypatch.setattr(
         "mcp_tools_sql.verification.connection.socket.gethostbyname",
@@ -203,18 +247,15 @@ def test_verify_connection_dns_lookup_strips_named_instance(
         database="d",
         trusted_connection=True,
     )
-    result, open_backend = verify_connection(conn)
-    try:
-        assert result["dns_lookup"]["ok"] is True
-        # gethostbyname should have been called with the host *without* \instance
-        mock.assert_called_with("myserver")
-    finally:
-        if open_backend is not None:
-            open_backend.close()
+    result = verify_connection(_target(conn, database="d"), ok_backend)
+    assert result["dns_lookup"]["ok"] is True
+    # gethostbyname should have been called with the host *without* \instance
+    mock.assert_called_with("myserver")
 
 
 def test_verify_connection_dns_lookup_failure(
     monkeypatch: pytest.MonkeyPatch,
+    ok_backend: MagicMock,
 ) -> None:
     """gaierror → dns_lookup row fails, value is host, error mentions DNS."""
     import socket  # pylint: disable=import-outside-toplevel
@@ -229,30 +270,27 @@ def test_verify_connection_dns_lookup_failure(
         database="d",
         trusted_connection=True,
     )
-    result, open_backend = verify_connection(conn)
-    try:
-        assert result["dns_lookup"]["ok"] is False
-        assert result["dns_lookup"]["value"] == "no-such-host.invalid"
-        assert "DNS lookup failed" in result["dns_lookup"]["error"]
-    finally:
-        if open_backend is not None:
-            open_backend.close()
+    result = verify_connection(_target(conn, database="d"), ok_backend)
+    assert result["dns_lookup"]["ok"] is False
+    assert result["dns_lookup"]["value"] == "no-such-host.invalid"
+    assert "DNS lookup failed" in result["dns_lookup"]["error"]
 
 
 def test_verify_connection_sqlite_omits_dns_lookup(tmp_path: Path) -> None:
     """sqlite backend → no dns_lookup row (no host)."""
     db_path = tmp_path / "real.sqlite"
     db_path.write_bytes(b"")
-    result, open_backend = verify_connection(_sqlite_connection(db_path))
+    config = _sqlite_connection(db_path)
+    backend = create_backend(config)
     try:
+        result = verify_connection(_target(config), backend)
         assert "dns_lookup" not in result
     finally:
-        if open_backend is not None:
-            open_backend.close()
+        backend.close()
 
 
 def test_verify_connection_mssql_includes_sanitized_conn_string(
-    stub_create_backend: MagicMock,  # pylint: disable=unused-argument
+    ok_backend: MagicMock,
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
     """mssql backend → conn_string row present, ok=True, password redacted."""
@@ -269,7 +307,7 @@ def test_verify_connection_mssql_includes_sanitized_conn_string(
         username="u",
         password="supersecret",
     )
-    result, _ = verify_connection(conn)
+    result = verify_connection(_target(conn, database="d"), ok_backend)
     assert "conn_string" in result
     assert result["conn_string"]["ok"] is True
     value = result["conn_string"]["value"]
@@ -282,15 +320,18 @@ def test_verify_connection_sqlite_omits_conn_string(tmp_path: Path) -> None:
     """sqlite backend → no conn_string row (mssql-only)."""
     db_path = tmp_path / "real.sqlite"
     db_path.write_bytes(b"")
-    result, open_backend = verify_connection(_sqlite_connection(db_path))
+    config = _sqlite_connection(db_path)
+    backend = create_backend(config)
     try:
+        result = verify_connection(_target(config), backend)
         assert "conn_string" not in result
     finally:
-        if open_backend is not None:
-            open_backend.close()
+        backend.close()
 
 
-def test_verify_connection_host_with_control_char_is_err() -> None:
+def test_verify_connection_host_with_control_char_is_err(
+    ok_backend: MagicMock,
+) -> None:
     """Host containing a control char (e.g. newline) → host_port row ok=False."""
     conn = ConnectionConfig(
         backend="mssql",
@@ -299,43 +340,13 @@ def test_verify_connection_host_with_control_char_is_err() -> None:
         database="d",
         trusted_connection=True,
     )
-    result, open_backend = verify_connection(conn)
-    try:
-        assert result["host_port"]["ok"] is False
-        # repr() makes the offending character visible in the printed value
-        assert "\\n" in result["host_port"]["value"]
-        error = result["host_port"]["error"].lower()
-        assert "control character" in error
-        assert "toml" in error
-    finally:
-        if open_backend is not None:
-            open_backend.close()
-
-
-def test_verify_connection_returns_open_backend_on_success(tmp_path: Path) -> None:
-    """On success the second element is a connected DatabaseBackend instance."""
-    db_path = tmp_path / "real.sqlite"
-    db_path.write_bytes(b"")
-    result, open_backend = verify_connection(_sqlite_connection(db_path))
-    try:
-        assert result["overall_ok"] is True
-        assert open_backend is not None
-        assert isinstance(open_backend, DatabaseBackend)
-        assert isinstance(open_backend, SQLiteBackend)
-        # The backend is connected — a second SELECT should work without re-connect.
-        rows = open_backend.execute_query("SELECT 1 AS one")
-        assert rows == [{"one": 1}]
-    finally:
-        if open_backend is not None:
-            open_backend.close()
-
-
-def test_verify_connection_returns_none_backend_on_failure() -> None:
-    """On select_1 failure the second tuple element is None."""
-    conn = ConnectionConfig(backend="sqlite", path="")
-    result, open_backend = verify_connection(conn)
-    assert result["select_1"]["ok"] is False
-    assert open_backend is None
+    result = verify_connection(_target(conn, database="d"), ok_backend)
+    assert result["host_port"]["ok"] is False
+    # repr() makes the offending character visible in the printed value
+    assert "\\n" in result["host_port"]["value"]
+    error = result["host_port"]["error"].lower()
+    assert "control character" in error
+    assert "toml" in error
 
 
 # ---------------------------------------------------------------------------
@@ -360,47 +371,27 @@ def _trusted_mssql() -> ConnectionConfig:
     )
 
 
-@pytest.fixture
-def stub_create_backend(monkeypatch: pytest.MonkeyPatch) -> MagicMock:
-    """Replace ``connection.create_backend`` so tests never touch real pyodbc.
-
-    Returns the factory mock; the backend it returns stubs ``connect``,
-    ``execute_query`` and ``close`` so ``verify_connection`` reaches the
-    Kerberos branch without errors.
-    """
-    backend = MagicMock(name="stub_backend")
-    backend.connect.return_value = None
-    backend.execute_query.return_value = [{"v": 1}]
-    backend.close.return_value = None
-    factory = MagicMock(return_value=backend)
-    monkeypatch.setattr(
-        "mcp_tools_sql.verification.connection.create_backend",
-        factory,
-    )
-    return factory
-
-
 def test_klist_zero_returns_ok(
     monkeypatch: pytest.MonkeyPatch,
     linux_platform: None,  # pylint: disable=unused-argument
-    stub_create_backend: MagicMock,  # pylint: disable=unused-argument
+    ok_backend: MagicMock,
 ) -> None:
     """``klist -s`` exits 0 → kerberos_ticket row ok=True."""
     proc = MagicMock(returncode=0)
     monkeypatch.setattr("subprocess.run", MagicMock(return_value=proc))
-    result, _ = verify_connection(_trusted_mssql())
+    result = verify_connection(_target(_trusted_mssql(), database="d"), ok_backend)
     assert result["kerberos_ticket"]["ok"] is True
 
 
 def test_klist_nonzero_returns_err(
     monkeypatch: pytest.MonkeyPatch,
     linux_platform: None,  # pylint: disable=unused-argument
-    stub_create_backend: MagicMock,  # pylint: disable=unused-argument
+    ok_backend: MagicMock,
 ) -> None:
     """``klist -s`` exits non-zero → kerberos_ticket row ok=False."""
     proc = MagicMock(returncode=1)
     monkeypatch.setattr("subprocess.run", MagicMock(return_value=proc))
-    result, _ = verify_connection(_trusted_mssql())
+    result = verify_connection(_target(_trusted_mssql(), database="d"), ok_backend)
     assert result["kerberos_ticket"]["ok"] is False
     error = result["kerberos_ticket"]["error"].lower()
     assert "kinit" in error or "ticket" in error
@@ -410,13 +401,13 @@ def test_klist_nonzero_logs_debug(
     monkeypatch: pytest.MonkeyPatch,
     caplog: pytest.LogCaptureFixture,
     linux_platform: None,  # pylint: disable=unused-argument
-    stub_create_backend: MagicMock,  # pylint: disable=unused-argument
+    ok_backend: MagicMock,
 ) -> None:
     """``klist -s`` exits non-zero → debug log records exit code + stderr."""
     proc = MagicMock(returncode=1, stderr=b"kinit: no credentials cache")
     monkeypatch.setattr("subprocess.run", MagicMock(return_value=proc))
     with caplog.at_level("DEBUG", logger="mcp_tools_sql.verification.connection"):
-        verify_connection(_trusted_mssql())
+        verify_connection(_target(_trusted_mssql(), database="d"), ok_backend)
     debug_lines = [
         r.getMessage()
         for r in caplog.records
@@ -429,31 +420,31 @@ def test_klist_nonzero_logs_debug(
 def test_klist_missing_returns_err(
     monkeypatch: pytest.MonkeyPatch,
     linux_platform: None,  # pylint: disable=unused-argument
-    stub_create_backend: MagicMock,  # pylint: disable=unused-argument
+    ok_backend: MagicMock,
 ) -> None:
     """``klist`` not installed → kerberos_ticket row ok=False."""
     monkeypatch.setattr("subprocess.run", MagicMock(side_effect=FileNotFoundError()))
-    result, _ = verify_connection(_trusted_mssql())
+    result = verify_connection(_target(_trusted_mssql(), database="d"), ok_backend)
     assert result["kerberos_ticket"]["ok"] is False
 
 
 def test_non_linux_platforms_skip_check(
     monkeypatch: pytest.MonkeyPatch,
-    stub_create_backend: MagicMock,  # pylint: disable=unused-argument
+    ok_backend: MagicMock,
 ) -> None:
     """On non-Linux platforms no kerberos_ticket row is added."""
     monkeypatch.setattr(sys, "platform", "win32")
-    result, _ = verify_connection(_trusted_mssql())
+    result = verify_connection(_target(_trusted_mssql(), database="d"), ok_backend)
     assert "kerberos_ticket" not in result
 
 
 def test_non_trusted_skips_check(
     linux_platform: None,  # pylint: disable=unused-argument
-    stub_create_backend: MagicMock,  # pylint: disable=unused-argument
+    ok_backend: MagicMock,
 ) -> None:
     """Password auth (no trusted_connection) → no kerberos_ticket row."""
     conn = ConnectionConfig(
         backend="mssql", host="h", port=1433, database="d", password="p"
     )
-    result, _ = verify_connection(conn)
+    result = verify_connection(_target(conn, database="d"), ok_backend)
     assert "kerberos_ticket" not in result

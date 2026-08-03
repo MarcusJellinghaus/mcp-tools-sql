@@ -14,7 +14,6 @@ from mcp_tools_sql.config.loader import (
     discover_query_config,
     load_database_config,
     load_query_config,
-    resolve_connection,
     resolve_targets,
 )
 from mcp_tools_sql.config.models import (
@@ -216,47 +215,6 @@ password = "secret"
             config_file.chmod(stat.S_IRUSR | stat.S_IWUSR)
 
 
-class TestResolveConnection:
-    """Tests for resolve_connection."""
-
-    def test_valid_connection_found(self) -> None:
-        """Returns ConnectionConfig when name matches."""
-        conn = ConnectionConfig(backend="sqlite", path="./test.db")
-        query_config = QueryFileConfig(connection="mydb")
-        db_config = DatabaseConfig(connections={"mydb": conn})
-
-        result = resolve_connection(query_config, db_config)
-
-        assert result is conn
-        assert result.backend == "sqlite"
-        assert result.path == "./test.db"
-
-    def test_missing_connection_raises(self) -> None:
-        """ValueError when connection name not in database config."""
-        conn = ConnectionConfig(backend="sqlite")
-        query_config = QueryFileConfig(connection="missing")
-        db_config = DatabaseConfig(connections={"other": conn})
-
-        with pytest.raises(ValueError, match="missing"):
-            resolve_connection(query_config, db_config)
-
-    def test_empty_connection_name_raises(self) -> None:
-        """ValueError when query_config.connection is empty."""
-        query_config = QueryFileConfig(connection="")
-        db_config = DatabaseConfig(connections={"mydb": ConnectionConfig()})
-
-        with pytest.raises(ValueError, match="No connection name"):
-            resolve_connection(query_config, db_config)
-
-    def test_empty_connections_dict_raises(self) -> None:
-        """ValueError when db_config has no connections."""
-        query_config = QueryFileConfig(connection="mydb")
-        db_config = DatabaseConfig(connections={})
-
-        with pytest.raises(ValueError, match="mydb"):
-            resolve_connection(query_config, db_config)
-
-
 class TestResolveTargets:
     """Tests for resolve_targets."""
 
@@ -348,7 +306,7 @@ class TestResolveTargets:
             resolve_targets(query_config, db_config)
 
     def test_empty_file_default_connection_raises(self) -> None:
-        """Empty file-default connection reuses resolve_connection wording."""
+        """Empty file-default connection raises the no-connection-name error."""
         conn = ConnectionConfig.model_validate(
             {"backend": "mssql", "database": "sales"}
         )
