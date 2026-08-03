@@ -29,9 +29,9 @@ Detail: [step_1.md](./steps/step_1.md)
 
 ### Step 2: Prereq — `build_count_query` strips `ORDER BY`
 Detail: [step_2.md](./steps/step_2.md)
-- [ ] Implementation (tests + production code): drop statement-level `ORDER BY` before wrapping in `COUNT(*)` derived table
-- [ ] Quality checks: pylint, pytest (`-n auto` + unit markers), mypy — fix all issues
-- [ ] Commit message prepared
+- [x] Implementation (tests + production code): drop statement-level `ORDER BY` before wrapping in `COUNT(*)` derived table
+- [x] Quality checks: pylint, pytest (`-n auto` + unit markers), mypy — fix all issues
+- [x] Commit message prepared
 
 ### Step 3: Config models — multi-database fields
 Detail: [step_3.md](./steps/step_3.md)

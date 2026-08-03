@@ -386,6 +386,11 @@ def build_count_query(sql: str, dialect: str) -> str:
     ``:name`` placeholders in ``sql`` survive into the rendered wrapper as
     bindable placeholders.
 
+    The inner query's statement-level ``ORDER BY`` is dropped before wrapping:
+    ``COUNT(*)`` is order-independent, so removing it is semantically free and
+    avoids T-SQL error 1033 (``ORDER BY`` invalid in a derived table unless
+    accompanied by ``TOP``/``OFFSET``/``FOR XML``).
+
     Args:
         sql: The (already read-only-verified) SQL to wrap.
         dialect: The sqlglot dialect to parse and render under.
@@ -394,6 +399,9 @@ def build_count_query(sql: str, dialect: str) -> str:
         The rendered count query, dialect-targeted.
     """
     inner = sqlglot.parse_one(sql, read=dialect)
+    # Drop the statement-level ORDER BY; it is meaningless once wrapped in
+    # COUNT(*) and illegal inside a T-SQL derived table (error 1033).
+    inner.set("order", None)
     # Build the derived table directly (rather than ``inner.subquery(...)``)
     # so every read-only root renders uniformly: ``subquery`` lives on
     # ``exp.Query`` (Select/Union) but not on ``exp.Values``, which the gate

@@ -404,3 +404,42 @@ class TestBuildCountQuery:
         result = build_count_query("VALUES (1), (2)", "sqlite")
         assert "COUNT(*)" in result
         assert "count_sub" in result
+
+    def test_drops_order_by_tsql(self) -> None:
+        # T-SQL rejects ORDER BY inside a derived table (error 1033) unless
+        # accompanied by TOP/OFFSET/FOR XML. COUNT(*) is order-independent, so
+        # the statement-level ORDER BY must be dropped before wrapping.
+        sql = (
+            "SELECT TABLE_NAME AS name FROM INFORMATION_SCHEMA.TABLES "
+            "WHERE TABLE_SCHEMA = :schema ORDER BY name"
+        )
+        result = build_count_query(sql, "tsql")
+        assert "ORDER BY" not in result.upper()
+        # The ``:schema`` placeholder survives as a bindable node.
+        reparsed = sqlglot.parse_one(result, read="tsql")
+        names = {ph.name for ph in reparsed.find_all(exp.Placeholder)}
+        assert "schema" in names
+
+    def test_drops_order_by_sqlite(self) -> None:
+        sql = (
+            "SELECT TABLE_NAME AS name FROM INFORMATION_SCHEMA.TABLES "
+            "WHERE TABLE_SCHEMA = :schema ORDER BY name"
+        )
+        result = build_count_query(sql, "sqlite")
+        assert "ORDER BY" not in result.upper()
+        reparsed = sqlglot.parse_one(result, read="sqlite")
+        names = {ph.name for ph in reparsed.find_all(exp.Placeholder)}
+        assert "schema" in names
+
+    def test_no_order_by_unchanged_wrapper(self) -> None:
+        # A query without ORDER BY is wrapped exactly as before (regression).
+        result = build_count_query("SELECT * FROM customers", "tsql")
+        assert "ORDER BY" not in result.upper()
+        assert "COUNT(*)" in result
+        assert "count_sub" in result
+
+    def test_qualified_names_preserved(self) -> None:
+        # Three-part qualified names survive the ORDER BY stripping + wrapping.
+        result = build_count_query("SELECT * FROM sales.dbo.orders ORDER BY id", "tsql")
+        assert "ORDER BY" not in result.upper()
+        assert "sales.dbo.orders" in result
