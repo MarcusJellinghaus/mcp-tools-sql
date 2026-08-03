@@ -202,3 +202,77 @@ class DatabaseConfig(BaseModel):
 
     connections: dict[str, ConnectionConfig] = {}
     security: SecurityConfig = SecurityConfig()
+
+
+class ResolvedTarget(BaseModel):
+    """A single resolved ``(connection, database)`` execution target."""
+
+    model_config = ConfigDict(frozen=True)
+
+    connection: str
+    database: str
+    config: ConnectionConfig  # .database set to this catalog
+    backend_name: str
+    is_default: bool
+    connection_description: str = ""
+    database_description: str = ""
+
+
+class ResolvedTargets(BaseModel):
+    """All resolved targets (config order: connections x databases)."""
+
+    targets: list[ResolvedTarget]
+    default: ResolvedTarget
+    file_default_connection: str
+
+    @property
+    def is_multi(self) -> bool:
+        """Return True when more than one target is configured."""
+        return len(self.targets) > 1
+
+    @property
+    def connection_names(self) -> list[str]:
+        """Return the distinct connection names in config order."""
+        return list(dict.fromkeys(t.connection for t in self.targets))
+
+    @property
+    def database_names(self) -> list[str]:
+        """Return the distinct database names in config order."""
+        return list(dict.fromkeys(t.database for t in self.targets))
+
+    def for_connection(self, connection: str) -> list[ResolvedTarget]:
+        """Return every target belonging to one connection (fan-out set)."""
+        return [t for t in self.targets if t.connection == connection]
+
+    def resolve_pinned(
+        self,
+        connection: str | None,
+        database: str | None,
+    ) -> ResolvedTarget:
+        """Resolve a pinned ``(connection, database)`` request to one target.
+
+        An empty/omitted ``connection`` falls back to the file default
+        connection; an empty/omitted ``database`` falls back to that
+        connection's default database (decision 15).
+
+        Returns:
+            The matching resolved target.
+
+        Raises:
+            ValueError: If the connection or database is not configured.
+        """
+        conn = connection or self.file_default_connection
+        conn_targets = self.for_connection(conn)
+        if not conn_targets:
+            raise ValueError(
+                f"Connection '{conn}' not found. Available: {self.connection_names}"
+            )
+        db = database or conn_targets[0].config.default_database
+        for target in conn_targets:
+            if target.database == db:
+                return target
+        available = [t.database for t in conn_targets]
+        raise ValueError(
+            f"Database '{db}' not found in connection '{conn}'. "
+            f"Available: {available}"
+        )

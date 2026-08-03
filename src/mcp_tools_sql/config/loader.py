@@ -12,6 +12,8 @@ from mcp_tools_sql.config.models import (
     ConnectionConfig,
     DatabaseConfig,
     QueryFileConfig,
+    ResolvedTarget,
+    ResolvedTargets,
 )
 
 _SENSITIVE_KEYS = {"password"}
@@ -156,6 +158,55 @@ def resolve_connection(
         msg = f"Connection '{name}' not found. Available: {available}"
         raise ValueError(msg)
     return db_config.connections[name]
+
+
+def resolve_targets(
+    query_config: QueryFileConfig,
+    db_config: DatabaseConfig,
+) -> ResolvedTargets:
+    """Resolve every ``(connection, database)`` pair into ``ResolvedTargets``.
+
+    Iterates connections in config order, and each connection's databases in
+    config order, building one :class:`ResolvedTarget` per pair with its
+    ``config.database`` pinned to that catalog. The default target is the file
+    default connection's default database.
+
+    Returns:
+        The full set of resolved targets with the default marked.
+
+    Raises:
+        ValueError: If the file default connection name is missing or not found
+            in db_config.connections (reusing resolve_connection's wording).
+    """
+    file_conn = query_config.connection
+    targets: list[ResolvedTarget] = []
+    for cname, conn in db_config.connections.items():
+        for db in conn.databases:
+            is_default = cname == file_conn and db.name == conn.default_database
+            targets.append(
+                ResolvedTarget(
+                    connection=cname,
+                    database=db.name,
+                    config=conn.model_copy(update={"database": db.name}),
+                    backend_name=conn.backend,
+                    is_default=is_default,
+                    connection_description=conn.description,
+                    database_description=db.description,
+                )
+            )
+
+    default = next((t for t in targets if t.is_default), None)
+    if default is None:
+        if not file_conn:
+            raise ValueError("No connection name specified in query config")
+        available = list(db_config.connections.keys())
+        raise ValueError(f"Connection '{file_conn}' not found. Available: {available}")
+
+    return ResolvedTargets(
+        targets=targets,
+        default=default,
+        file_default_connection=file_conn,
+    )
 
 
 def discover_query_config(

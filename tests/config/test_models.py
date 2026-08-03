@@ -13,6 +13,8 @@ from mcp_tools_sql.config.models import (
     QueryConfig,
     QueryFileConfig,
     QueryParamConfig,
+    ResolvedTarget,
+    ResolvedTargets,
     UpdateConfig,
     UpdateFieldConfig,
 )
@@ -427,3 +429,121 @@ class TestPinnedTargetFields:
         config = UpdateConfig(connection="prod", database="hr")
         assert config.connection == "prod"
         assert config.database == "hr"
+
+
+def _make_target(
+    connection: str,
+    database: str,
+    *,
+    is_default: bool = False,
+    default_database: str = "",
+) -> ResolvedTarget:
+    """Build a ResolvedTarget for the given connection/database pair."""
+    default_db = default_database or database
+    names = list(dict.fromkeys([default_db, database]))
+    base = ConnectionConfig.model_validate(
+        {"backend": "mssql", "databases": names, "default_database": default_db}
+    )
+    config = base.model_copy(update={"database": database})
+    return ResolvedTarget(
+        connection=connection,
+        database=database,
+        config=config,
+        backend_name="mssql",
+        is_default=is_default,
+    )
+
+
+class TestResolvedTarget:
+    """Tests for the frozen ResolvedTarget model."""
+
+    def test_fields(self) -> None:
+        """ResolvedTarget exposes its connection/database/backend fields."""
+        target = _make_target("prod", "sales", is_default=True)
+        assert target.connection == "prod"
+        assert target.database == "sales"
+        assert target.backend_name == "mssql"
+        assert target.is_default is True
+        assert target.connection_description == ""
+        assert target.database_description == ""
+
+    def test_is_frozen(self) -> None:
+        """ResolvedTarget is immutable (frozen)."""
+        target = _make_target("prod", "sales")
+        with pytest.raises(ValidationError):
+            target.database = "hr"
+
+
+class TestResolvedTargets:
+    """Tests for ResolvedTargets helper methods."""
+
+    def test_single_target_not_multi(self) -> None:
+        """A one-target set reports is_multi False with matching names."""
+        target = _make_target("prod", "sales", is_default=True)
+        targets = ResolvedTargets(
+            targets=[target], default=target, file_default_connection="prod"
+        )
+        assert targets.is_multi is False
+        assert targets.connection_names == ["prod"]
+        assert targets.database_names == ["sales"]
+
+    def test_multi_target_dedup_order(self) -> None:
+        """Connection/database names dedup while preserving config order."""
+        t1 = _make_target("prod", "sales", is_default=True, default_database="sales")
+        t2 = _make_target("prod", "hr", default_database="sales")
+        t3 = _make_target("localdb", "sales", default_database="sales")
+        targets = ResolvedTargets(
+            targets=[t1, t2, t3], default=t1, file_default_connection="prod"
+        )
+        assert targets.is_multi is True
+        assert targets.connection_names == ["prod", "localdb"]
+        assert targets.database_names == ["sales", "hr"]
+
+    def test_for_connection(self) -> None:
+        """for_connection returns only the matching connection's targets."""
+        t1 = _make_target("prod", "sales", is_default=True, default_database="sales")
+        t2 = _make_target("prod", "hr", default_database="sales")
+        t3 = _make_target("localdb", "sales", default_database="sales")
+        targets = ResolvedTargets(
+            targets=[t1, t2, t3], default=t1, file_default_connection="prod"
+        )
+        assert targets.for_connection("prod") == [t1, t2]
+        assert targets.for_connection("localdb") == [t3]
+        assert targets.for_connection("missing") == []
+
+    def test_resolve_pinned_defaults(self) -> None:
+        """resolve_pinned(None, None) returns the file default target."""
+        t1 = _make_target("prod", "sales", is_default=True, default_database="sales")
+        t2 = _make_target("prod", "hr", default_database="sales")
+        targets = ResolvedTargets(
+            targets=[t1, t2], default=t1, file_default_connection="prod"
+        )
+        assert targets.resolve_pinned(None, None) is t1
+
+    def test_resolve_pinned_explicit(self) -> None:
+        """resolve_pinned selects the named connection/database pair."""
+        t1 = _make_target("prod", "sales", is_default=True, default_database="sales")
+        t2 = _make_target("prod", "hr", default_database="sales")
+        targets = ResolvedTargets(
+            targets=[t1, t2], default=t1, file_default_connection="prod"
+        )
+        assert targets.resolve_pinned("prod", "hr") is t2
+
+    def test_resolve_pinned_unknown_database_raises(self) -> None:
+        """resolve_pinned raises when the database is absent in the connection."""
+        t1 = _make_target("prod", "sales", is_default=True, default_database="sales")
+        t2 = _make_target("localdb", "sales", default_database="sales")
+        targets = ResolvedTargets(
+            targets=[t1, t2], default=t1, file_default_connection="prod"
+        )
+        with pytest.raises(ValueError, match="hr"):
+            targets.resolve_pinned("localdb", "hr")
+
+    def test_resolve_pinned_unknown_connection_raises(self) -> None:
+        """resolve_pinned raises when the connection is absent."""
+        t1 = _make_target("prod", "sales", is_default=True, default_database="sales")
+        targets = ResolvedTargets(
+            targets=[t1], default=t1, file_default_connection="prod"
+        )
+        with pytest.raises(ValueError, match="missing"):
+            targets.resolve_pinned("missing", None)

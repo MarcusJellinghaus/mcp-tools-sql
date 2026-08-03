@@ -41,9 +41,9 @@ Detail: [step_3.md](./steps/step_3.md)
 
 ### Step 4: Config resolution — `resolve_targets` + Resolved* models
 Detail: [step_4.md](./steps/step_4.md)
-- [ ] Implementation (tests + production code): `ResolvedTarget`/`ResolvedTargets` in models, `resolve_targets` in loader (keep `resolve_connection`)
-- [ ] Quality checks: pylint, pytest (`-n auto` + unit markers), mypy — fix all issues
-- [ ] Commit message prepared
+- [x] Implementation (tests + production code): `ResolvedTarget`/`ResolvedTargets` in models, `resolve_targets` in loader (keep `resolve_connection`)
+- [x] Quality checks: pylint, pytest (`-n auto` + unit markers), mypy — fix all issues
+- [x] Commit message prepared
 
 ### Step 5: `BackendRegistry`
 Detail: [step_5.md](./steps/step_5.md)
