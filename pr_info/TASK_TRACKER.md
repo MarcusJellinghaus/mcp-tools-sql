@@ -53,9 +53,9 @@ Detail: [step_5.md](./steps/step_5.md)
 
 ### Step 6: Server wiring (behaviour unchanged, single default target)
 Detail: [step_6.md](./steps/step_6.md)
-- [ ] Implementation (tests + production code): `ToolServer`/`create_server` take targets + registry; `run_server` owns lifecycle (`close_all` in `finally`)
-- [ ] Quality checks: pylint, pytest (`-n auto` + unit markers), mypy — fix all issues
-- [ ] Commit message prepared
+- [x] Implementation (tests + production code): `ToolServer`/`create_server` take targets + registry; `run_server` owns lifecycle (`close_all` in `finally`)
+- [x] Quality checks: pylint, pytest (`-n auto` + unit markers), mypy — fix all issues
+- [x] Commit message prepared
 
 ### Step 7: Pinned per-target backend for `query_*` / `update_*`
 Detail: [step_7.md](./steps/step_7.md)

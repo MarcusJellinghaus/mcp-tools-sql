@@ -10,12 +10,12 @@ from pathlib import Path
 
 import pytest
 
-from mcp_tools_sql.backends.base import create_backend
+from mcp_tools_sql.backends.registry import BackendRegistry
 from mcp_tools_sql.backends.sqlite import SQLiteBackend
 from mcp_tools_sql.config.loader import (
     load_database_config,
     load_query_config,
-    resolve_connection,
+    resolve_targets,
 )
 from mcp_tools_sql.schema_tools import (
     PROGRAMMATIC_BUILTIN_TOOLS,
@@ -44,7 +44,7 @@ def _write_sqlite_configs(tmp_path: Path) -> argparse.Namespace:
 def test_run_server_smoke_calls_run_and_closes(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
-    """`run_server` returns None and always calls `backend.close()`."""
+    """`run_server` returns None and always calls `registry.close_all()`."""
     args = _write_sqlite_configs(tmp_path)
 
     run_called = {"n": 0}
@@ -55,13 +55,13 @@ def test_run_server_smoke_calls_run_and_closes(
     monkeypatch.setattr(ToolServer, "run", fake_run)
 
     close_called = {"n": 0}
-    original_close = SQLiteBackend.close
+    original_close_all = BackendRegistry.close_all
 
-    def counting_close(self: SQLiteBackend) -> None:
+    def counting_close_all(self: BackendRegistry) -> None:
         close_called["n"] += 1
-        original_close(self)
+        original_close_all(self)
 
-    monkeypatch.setattr(SQLiteBackend, "close", counting_close)
+    monkeypatch.setattr(BackendRegistry, "close_all", counting_close_all)
 
     run_server(args)
     assert run_called["n"] == 1
@@ -71,7 +71,7 @@ def test_run_server_smoke_calls_run_and_closes(
 def test_keyboard_interrupt_runs_close(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
-    """KeyboardInterrupt from `mcp.run()` propagates and closes the backend."""
+    """KeyboardInterrupt from `run()` propagates and calls `registry.close_all()`."""
     args = _write_sqlite_configs(tmp_path)
 
     def fake_run(self: ToolServer) -> None:
@@ -80,13 +80,13 @@ def test_keyboard_interrupt_runs_close(
     monkeypatch.setattr(ToolServer, "run", fake_run)
 
     close_called = {"n": 0}
-    original_close = SQLiteBackend.close
+    original_close_all = BackendRegistry.close_all
 
-    def counting_close(self: SQLiteBackend) -> None:
+    def counting_close_all(self: BackendRegistry) -> None:
         close_called["n"] += 1
-        original_close(self)
+        original_close_all(self)
 
-    monkeypatch.setattr(SQLiteBackend, "close", counting_close)
+    monkeypatch.setattr(BackendRegistry, "close_all", counting_close_all)
 
     with pytest.raises(KeyboardInterrupt):
         run_server(args)
@@ -160,6 +160,28 @@ def test_startup_info_log_line(
     assert len(matching) == 1
 
 
+def test_startup_log_reports_connection_and_database_counts(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+    caplog: pytest.LogCaptureFixture,
+) -> None:
+    """Startup log reports single connection/database counts for a lone target."""
+    args = _write_sqlite_configs(tmp_path)
+    monkeypatch.setattr(ToolServer, "run", lambda self: None)
+
+    with caplog.at_level(logging.INFO, logger="mcp_tools_sql.server"):
+        run_server(args)
+
+    matching = [
+        rec
+        for rec in caplog.records
+        if rec.name == "mcp_tools_sql.server"
+        and rec.levelno == logging.INFO
+        and re.search(r"connections=1 databases=1", rec.getMessage())
+    ]
+    assert len(matching) == 1
+
+
 @pytest.mark.asyncio
 async def test_configured_query_registered_as_tool(tmp_path: Path) -> None:
     """A configured `[queries.foo]` entry registers as `query_foo` on the server."""
@@ -190,9 +212,9 @@ async def test_configured_query_registered_as_tool(tmp_path: Path) -> None:
 
     qcfg = load_query_config(qcfg_path)
     dbcfg = load_database_config(dbcfg_path)
-    conn_cfg = resolve_connection(qcfg, dbcfg)
-    backend = create_backend(conn_cfg)
-    server = ToolServer(qcfg, backend, conn_cfg.backend, allow_updates=True)
+    targets = resolve_targets(qcfg, dbcfg)
+    registry = BackendRegistry()
+    server = ToolServer(qcfg, targets, registry, allow_updates=True)
     server._register_builtin_tools()  # pylint: disable=protected-access
     server._register_configured_tools()  # pylint: disable=protected-access
 
@@ -210,7 +232,7 @@ async def test_configured_query_registered_as_tool(tmp_path: Path) -> None:
                 "read_relations",
             }.issubset(names)
     finally:
-        backend.close()
+        registry.close_all()
 
 
 @pytest.mark.asyncio
@@ -221,9 +243,9 @@ async def test_validate_sql_registered_as_builtin_tool(tmp_path: Path) -> None:
     args = _write_sqlite_configs(tmp_path)
     qcfg = load_query_config(args.config)
     dbcfg = load_database_config(args.database_config)
-    conn_cfg = resolve_connection(qcfg, dbcfg)
-    backend = create_backend(conn_cfg)
-    server = ToolServer(qcfg, backend, conn_cfg.backend, allow_updates=False)
+    targets = resolve_targets(qcfg, dbcfg)
+    registry = BackendRegistry()
+    server = ToolServer(qcfg, targets, registry, allow_updates=False)
     server._register_builtin_tools()  # pylint: disable=protected-access
 
     try:
@@ -234,7 +256,7 @@ async def test_validate_sql_registered_as_builtin_tool(tmp_path: Path) -> None:
             names = {t.name for t in result.tools}
             assert "validate_sql" in names
     finally:
-        backend.close()
+        registry.close_all()
 
 
 @pytest.mark.asyncio
@@ -245,9 +267,9 @@ async def test_count_records_registered_as_builtin_tool(tmp_path: Path) -> None:
     args = _write_sqlite_configs(tmp_path)
     qcfg = load_query_config(args.config)
     dbcfg = load_database_config(args.database_config)
-    conn_cfg = resolve_connection(qcfg, dbcfg)
-    backend = create_backend(conn_cfg)
-    server = ToolServer(qcfg, backend, conn_cfg.backend, allow_updates=False)
+    targets = resolve_targets(qcfg, dbcfg)
+    registry = BackendRegistry()
+    server = ToolServer(qcfg, targets, registry, allow_updates=False)
     server._register_builtin_tools()  # pylint: disable=protected-access
 
     try:
@@ -258,7 +280,7 @@ async def test_count_records_registered_as_builtin_tool(tmp_path: Path) -> None:
             names = {t.name for t in result.tools}
             assert "count_records" in names
     finally:
-        backend.close()
+        registry.close_all()
 
 
 def test_startup_builtin_tools_counter_includes_programmatic_builtins(
@@ -329,9 +351,9 @@ async def test_update_tool_registered_when_allow_updates_true(tmp_path: Path) ->
     args = _write_update_configs(tmp_path, allow_updates=True)
     qcfg = load_query_config(args.config)
     dbcfg = load_database_config(args.database_config)
-    conn_cfg = resolve_connection(qcfg, dbcfg)
-    backend = create_backend(conn_cfg)
-    server = ToolServer(qcfg, backend, conn_cfg.backend, allow_updates=True)
+    targets = resolve_targets(qcfg, dbcfg)
+    registry = BackendRegistry()
+    server = ToolServer(qcfg, targets, registry, allow_updates=True)
     server._register_configured_tools()  # pylint: disable=protected-access
 
     try:
@@ -342,7 +364,7 @@ async def test_update_tool_registered_when_allow_updates_true(tmp_path: Path) ->
             names = {t.name for t in result.tools}
             assert "update_set_name" in names
     finally:
-        backend.close()
+        registry.close_all()
 
 
 @pytest.mark.asyncio
@@ -355,11 +377,11 @@ async def test_update_tool_not_registered_when_allow_updates_false(
     args = _write_update_configs(tmp_path, allow_updates=False)
     qcfg = load_query_config(args.config)
     dbcfg = load_database_config(args.database_config)
-    conn_cfg = resolve_connection(qcfg, dbcfg)
+    targets = resolve_targets(qcfg, dbcfg)
 
     async def _names(allow: bool) -> set[str]:
-        backend = create_backend(conn_cfg)
-        server = ToolServer(qcfg, backend, conn_cfg.backend, allow_updates=allow)
+        registry = BackendRegistry()
+        server = ToolServer(qcfg, targets, registry, allow_updates=allow)
         server._register_builtin_tools()  # pylint: disable=protected-access
         server._register_configured_tools()  # pylint: disable=protected-access
         try:
@@ -369,7 +391,7 @@ async def test_update_tool_not_registered_when_allow_updates_false(
                 result = await client.list_tools()
                 return {t.name for t in result.tools}
         finally:
-            backend.close()
+            registry.close_all()
 
     names_true = await _names(True)
     names_false = await _names(False)
@@ -392,12 +414,12 @@ def test_run_server_reads_allow_updates_from_database_config(
     def recording_init(
         self: ToolServer,
         config: object,
-        backend: object,
-        backend_name: str,
+        targets: object,
+        registry: object,
         allow_updates: bool,
     ) -> None:
         recorded["allow_updates"] = allow_updates
-        original_init(self, config, backend, backend_name, allow_updates)  # type: ignore[arg-type]
+        original_init(self, config, targets, registry, allow_updates)  # type: ignore[arg-type]
 
     monkeypatch.setattr(ToolServer, "__init__", recording_init)
     monkeypatch.setattr(ToolServer, "run", lambda self: None)

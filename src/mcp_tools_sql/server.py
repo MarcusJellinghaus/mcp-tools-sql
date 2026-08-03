@@ -9,12 +9,12 @@ from typing import TYPE_CHECKING
 
 from mcp.server.fastmcp import FastMCP
 
-from mcp_tools_sql.backends.base import create_backend
+from mcp_tools_sql.backends.registry import BackendRegistry
 from mcp_tools_sql.config.loader import (
     discover_query_config,
     load_database_config,
     load_query_config,
-    resolve_connection,
+    resolve_targets,
 )
 from mcp_tools_sql.count_tools import CountTools
 from mcp_tools_sql.query_tools import QueryTools
@@ -27,8 +27,7 @@ from mcp_tools_sql.update_tools import UpdateTools
 from mcp_tools_sql.validation_tools import ValidationTools
 
 if TYPE_CHECKING:
-    from mcp_tools_sql.backends.base import DatabaseBackend
-    from mcp_tools_sql.config.models import QueryFileConfig
+    from mcp_tools_sql.config.models import QueryFileConfig, ResolvedTargets
 
 logger = logging.getLogger(__name__)
 
@@ -39,13 +38,13 @@ class ToolServer:
     def __init__(
         self,
         config: QueryFileConfig,
-        backend: DatabaseBackend,
-        backend_name: str,
+        targets: ResolvedTargets,
+        registry: BackendRegistry,
         allow_updates: bool,
     ) -> None:
         self._config = config
-        self._backend = backend
-        self._backend_name = backend_name
+        self._targets = targets
+        self._registry = registry
         self._allow_updates = allow_updates
         self._mcp = FastMCP("mcp-tools-sql")
 
@@ -56,18 +55,22 @@ class ToolServer:
 
     def _register_builtin_tools(self) -> None:
         """Register schema-exploration tools from default_queries.toml and built-in validation tools."""
-        SchemaTools(self._backend, self._backend_name).register(self._mcp)
-        ValidationTools(self._backend, self._backend_name).register(self._mcp)
-        CountTools(self._backend, self._backend_name).register(self._mcp)
+        default = self._targets.default
+        backend = self._registry.backend_for(default)
+        SchemaTools(backend, default.backend_name).register(self._mcp)
+        ValidationTools(backend, default.backend_name).register(self._mcp)
+        CountTools(backend, default.backend_name).register(self._mcp)
 
     def _register_configured_tools(self) -> None:
-        QueryTools(self._backend, self._config.queries, self._backend_name).register(
+        default = self._targets.default
+        backend = self._registry.backend_for(default)
+        QueryTools(backend, self._config.queries, default.backend_name).register(
             self._mcp
         )
         if self._allow_updates:
-            UpdateTools(
-                self._backend, self._config.updates, self._backend_name
-            ).register(self._mcp)
+            UpdateTools(backend, self._config.updates, default.backend_name).register(
+                self._mcp
+            )
 
     def run(self) -> None:
         """Start the MCP server event loop."""
@@ -78,8 +81,8 @@ class ToolServer:
 
 def create_server(
     config: QueryFileConfig,
-    backend: DatabaseBackend,
-    backend_name: str,
+    targets: ResolvedTargets,
+    registry: BackendRegistry,
     allow_updates: bool,
 ) -> ToolServer:
     """Factory: build and return a configured ToolServer.
@@ -89,36 +92,39 @@ def create_server(
     """
     return ToolServer(
         config=config,
-        backend=backend,
-        backend_name=backend_name,
+        targets=targets,
+        registry=registry,
         allow_updates=allow_updates,
     )
 
 
 def run_server(args: argparse.Namespace) -> None:
-    """Wire configs, backend and tool server together, then run.
+    """Wire configs, registry and tool server together, then run.
 
-    Pure wiring: discover and load configs, build a backend, construct the
-    tool server, and invoke its event loop. Raises ``ValueError`` /
-    ``OSError`` on pre-``mcp.run()`` configuration failures and propagates
-    ``KeyboardInterrupt`` from the event loop. ``backend.close()`` always
-    runs via ``finally``.
+    Pure wiring: discover and load configs, resolve every
+    ``(connection, database)`` target, build a :class:`BackendRegistry`,
+    construct the tool server, and invoke its event loop. Raises
+    ``ValueError`` / ``OSError`` on pre-``mcp.run()`` configuration failures
+    and propagates ``KeyboardInterrupt`` from the event loop.
+    ``registry.close_all()`` always runs via ``finally``.
     """
     qpath = discover_query_config(args.config, project_dir=Path.cwd())
     qcfg = load_query_config(qpath)
     dbcfg = load_database_config(args.database_config)
-    conn = resolve_connection(qcfg, dbcfg)
-    backend = create_backend(conn)
+    targets = resolve_targets(qcfg, dbcfg)
+    registry = BackendRegistry()
     try:
         n_builtin = len(load_default_queries()) + len(PROGRAMMATIC_BUILTIN_TOOLS)
         logger.info(
             "starting MCP server backend=%s connection=%s "
-            "query_config=%s builtin_tools=%d",
-            conn.backend,
+            "connections=%d databases=%d query_config=%s builtin_tools=%d",
+            targets.default.backend_name,
             qcfg.connection,
+            len(targets.connection_names),
+            len(targets.database_names),
             qpath,
             n_builtin,
         )
-        ToolServer(qcfg, backend, conn.backend, dbcfg.security.allow_updates).run()
+        ToolServer(qcfg, targets, registry, dbcfg.security.allow_updates).run()
     finally:
-        backend.close()
+        registry.close_all()
