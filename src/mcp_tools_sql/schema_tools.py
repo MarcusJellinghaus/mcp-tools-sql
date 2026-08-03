@@ -9,7 +9,11 @@ from typing import TYPE_CHECKING
 
 from mcp_tools_sql.config.models import QueryConfig
 from mcp_tools_sql.formatting import format_rows
-from mcp_tools_sql.query_helpers import build_query_body, build_query_sig_params
+from mcp_tools_sql.query_helpers import (
+    build_query_sig_params,
+    build_schema_body,
+    build_target_params,
+)
 from mcp_tools_sql.tool_builder import build_tool_fn
 
 if TYPE_CHECKING:
@@ -17,7 +21,7 @@ if TYPE_CHECKING:
 
     from mcp.server.fastmcp import FastMCP
 
-    from mcp_tools_sql.backends.base import DatabaseBackend
+    from mcp_tools_sql.backends.registry import BackendRegistry
     from mcp_tools_sql.config.models import ResolvedTargets
 
 logger = logging.getLogger(__name__)
@@ -92,21 +96,29 @@ class SchemaTools:
 
     def __init__(
         self,
-        backend: DatabaseBackend,
-        backend_name: str,
+        registry: BackendRegistry,
+        targets: ResolvedTargets,
     ) -> None:
-        self._backend = backend
-        self._backend_name = backend_name
+        self._registry = registry
+        self._targets = targets
 
     def register(self, mcp: FastMCP) -> None:
-        """Load default_queries.toml and register all schema tools on ``mcp``."""
+        """Load default_queries.toml and register all schema tools on ``mcp``.
+
+        Each tool resolves its ``(connection, database)`` target at call time
+        (single target for now — fan-out is Step 11). For single-target installs
+        ``build_target_params`` adds nothing, so the signature is byte-identical
+        to a pinned build.
+        """
         for name, config in load_default_queries().items():
-            sig_params = build_query_sig_params(config)
-            body = build_query_body(
+            sig_params = build_query_sig_params(config) + build_target_params(
+                self._targets
+            )
+            body = build_schema_body(
                 name,
                 config,
-                self._backend,
-                self._backend_name,
+                self._registry,
+                self._targets,
                 self._TRUNCATION_HINT,
             )
             fn = build_tool_fn(name, sig_params, body, config.description)

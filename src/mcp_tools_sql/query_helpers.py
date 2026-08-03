@@ -11,7 +11,7 @@ from __future__ import annotations
 import inspect
 from collections.abc import Awaitable, Callable
 from fnmatch import fnmatch
-from typing import TYPE_CHECKING, Annotated, Any, Optional, cast
+from typing import TYPE_CHECKING, Annotated, Any, Literal, Optional, cast
 
 from pydantic import Field
 
@@ -22,7 +22,8 @@ from mcp_tools_sql.utils.sql_placeholders import ParseError, extract_param_names
 
 if TYPE_CHECKING:
     from mcp_tools_sql.backends.base import DatabaseBackend
-    from mcp_tools_sql.config.models import QueryConfig
+    from mcp_tools_sql.backends.registry import BackendRegistry
+    from mcp_tools_sql.config.models import QueryConfig, ResolvedTargets
 
 
 def extract_sql_params(sql: str) -> set[str]:
@@ -190,6 +191,101 @@ def build_query_body(
     filter_kwarg = f"{config.filter_column}_filter" if config.filter_column else None
 
     async def body(**kwargs: Any) -> str:
+        return await execute_and_format(
+            name,
+            resolved_sql,
+            sql_params,
+            backend,
+            config,
+            filter_kwarg,
+            truncation_hint,
+            kwargs,
+        )
+
+    return body
+
+
+def build_target_params(targets: ResolvedTargets) -> list[inspect.Parameter]:
+    """Build the keyword-only ``connection``/``database`` selector parameters.
+
+    These runtime target-selection params are shown only for multi-target
+    installs, so a single-target signature stays byte-identical to today:
+
+    * Nothing is added unless ``targets.is_multi``.
+    * A keyword-only ``connection`` param (``Literal`` enum of the connection
+      names, defaulting to the file-default connection) is added only when more
+      than one connection is configured.
+    * A keyword-only ``database`` param (``Literal`` enum of the database names)
+      is always added under multi. Its default is ``None`` so ``resolve_pinned``
+      falls back to the *selected* connection's ``default_database`` rather than
+      the file-default connection's catalog.
+
+    Returns:
+        The keyword-only selector params, or an empty list when not multi.
+    """
+    if not targets.is_multi:
+        return []
+
+    params: list[inspect.Parameter] = []
+
+    connection_names = targets.connection_names
+    if len(connection_names) > 1:
+        conn_enum: Any = Literal.__getitem__(tuple(connection_names))
+        conn_desc = "Connection to run against (defaults to the file default)."
+        params.append(
+            inspect.Parameter(
+                "connection",
+                kind=inspect.Parameter.KEYWORD_ONLY,
+                default=targets.file_default_connection,
+                annotation=Annotated[conn_enum, Field(description=conn_desc)],
+            )
+        )
+
+    db_enum: Any = Literal.__getitem__(tuple(targets.database_names))
+    db_desc = "Database (catalog) to run against; defaults to the connection default."
+    params.append(
+        inspect.Parameter(
+            "database",
+            kind=inspect.Parameter.KEYWORD_ONLY,
+            default=None,
+            annotation=Annotated[Optional[db_enum], Field(description=db_desc)],
+        )
+    )
+
+    return params
+
+
+def build_schema_body(
+    name: str,
+    config: QueryConfig,
+    registry: BackendRegistry,
+    targets: ResolvedTargets,
+    truncation_hint: str,
+) -> Callable[..., Awaitable[str]]:
+    """Build a runtime-resolving schema tool body over one resolved target.
+
+    Unlike :func:`build_query_body` (which pins its backend at registration
+    time), this body resolves exactly one ``(connection, database)`` target from
+    the call-time ``connection``/``database`` kwargs, then delegates to the
+    shared :func:`execute_and_format` core — no execution/format logic is
+    reimplemented here.
+
+    Returns:
+        An async callable that resolves one target then executes and formats it,
+        or returns a friendly verdict string when the target pair is invalid.
+    """
+    filter_kwarg = f"{config.filter_column}_filter" if config.filter_column else None
+
+    async def body(**kwargs: Any) -> str:
+        conn = kwargs.pop("connection", None)
+        db = kwargs.pop("database", None)
+        try:
+            target = targets.resolve_pinned(conn, db)
+        except ValueError as exc:
+            return str(exc)
+        resolved_sql = config.resolve_sql(target.backend_name)
+        sql_params = extract_sql_params(resolved_sql)
+        backend = registry.backend_for(target)
         return await execute_and_format(
             name,
             resolved_sql,

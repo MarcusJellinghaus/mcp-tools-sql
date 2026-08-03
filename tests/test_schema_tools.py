@@ -2,10 +2,11 @@
 
 from __future__ import annotations
 
+import inspect
 import logging
 from collections.abc import Callable
 from pathlib import Path
-from typing import Any
+from typing import Any, get_args
 
 import pytest
 from mcp.server.fastmcp import FastMCP
@@ -19,13 +20,19 @@ from mcp_tools_sql.config.models import (
     ResolvedTarget,
     ResolvedTargets,
 )
-from mcp_tools_sql.query_helpers import build_query_body, build_query_sig_params
+from mcp_tools_sql.query_helpers import (
+    build_query_body,
+    build_query_sig_params,
+    build_schema_body,
+    build_target_params,
+)
 from mcp_tools_sql.schema_tools import (
     SchemaTools,
     build_read_databases_tool,
     load_default_queries,
 )
 from mcp_tools_sql.tool_builder import build_tool_fn
+from tests.target_helpers import RecordingRegistry, make_target, single_target
 
 
 def _assemble(
@@ -52,7 +59,7 @@ def _make_mcp_with_tools(db_path: str) -> FastMCP:
     backend = SQLiteBackend(config)
     backend.connect()
     mcp = FastMCP("test-schema-tools")
-    SchemaTools(backend, "sqlite").register(mcp)
+    SchemaTools(*single_target(backend)).register(mcp)
     return mcp
 
 
@@ -502,3 +509,232 @@ async def test_read_databases_performs_no_backend_access() -> None:
 
     assert "sales" in text
     assert "hr" in text
+
+
+# ---------------------------------------------------------------------------
+# build_target_params — conditional keyword-only selector params (Step 10)
+# ---------------------------------------------------------------------------
+
+
+def _single_sqlite_targets() -> ResolvedTargets:
+    """One-target install (single connection, single database)."""
+    t = make_target("default", "main", is_default=True, default_database="main")
+    return ResolvedTargets(targets=[t], default=t, file_default_connection="default")
+
+
+def _multi_targets() -> ResolvedTargets:
+    """Two connections; the default connection has two databases.
+
+    ``default`` → ``sales`` (default) + ``hr``; ``other`` → ``warehouse``.
+    ``mssql`` backends keep the authored ``default_database`` (SQLite would
+    normalise every catalog to ``main``), so ``resolve_pinned`` can fall back to
+    the connection default. The plain SQL still runs on the real SQLite backend.
+    """
+    t_default = make_target(
+        "default",
+        "sales",
+        is_default=True,
+        default_database="sales",
+        backend_name="mssql",
+    )
+    t_hr = make_target("default", "hr", default_database="sales", backend_name="mssql")
+    t_other = make_target(
+        "other", "warehouse", default_database="warehouse", backend_name="mssql"
+    )
+    return ResolvedTargets(
+        targets=[t_default, t_hr, t_other],
+        default=t_default,
+        file_default_connection="default",
+    )
+
+
+def _literal_members(annotation: Any) -> set[str]:
+    """Extract the ``Literal`` members from an ``Annotated[...]`` param annotation."""
+    inner = get_args(annotation)[0]  # unwrap Annotated -> Literal | Optional[Literal]
+    literal = inner
+    nested = get_args(inner)
+    # Optional[Literal[...]] -> (Literal[...], NoneType)
+    if nested and get_args(nested[0]):
+        literal = nested[0]
+    return set(get_args(literal))
+
+
+def test_build_target_params_empty_for_single_target() -> None:
+    """A single-target install adds no selector params (byte-identical sig)."""
+    assert build_target_params(_single_sqlite_targets()) == []
+
+
+def test_build_target_params_two_connections_yields_both() -> None:
+    """More than one connection yields both keyword-only connection+database."""
+    params = build_target_params(_multi_targets())
+
+    assert [p.name for p in params] == ["connection", "database"]
+    assert all(p.kind == inspect.Parameter.KEYWORD_ONLY for p in params)
+
+
+def test_build_target_params_one_connection_two_databases_yields_database_only() -> (
+    None
+):
+    """A single connection with two databases yields only the database param."""
+    t_sales = make_target("default", "sales", is_default=True, default_database="sales")
+    t_hr = make_target("default", "hr", default_database="sales")
+    targets = ResolvedTargets(
+        targets=[t_sales, t_hr], default=t_sales, file_default_connection="default"
+    )
+
+    params = build_target_params(targets)
+
+    assert [p.name for p in params] == ["database"]
+    assert params[0].kind == inspect.Parameter.KEYWORD_ONLY
+
+
+def test_build_target_params_enum_members_and_defaults() -> None:
+    """Enums list the right names; connection defaults to the file default, database to None."""
+    params = {p.name: p for p in build_target_params(_multi_targets())}
+
+    conn = params["connection"]
+    assert conn.default == "default"
+    assert _literal_members(conn.annotation) == {"default", "other"}
+
+    db = params["database"]
+    assert db.default is None
+    assert _literal_members(db.annotation) == {"sales", "hr", "warehouse"}
+
+
+# ---------------------------------------------------------------------------
+# build_schema_body — runtime single-target resolution (Step 10)
+# ---------------------------------------------------------------------------
+
+
+def _tables_config() -> QueryConfig:
+    """A backend-agnostic read_tables-style query that runs on SQLite."""
+    return QueryConfig(
+        description="List tables",
+        sql="SELECT name FROM sqlite_master WHERE type = 'table'",
+    )
+
+
+@pytest.mark.asyncio
+async def test_schema_body_binds_selected_database(sqlite_db: Path) -> None:
+    """`database='hr'` resolves against the (default_conn, hr) backend."""
+    backend = SQLiteBackend(ConnectionConfig(backend="sqlite", path=str(sqlite_db)))
+    backend.connect()
+    targets = _multi_targets()
+    registry = RecordingRegistry(
+        {
+            ("default", "sales"): backend,
+            ("default", "hr"): backend,
+            ("other", "warehouse"): backend,
+        }
+    )
+
+    body = build_schema_body("read_tables", _tables_config(), registry, targets, "")
+    text = await body(database="hr")
+
+    assert registry.calls[-1].connection == "default"
+    assert registry.calls[-1].database == "hr"
+    assert "customers" in text  # the query actually executed
+
+
+@pytest.mark.asyncio
+async def test_schema_body_connection_only_uses_connection_default(
+    sqlite_db: Path,
+) -> None:
+    """`connection='other'` with no database resolves that connection's default."""
+    backend = SQLiteBackend(ConnectionConfig(backend="sqlite", path=str(sqlite_db)))
+    backend.connect()
+    targets = _multi_targets()
+    registry = RecordingRegistry(
+        {
+            ("default", "sales"): backend,
+            ("default", "hr"): backend,
+            ("other", "warehouse"): backend,
+        }
+    )
+
+    body = build_schema_body("read_tables", _tables_config(), registry, targets, "")
+    await body(connection="other")
+
+    assert registry.calls[-1].connection == "other"
+    assert registry.calls[-1].database == "warehouse"
+
+
+@pytest.mark.asyncio
+async def test_schema_body_cross_connection_mismatch_returns_verdict(
+    sqlite_db: Path,
+) -> None:
+    """An (other, hr) mismatch returns a friendly verdict and hits no backend."""
+    backend = SQLiteBackend(ConnectionConfig(backend="sqlite", path=str(sqlite_db)))
+    backend.connect()
+    targets = _multi_targets()
+    registry = RecordingRegistry(
+        {
+            ("default", "sales"): backend,
+            ("default", "hr"): backend,
+            ("other", "warehouse"): backend,
+        }
+    )
+
+    body = build_schema_body("read_tables", _tables_config(), registry, targets, "")
+    text = await body(connection="other", database="hr")
+
+    assert "other" in text
+    assert "hr" in text
+    assert "warehouse" in text  # lists the available databases
+    assert registry.calls == []  # never resolved a backend
+
+
+@pytest.mark.asyncio
+async def test_schema_body_unpinned_resolves_default_target(sqlite_db: Path) -> None:
+    """With no kwargs the body resolves the file default target."""
+    backend = SQLiteBackend(ConnectionConfig(backend="sqlite", path=str(sqlite_db)))
+    backend.connect()
+    targets = _multi_targets()
+    registry = RecordingRegistry(
+        {
+            ("default", "sales"): backend,
+            ("default", "hr"): backend,
+            ("other", "warehouse"): backend,
+        }
+    )
+
+    body = build_schema_body("read_tables", _tables_config(), registry, targets, "")
+    await body()
+
+    assert registry.calls[-1].connection == "default"
+    assert registry.calls[-1].database == "sales"
+
+
+@pytest.mark.asyncio
+async def test_multi_install_exposes_selector_params_in_schema(
+    sqlite_db: Path,
+) -> None:
+    """A multi-target install exposes connection/database enums on read_tables."""
+    backend = SQLiteBackend(ConnectionConfig(backend="sqlite", path=str(sqlite_db)))
+    backend.connect()
+    targets = _multi_targets()
+    registry = RecordingRegistry(
+        {
+            ("default", "sales"): backend,
+            ("default", "hr"): backend,
+            ("other", "warehouse"): backend,
+        }
+    )
+    mcp = FastMCP("test-multi-schema")
+    SchemaTools(registry, targets).register(mcp)
+
+    async with create_connected_server_and_client_session(
+        mcp, raise_exceptions=True
+    ) as client:
+        result = await client.list_tools()
+        tool = next(t for t in result.tools if t.name == "read_tables")
+        props = tool.inputSchema["properties"]
+        assert "connection" in props
+        assert "database" in props
+        # Enum members are surfaced to the caller (invalid values rejected).
+        import json
+
+        db_schema = json.dumps(props["database"])
+        assert "sales" in db_schema
+        assert "hr" in db_schema
+        assert "warehouse" in db_schema

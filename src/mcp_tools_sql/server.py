@@ -66,7 +66,7 @@ class ToolServer:
         """Register schema-exploration tools from default_queries.toml and built-in validation tools."""
         default = self._targets.default
         backend = self._registry.backend_for(default)
-        SchemaTools(backend, default.backend_name).register(self._mcp)
+        SchemaTools(self._registry, self._targets).register(self._mcp)
         ValidationTools(backend, default.backend_name).register(self._mcp)
         CountTools(backend, default.backend_name).register(self._mcp)
         if self._targets.is_multi:

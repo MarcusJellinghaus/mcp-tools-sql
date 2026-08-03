@@ -77,9 +77,9 @@ Detail: [step_9.md](./steps/step_9.md)
 
 ### Step 10: schema_tools — runtime single-target `connection`/`database` params
 Detail: [step_10.md](./steps/step_10.md)
-- [ ] Implementation (tests + production code): `build_target_params` + `build_schema_body` (resolve one target, delegate to `execute_and_format`); `SchemaTools` takes registry + targets
-- [ ] Quality checks: pylint, pytest (`-n auto` + unit markers), mypy — fix all issues
-- [ ] Commit message prepared
+- [x] Implementation (tests + production code): `build_target_params` + `build_schema_body` (resolve one target, delegate to `execute_and_format`); `SchemaTools` takes registry + targets
+- [x] Quality checks: pylint, pytest (`-n auto` + unit markers), mypy — fix all issues
+- [x] Commit message prepared
 
 ### Step 11: schema_tools — `database="*"` fan-out + `_database` + footer
 Detail: [step_11.md](./steps/step_11.md)
