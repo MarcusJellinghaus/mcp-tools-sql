@@ -71,6 +71,7 @@ def single_target(
     *,
     connection: str = "default",
     database: str = "main",
+    backend_name: str = "sqlite",
 ) -> tuple[RecordingRegistry, ResolvedTargets]:
     """Build a one-target ``(registry, targets)`` bound to *backend*.
 
@@ -79,7 +80,11 @@ def single_target(
         ``ResolvedTargets`` whose default/file-default is that target.
     """
     target = make_target(
-        connection, database, is_default=True, default_database=database
+        connection,
+        database,
+        is_default=True,
+        default_database=database,
+        backend_name=backend_name,
     )
     targets = ResolvedTargets(
         targets=[target], default=target, file_default_connection=connection

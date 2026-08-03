@@ -16,13 +16,16 @@ Security model (see ``pr_info/steps/summary.md``):
 
 from __future__ import annotations
 
+import inspect
 import sqlite3
-from typing import TYPE_CHECKING, Annotated, Any
+from typing import TYPE_CHECKING, Annotated, Any, Optional
 
 import sqlglot
 from pydantic import Field
 from sqlglot import exp
 
+from mcp_tools_sql.query_helpers import build_target_params
+from mcp_tools_sql.tool_builder import build_tool_fn
 from mcp_tools_sql.tool_logging import log_tool_call
 from mcp_tools_sql.utils.sql_placeholders import (
     basic_preflight,
@@ -43,7 +46,8 @@ _INVALID_SQL_EXC: tuple[type[BaseException], ...] = (sqlite3.Error, *_PYODBC_ERR
 if TYPE_CHECKING:
     from mcp.server.fastmcp import FastMCP
 
-    from mcp_tools_sql.backends.base import DatabaseBackend
+    from mcp_tools_sql.backends.registry import BackendRegistry
+    from mcp_tools_sql.config.models import ResolvedTargets
 
 
 _DESCRIPTION = (
@@ -83,28 +87,71 @@ def _has_leading_cte(sql: str, dialect: str) -> bool:
     return isinstance(with_arg, exp.With)
 
 
+def _base_count_params() -> list[inspect.Parameter]:
+    """Return the fixed base signature params for ``count_records``.
+
+    The runtime ``connection``/``database`` selector params (added only for
+    multi-target installs) are appended separately via
+    :func:`build_target_params`, so a single-target signature is exactly these
+    two parameters.
+
+    Returns:
+        The ``sql`` / ``params`` parameters in order.
+    """
+    return [
+        inspect.Parameter(
+            "sql",
+            kind=inspect.Parameter.POSITIONAL_OR_KEYWORD,
+            annotation=Annotated[
+                str, Field(description="The read-only SELECT to count.")
+            ],
+        ),
+        inspect.Parameter(
+            "params",
+            kind=inspect.Parameter.POSITIONAL_OR_KEYWORD,
+            default=None,
+            annotation=Annotated[
+                Optional[dict[str, Any]],  # noqa: UP007
+                Field(description="Bound values for :name placeholders."),
+            ],
+        ),
+    ]
+
+
 class CountTools:
     """Registers the ``count_records`` tool on an MCP server."""
 
-    def __init__(self, backend: DatabaseBackend, backend_name: str) -> None:
-        self._backend = backend
-        self._backend_name = backend_name
+    def __init__(self, registry: BackendRegistry, targets: ResolvedTargets) -> None:
+        self._registry = registry
+        self._targets = targets
 
     def register(self, mcp: FastMCP) -> None:
-        """Register the ``count_records`` tool on ``mcp``."""
-        backend = self._backend
-        backend_name = self._backend_name
+        """Register the ``count_records`` tool on ``mcp``.
 
-        async def count_records(
-            sql: Annotated[str, Field(description="The read-only SELECT to count.")],
-            params: Annotated[
-                dict[str, Any] | None,
-                Field(description="Bound values for :name placeholders."),
-            ] = None,
+        The ``(connection, database)`` target — and therefore the backend and
+        sqlglot dialect — is resolved per call from optional keyword-only
+        ``connection``/``database`` selector params (present only for
+        multi-target installs). Single-target installs keep a byte-identical
+        signature and behaviour.
+        """
+        registry = self._registry
+        targets = self._targets
+
+        async def core(
+            sql: str,
+            params: dict[str, Any] | None = None,
+            *,
+            connection: str | None = None,
+            database: str | None = None,
         ) -> str:
+            try:
+                target = targets.resolve_pinned(connection, database)
+            except ValueError as exc:
+                return str(exc)
+            backend = registry.backend_for(target)
+            dialect = to_dialect(target.backend_name)
             async with log_tool_call("count_records", params or {}, sql=sql) as rec:
                 rec.record(rows=1, cols=1)
-                dialect = to_dialect(backend_name)
                 verdict = basic_preflight(sql, params, dialect)
                 if verdict is not None:
                     return verdict
@@ -126,4 +173,6 @@ class CountTools:
                     return f"Unexpected error. {type(exc).__name__}: {exc}"
                 return str(rows[0]["row_count"])
 
-        mcp.add_tool(count_records, name="count_records", description=_DESCRIPTION)
+        sig_params = _base_count_params() + build_target_params(targets)
+        fn = build_tool_fn("count_records", sig_params, core, _DESCRIPTION)
+        mcp.add_tool(fn, name="count_records", description=_DESCRIPTION)

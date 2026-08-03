@@ -89,9 +89,9 @@ Detail: [step_11.md](./steps/step_11.md)
 
 ### Step 12: `validate_sql` / `count_records` — `database` param, per-call dialect
 Detail: [step_12.md](./steps/step_12.md)
-- [ ] Implementation (tests + production code): `ValidationTools`/`CountTools` take registry + targets, resolve backend + dialect per call via `build_target_params(star=False)`
-- [ ] Quality checks: pylint, pytest (`-n auto` + unit markers), mypy — fix all issues
-- [ ] Commit message prepared
+- [x] Implementation (tests + production code): `ValidationTools`/`CountTools` take registry + targets, resolve backend + dialect per call via `build_target_params(star=False)`
+- [x] Quality checks: pylint, pytest (`-n auto` + unit markers), mypy — fix all issues
+- [x] Commit message prepared
 
 ### Step 13: verify — static CONFIG cross-file checks
 Detail: [step_13.md](./steps/step_13.md)
