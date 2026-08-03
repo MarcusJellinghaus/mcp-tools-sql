@@ -71,6 +71,30 @@ Two config files:
 The `--config` flag overrides the project query config path; the
 `--database-config` flag overrides the database config path.
 
+### Multiple connections and databases
+
+Routing has two axes: a **connection** (server + backend + credentials) and,
+within it, one or more **databases** (catalogs). A connection lists its catalogs
+with `databases` and picks a default with `default_database`:
+
+| Key | Purpose |
+|-----|---------|
+| `[connections.<name>]` | One connection (server + backend + credentials). Add more blocks for more servers/backends. |
+| `databases` | Catalogs this connection routes to, e.g. `["sales", "hr"]` (PostgreSQL: exactly one; legacy `database = "..."` still works). |
+| `default_database` | Catalog used when the caller omits `database`. |
+
+Single-connection, single-database installs behave exactly as before. When more
+than one target exists, the built-in schema tools gain `connection` / `database`
+parameters (plus `database = "*"` fan-out across a connection's catalogs) and a
+`read_databases` tool lists the routable targets. `[queries.*]` / `[updates.*]`
+may pin a `connection` / `database`. See
+[docs/cli.md](docs/cli.md#the-two-axis-model-fan-out-and-pinned-targets) for the
+full model.
+
+> **Note:** `databases` is a routing/discovery list, **not** an authorization
+> boundary — a connection still reaches any catalog its login is granted. Grant
+> least privilege with per-connection database credentials at the server.
+
 See the [planning document](mcp-tools-sql.md) for full details.
 
 ## License

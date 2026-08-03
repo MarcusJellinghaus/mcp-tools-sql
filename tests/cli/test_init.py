@@ -10,6 +10,7 @@ from pathlib import Path
 import pytest
 
 from mcp_tools_sql.cli.commands import init as init_cmd
+from mcp_tools_sql.config.loader import load_database_config
 
 
 def _make_args(
@@ -58,16 +59,23 @@ def test_init_generates_valid_toml(tmp_path: Path) -> None:
     [
         ("sqlite", {"backend", "path"}, {"host", "port"}),
         (
-            # `port` is commented out in the mssql template; users opt in only
-            # for non-default fixed ports (see "When to set port" in the docs).
+            # `port` and legacy `database` are commented out in the mssql
+            # template; the live shape uses `databases`/`default_database`.
             "mssql",
-            {"backend", "host", "database", "username", "driver"},
-            {"path", "port"},
+            {
+                "backend",
+                "host",
+                "databases",
+                "default_database",
+                "username",
+                "driver",
+            },
+            {"path", "port", "database"},
         ),
         (
             "postgresql",
-            {"backend", "host", "port", "database", "username"},
-            {"path", "driver"},
+            {"backend", "host", "port", "databases", "username"},
+            {"path", "driver", "database"},
         ),
     ],
 )
@@ -94,6 +102,66 @@ def test_init_database_config_per_backend(
         assert key in default, f"missing expected key {key!r} for backend {backend!r}"
     for key in forbidden_keys:
         assert key not in default, f"unexpected key {key!r} for backend {backend!r}"
+
+
+# ---------------------------------------------------------------------------
+# Test (ii.b): generated templates round-trip through the config model
+# ---------------------------------------------------------------------------
+
+
+def test_init_mssql_template_round_trips_multi_database(
+    redirect_home_and_cwd: Path,
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """mssql template parses into a multi-database `ConnectionConfig`."""
+    del redirect_home_and_cwd
+    monkeypatch.setenv("MSSQL_PASSWORD", "secret")
+    rc = init_cmd.run(_make_args("mssql", output=tmp_path / "mcp-tools-sql.toml"))
+    assert rc == 0
+
+    db_config = load_database_config(
+        Path.home() / ".mcp-tools-sql" / "config.toml",
+    )
+    conn = db_config.connections["default"]
+    assert [db.name for db in conn.databases] == ["sales", "hr"]
+    assert conn.default_database == "sales"
+
+
+def test_init_postgresql_template_round_trips_single_database(
+    redirect_home_and_cwd: Path,
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """postgresql template parses into a single-database `ConnectionConfig`."""
+    del redirect_home_and_cwd
+    monkeypatch.setenv("POSTGRES_PASSWORD", "secret")
+    rc = init_cmd.run(_make_args("postgresql", output=tmp_path / "mcp-tools-sql.toml"))
+    assert rc == 0
+
+    db_config = load_database_config(
+        Path.home() / ".mcp-tools-sql" / "config.toml",
+    )
+    conn = db_config.connections["default"]
+    assert [db.name for db in conn.databases] == ["mydb"]
+    assert conn.default_database == "mydb"
+
+
+def test_init_sqlite_template_round_trips_unchanged(
+    redirect_home_and_cwd: Path,
+    tmp_path: Path,
+) -> None:
+    """sqlite template still parses with just a `path` (no explicit databases)."""
+    del redirect_home_and_cwd
+    rc = init_cmd.run(_make_args("sqlite", output=tmp_path / "mcp-tools-sql.toml"))
+    assert rc == 0
+
+    db_config = load_database_config(
+        Path.home() / ".mcp-tools-sql" / "config.toml",
+    )
+    conn = db_config.connections["default"]
+    assert conn.backend == "sqlite"
+    assert conn.path == "./mydb.db"
 
 
 # ---------------------------------------------------------------------------

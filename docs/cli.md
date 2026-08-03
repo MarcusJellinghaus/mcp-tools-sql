@@ -102,12 +102,18 @@ The generated `~/.mcp-tools-sql/config.toml`:
 [connections.default]
 backend = "mssql"
 host = ""
-port = 1433
-database = ""
+# port = 1433                 # set only for a non-default fixed TCP port
+databases = ["sales", "hr"]   # catalogs this connection routes to
+default_database = "sales"    # used when the caller omits `database`
+# database = "sales"          # legacy single-database form still works
 username = ""
 password = "${MSSQL_PASSWORD}"
 driver = "ODBC Driver 18 for SQL Server"
 ```
+
+`databases` is the **two-axis routing model** in action: one connection can
+reach several catalogs. Schema tools accept a `database` param to pick one, or
+`database = "*"` to fan out across all of them (see the two-axis model below).
 
 #### Example — postgresql
 
@@ -124,10 +130,46 @@ The generated `~/.mcp-tools-sql/config.toml`:
 backend = "postgresql"
 host = ""
 port = 5432
-database = ""
+databases = ["mydb"]          # postgresql: exactly one database per connection
 username = ""
 password = "${POSTGRES_PASSWORD}"
+# database = "mydb"           # legacy single-database form still works
 ```
+
+PostgreSQL routes to exactly one database per connection; add further
+databases as additional `[connections.*]` blocks with their own credentials.
+
+#### The two-axis model, fan-out, and pinned targets
+
+Routing has **two axes**: a **connection** (a server + backend + credentials)
+and, within it, a **database** (catalog). One connection and one database are
+the defaults, so single-target installs behave exactly as before and grow no
+extra tool parameters.
+
+- **Conditional tool surface.** A `connection` parameter appears on the built-in
+  schema tools only when more than one connection is configured; a `database`
+  parameter and the config-only `read_databases` tool appear only when more than
+  one `(connection, database)` target exists. Both parameters are
+  keyword-only with a `Literal` enum of the legal names.
+- **`database = "*"` fan-out.** The four read-only schema builtins accept
+  `database = "*"` to run across every database of the selected connection.
+  Merged rows gain a `_database` source column and, on truncation, a
+  per-database footer breakdown. There is no `connection = "*"`.
+- **`read_databases`.** A config-only tool (no DB access) that lists the
+  configured connections and their databases so a caller can discover the legal
+  `connection` / `database` values before calling the schema tools.
+- **Pinned query/update targets.** A `[queries.*]` or `[updates.*]` block may
+  set `connection` and/or `database` to pin that tool to one target at
+  registration time; `query_*` / `update_*` tools therefore take **no** runtime
+  `connection` / `database` params. `validate_sql` and `count_records` keep a
+  runtime `database` param (dialect and backend resolve per call).
+
+> **Security caveat (not an authorization boundary).** The `databases` list is a
+> **routing/discovery** convenience, **not** a permission boundary. A connection
+> can still reach any catalog its login is granted — cross-database SQL with
+> three-part `db.schema.table` names works verbatim regardless of what
+> `databases` lists. Enforce least privilege with per-connection database
+> credentials at the server, not by editing this list.
 
 ### `verify` — validate setup without starting the server
 

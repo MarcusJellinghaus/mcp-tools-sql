@@ -152,6 +152,45 @@ Tool naming convention:
 - `update_<name>` — configured UPDATE tools
 - No prefix — built-in tools (read_schemas, read_tables, etc.)
 
+### Multi-connection / multi-database routing (two-axis model)
+
+Routing has two independent axes: a **connection** (server + backend +
+credentials) and, within it, a **database** (catalog). The unit of execution is
+a `(connection, database)` **target**, built by copying the connection config
+with `database` set to the chosen catalog — so the four `INFORMATION_SCHEMA`
+builtins and any configured SQL run verbatim against the right catalog with no
+SQL rewriting. `config` resolves the config-order list of targets
+(`resolve_targets` → `ResolvedTargets`); `backends/registry.py` lazily
+instantiates and caches one backend per target and owns `close_all()` (kept in
+`backends` to respect the `config`-may-not-import-`backends` contract). The
+server builds both and closes the registry in a `finally`.
+
+The tool surface is **conditional** and byte-identical for single-target
+installs:
+
+- A `connection` parameter is added to the read-only schema builtins only when
+  more than one connection is configured; a `database` parameter and the
+  config-only `read_databases` tool are added only when more than one target
+  exists. Both parameters are keyword-only with a runtime-built `Literal` enum
+  of the legal names.
+- `database = "*"` fans out a schema builtin across every database of the
+  selected connection (correctness path only — fetch-all, merge in config order,
+  truncate at the end). Merged rows carry a `_database` source column and a
+  per-database footer breakdown on truncation. There is no `connection = "*"`.
+- `read_databases` is named for its result (the list of routable databases),
+  matching the `read_*` builtin family; it reads config only and touches no
+  database.
+- `[queries.*]` / `[updates.*]` may pin `connection` / `database`, so
+  `query_*` / `update_*` bind their target at registration and take no runtime
+  routing params. `validate_sql` / `count_records` resolve backend and dialect
+  per call from a runtime `database` param.
+
+**Security note (decision 26).** The `databases` list is a routing/discovery
+list, **not** an authorization boundary. A connection still reaches any catalog
+its login can see (three-part `db.schema.table` names work verbatim), so
+least-privilege must be enforced with per-connection database credentials at the
+server — not by editing `databases`.
+
 ---
 
 ## 6. Cross-cutting Concerns

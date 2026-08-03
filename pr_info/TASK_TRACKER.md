@@ -113,9 +113,9 @@ Detail: [step_15.md](./steps/step_15.md)
 
 ### Step 16: `init` multi-connection template + docs
 Detail: [step_16.md](./steps/step_16.md)
-- [ ] Implementation (tests + production code): mssql/postgresql templates use `databases`/`default_database`; document two-axis model, fan-out, `read_databases`, pinned query fields, decision-26 security caveat
-- [ ] Quality checks: pylint, pytest (`-n auto` + unit markers), mypy — fix all issues
-- [ ] Commit message prepared
+- [x] Implementation (tests + production code): mssql/postgresql templates use `databases`/`default_database`; document two-axis model, fan-out, `read_databases`, pinned query fields, decision-26 security caveat
+- [x] Quality checks: pylint, pytest (`-n auto` + unit markers), mypy — fix all issues
+- [x] Commit message prepared
 
 ## Pull Request
 

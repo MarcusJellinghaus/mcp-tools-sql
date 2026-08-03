@@ -100,7 +100,16 @@ host = ""
 # (host\\instance — SQL Browser resolves the port). Set it explicitly only
 # when connecting to a non-default fixed TCP port.
 # port = 1433
-database = ""
+# databases: the catalogs this connection routes to. The `database` param on
+# schema tools selects one; `database = "*"` fans out across all of them.
+# NOTE: this list is for routing/discovery only — it is NOT a permission
+# boundary. Access is governed by the connection's own database credentials
+# (three-part `db.schema.table` names still reach any catalog the login can
+# see), so grant least-privilege at the server, not here.
+databases = ["sales", "hr"]
+default_database = "sales"
+# Legacy single-database form still works:
+# database = "sales"
 username = ""
 password = "${MSSQL_PASSWORD}"
 # trusted_connection = true   # uncomment for Windows auth (no password)
@@ -112,9 +121,13 @@ _DATABASE_CONFIG_POSTGRESQL = """\
 backend = "postgresql"
 host = ""
 port = 5432
-database = ""
+# postgresql routes to exactly one database per connection. Add more
+# databases as additional [connections.*] blocks with their own credentials.
+databases = ["mydb"]
 username = ""
 password = "${POSTGRES_PASSWORD}"
+# Legacy single-database form still works:
+# database = "mydb"
 """
 
 
