@@ -95,9 +95,9 @@ Detail: [step_12.md](./steps/step_12.md)
 
 ### Step 13: verify — static CONFIG cross-file checks
 Detail: [step_13.md](./steps/step_13.md)
-- [ ] Implementation (tests + production code): cross-file rules 1/4/5/6 in `verification/config_files.py`, recompute `overall_ok`; adjust verify snapshot if ordering shifts
-- [ ] Quality checks: pylint, pytest (`-n auto` + unit markers), mypy — fix all issues
-- [ ] Commit message prepared
+- [x] Implementation (tests + production code): cross-file rules 1/4/5/6 in `verification/config_files.py`, recompute `overall_ok`; adjust verify snapshot if ordering shifts
+- [x] Quality checks: pylint, pytest (`-n auto` + unit markers), mypy — fix all issues
+- [x] Commit message prepared
 
 ### Step 14: verify — per-pair CONNECTION probing + orchestrator registry migration
 Detail: [step_14.md](./steps/step_14.md)
