@@ -71,6 +71,12 @@ _.model_config
 # Pydantic @model_validator methods (invoked by Pydantic, not called directly)
 # =============================================================================
 _._default_max_rows_hard
+_._normalise_databases
+_._validate_databases
+
+# `cls` in @model_validator(mode="before") classmethods is required by the
+# signature but unused in the body (vulture does not special-case it like `self`)
+cls
 
 # =============================================================================
 # Tool/Server classes - registered dynamically
