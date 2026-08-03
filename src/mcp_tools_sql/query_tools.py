@@ -11,8 +11,8 @@ from mcp_tools_sql.tool_builder import build_tool_fn
 if TYPE_CHECKING:
     from mcp.server.fastmcp import FastMCP
 
-    from mcp_tools_sql.backends.base import DatabaseBackend
-    from mcp_tools_sql.config.models import QueryConfig
+    from mcp_tools_sql.backends.registry import BackendRegistry
+    from mcp_tools_sql.config.models import QueryConfig, ResolvedTargets
 
 
 class QueryTools:
@@ -23,20 +23,24 @@ class QueryTools:
 
     def __init__(
         self,
-        backend: DatabaseBackend,
+        registry: BackendRegistry,
+        targets: ResolvedTargets,
         queries: dict[str, QueryConfig],
-        backend_name: str,
     ) -> None:
-        self._backend = backend
+        self._registry = registry
+        self._targets = targets
         self._queries = queries
-        self._backend_name = backend_name
 
     def register(self, mcp: FastMCP) -> None:
         """Register one MCP tool per configured query as ``query_<name>``.
 
+        Each tool binds the backend for its pinned ``(connection, database)``
+        target, resolved once from the registry at registration time.
+
         Raises:
             ValueError: If a configured query name does not match the allowed
-                identifier pattern (``_NAME_RE``).
+                identifier pattern (``_NAME_RE``), or if a query pins a
+                connection/database that is not configured.
         """
         for name, config in self._queries.items():
             if not self._NAME_RE.match(name):
@@ -44,12 +48,16 @@ class QueryTools:
                     f"Invalid query name {name!r}: must match "
                     f"{self._NAME_RE.pattern}"
                 )
+            target = self._targets.resolve_pinned(
+                config.connection or None, config.database or None
+            )
+            backend = self._registry.backend_for(target)
             sig_params = build_query_sig_params(config)
             body = build_query_body(
                 name,
                 config,
-                self._backend,
-                self._backend_name,
+                backend,
+                target.backend_name,
                 self._TRUNCATION_HINT,
             )
             fn = build_tool_fn(name, sig_params, body, config.description)

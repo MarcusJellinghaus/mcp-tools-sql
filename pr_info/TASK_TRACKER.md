@@ -59,9 +59,9 @@ Detail: [step_6.md](./steps/step_6.md)
 
 ### Step 7: Pinned per-target backend for `query_*` / `update_*`
 Detail: [step_7.md](./steps/step_7.md)
-- [ ] Implementation (tests + production code): `QueryTools`/`UpdateTools` take registry + targets, resolve pinned target at registration
-- [ ] Quality checks: pylint, pytest (`-n auto` + unit markers), mypy — fix all issues
-- [ ] Commit message prepared
+- [x] Implementation (tests + production code): `QueryTools`/`UpdateTools` take registry + targets, resolve pinned target at registration
+- [x] Quality checks: pylint, pytest (`-n auto` + unit markers), mypy — fix all issues
+- [x] Commit message prepared
 
 ### Step 8: `read_databases` tool (config-only, when >1 target)
 Detail: [step_8.md](./steps/step_8.md)

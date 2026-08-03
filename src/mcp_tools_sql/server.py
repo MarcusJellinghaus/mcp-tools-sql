@@ -62,13 +62,11 @@ class ToolServer:
         CountTools(backend, default.backend_name).register(self._mcp)
 
     def _register_configured_tools(self) -> None:
-        default = self._targets.default
-        backend = self._registry.backend_for(default)
-        QueryTools(backend, self._config.queries, default.backend_name).register(
+        QueryTools(self._registry, self._targets, self._config.queries).register(
             self._mcp
         )
         if self._allow_updates:
-            UpdateTools(backend, self._config.updates, default.backend_name).register(
+            UpdateTools(self._registry, self._targets, self._config.updates).register(
                 self._mcp
             )
 

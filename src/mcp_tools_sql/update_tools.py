@@ -18,7 +18,8 @@ if TYPE_CHECKING:
     from mcp.server.fastmcp import FastMCP
 
     from mcp_tools_sql.backends.base import DatabaseBackend
-    from mcp_tools_sql.config.models import UpdateConfig
+    from mcp_tools_sql.backends.registry import BackendRegistry
+    from mcp_tools_sql.config.models import ResolvedTargets, UpdateConfig
 
 
 def _validate_identifier(value: str, update_name: str) -> None:
@@ -123,21 +124,25 @@ class UpdateTools:
 
     def __init__(
         self,
-        backend: DatabaseBackend,
+        registry: BackendRegistry,
+        targets: ResolvedTargets,
         updates: dict[str, UpdateConfig],
-        backend_name: str,
     ) -> None:
-        self._backend = backend
+        self._registry = registry
+        self._targets = targets
         self._updates = updates
-        self._backend_name = backend_name
 
     def register(self, mcp: FastMCP) -> None:
         """Register one MCP tool per configured update as ``update_<name>``.
 
+        Each tool binds the backend for its pinned ``(connection, database)``
+        target, resolved once from the registry at registration time.
+
         Raises:
             ValueError: If a tool name, table, schema, key field, or field
-                fails the identifier whitelist, if ``key`` is missing, or if
-                any field reuses the key column name.
+                fails the identifier whitelist, if ``key`` is missing, if
+                any field reuses the key column name, or if an update pins a
+                connection/database that is not configured.
         """
         for name, cfg in self._updates.items():
             if not IDENTIFIER_PATTERN.match(name):
@@ -162,11 +167,15 @@ class UpdateTools:
                         f"conflicts with key column {cfg.key.field!r}"
                     )
 
+            target = self._targets.resolve_pinned(
+                cfg.connection or None, cfg.database or None
+            )
+            backend = self._registry.backend_for(target)
             qualified = (
                 f"{cfg.schema_name}.{cfg.table}" if cfg.schema_name else cfg.table
             )
             sig_params = _build_update_sig_params(cfg)
-            body = _build_update_body(name, cfg, qualified, self._backend)
+            body = _build_update_body(name, cfg, qualified, backend)
             fn = build_tool_fn(name, sig_params, body, cfg.description)
             mcp.add_tool(
                 fn,

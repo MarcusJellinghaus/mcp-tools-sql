@@ -13,6 +13,7 @@ from mcp_tools_sql.backends.sqlite import SQLiteBackend
 from mcp_tools_sql.config.models import (
     ConnectionConfig,
     QueryConfig,
+    ResolvedTargets,
     UpdateConfig,
     UpdateFieldConfig,
     UpdateKeyConfig,
@@ -20,6 +21,7 @@ from mcp_tools_sql.config.models import (
 from mcp_tools_sql.identifiers import IDENTIFIER_PATTERN
 from mcp_tools_sql.query_tools import QueryTools
 from mcp_tools_sql.update_tools import UpdateTools
+from tests.target_helpers import RecordingRegistry, make_target, single_target
 
 
 def _sqlite_backend(db_path: Path) -> SQLiteBackend:
@@ -39,7 +41,7 @@ async def test_empty_updates_is_noop(sqlite_db: Path) -> None:
     """UpdateTools with no updates registers zero tools (no error)."""
     backend = _sqlite_backend(sqlite_db)
     mcp = FastMCP("test-empty-updates")
-    UpdateTools(backend, {}, "sqlite").register(mcp)
+    UpdateTools(*single_target(backend), {}).register(mcp)
 
     async with create_connected_server_and_client_session(
         mcp, raise_exceptions=True
@@ -61,7 +63,7 @@ async def test_update_tool_name_is_prefixed(sqlite_db: Path) -> None:
         )
     }
     mcp = FastMCP("test-prefix")
-    UpdateTools(backend, updates, "sqlite").register(mcp)
+    UpdateTools(*single_target(backend), updates).register(mcp)
 
     async with create_connected_server_and_client_session(
         mcp, raise_exceptions=True
@@ -85,7 +87,7 @@ def test_invalid_tool_name_raises(sqlite_db: Path) -> None:
     }
     mcp = FastMCP("test-bad-name")
     with pytest.raises(ValueError, match="bad-name"):
-        UpdateTools(backend, updates, "sqlite").register(mcp)
+        UpdateTools(*single_target(backend), updates).register(mcp)
 
 
 # ---------------------------------------------------------------------------
@@ -105,7 +107,7 @@ def test_invalid_table_identifier_raises(sqlite_db: Path) -> None:
     }
     mcp = FastMCP("test-bad-table")
     with pytest.raises(ValueError) as exc:
-        UpdateTools(backend, updates, "sqlite").register(mcp)
+        UpdateTools(*single_target(backend), updates).register(mcp)
     msg = str(exc.value)
     assert "intentionally restricted" in msg
     assert IDENTIFIER_PATTERN.pattern in msg
@@ -124,7 +126,7 @@ def test_invalid_schema_identifier_raises(sqlite_db: Path) -> None:
     }
     mcp = FastMCP("test-bad-schema")
     with pytest.raises(ValueError) as exc:
-        UpdateTools(backend, updates, "sqlite").register(mcp)
+        UpdateTools(*single_target(backend), updates).register(mcp)
     msg = str(exc.value)
     assert "intentionally restricted" in msg
     assert IDENTIFIER_PATTERN.pattern in msg
@@ -143,7 +145,7 @@ def test_empty_schema_skips_identifier_check(sqlite_db: Path) -> None:
         )
     }
     mcp = FastMCP("test-empty-schema")
-    UpdateTools(backend, updates, "sqlite").register(mcp)
+    UpdateTools(*single_target(backend), updates).register(mcp)
 
 
 def test_invalid_key_field_identifier_raises(sqlite_db: Path) -> None:
@@ -158,7 +160,7 @@ def test_invalid_key_field_identifier_raises(sqlite_db: Path) -> None:
     }
     mcp = FastMCP("test-bad-key")
     with pytest.raises(ValueError) as exc:
-        UpdateTools(backend, updates, "sqlite").register(mcp)
+        UpdateTools(*single_target(backend), updates).register(mcp)
     msg = str(exc.value)
     assert "intentionally restricted" in msg
 
@@ -175,7 +177,7 @@ def test_invalid_field_identifier_raises(sqlite_db: Path) -> None:
     }
     mcp = FastMCP("test-bad-field")
     with pytest.raises(ValueError) as exc:
-        UpdateTools(backend, updates, "sqlite").register(mcp)
+        UpdateTools(*single_target(backend), updates).register(mcp)
     msg = str(exc.value)
     assert "intentionally restricted" in msg
 
@@ -197,7 +199,7 @@ def test_key_none_raises_at_registration(sqlite_db: Path) -> None:
     }
     mcp = FastMCP("test-no-key")
     with pytest.raises(ValueError, match="requires a key field"):
-        UpdateTools(backend, updates, "sqlite").register(mcp)
+        UpdateTools(*single_target(backend), updates).register(mcp)
 
 
 # ---------------------------------------------------------------------------
@@ -222,7 +224,7 @@ async def test_json_schema_key_required_fields_optional(sqlite_db: Path) -> None
         )
     }
     mcp = FastMCP("test-schema")
-    UpdateTools(backend, updates, "sqlite").register(mcp)
+    UpdateTools(*single_target(backend), updates).register(mcp)
 
     async with create_connected_server_and_client_session(
         mcp, raise_exceptions=True
@@ -254,7 +256,7 @@ async def test_json_schema_required_field_in_required_list(sqlite_db: Path) -> N
         )
     }
     mcp = FastMCP("test-required-schema")
-    UpdateTools(backend, updates, "sqlite").register(mcp)
+    UpdateTools(*single_target(backend), updates).register(mcp)
 
     async with create_connected_server_and_client_session(
         mcp, raise_exceptions=True
@@ -282,7 +284,7 @@ async def test_register_and_call_updates_row(sqlite_db: Path) -> None:
         )
     }
     mcp = FastMCP("test-roundtrip")
-    UpdateTools(backend, updates, "sqlite").register(mcp)
+    UpdateTools(*single_target(backend), updates).register(mcp)
 
     async with create_connected_server_and_client_session(
         mcp, raise_exceptions=True
@@ -327,7 +329,7 @@ async def test_partial_update_only_provided_fields_in_sql(
         )
     }
     mcp = FastMCP("test-partial")
-    UpdateTools(backend, updates, "sqlite").register(mcp)
+    UpdateTools(*single_target(backend), updates).register(mcp)
 
     async with create_connected_server_and_client_session(
         mcp, raise_exceptions=True
@@ -362,7 +364,7 @@ async def test_explicit_none_emits_null(
         )
     }
     mcp = FastMCP("test-explicit-none")
-    UpdateTools(backend, updates, "sqlite").register(mcp)
+    UpdateTools(*single_target(backend), updates).register(mcp)
 
     async with create_connected_server_and_client_session(
         mcp, raise_exceptions=True
@@ -406,7 +408,7 @@ async def test_zero_fields_passed_rejected_no_db_call(
         )
     }
     mcp = FastMCP("test-zero-fields")
-    UpdateTools(backend, updates, "sqlite").register(mcp)
+    UpdateTools(*single_target(backend), updates).register(mcp)
 
     async with create_connected_server_and_client_session(mcp) as client:
         result = await client.call_tool("update_set_anything", {"id": 1})
@@ -432,7 +434,7 @@ async def test_key_not_found_returns_no_row_text(sqlite_db: Path) -> None:
         )
     }
     mcp = FastMCP("test-missing-key")
-    UpdateTools(backend, updates, "sqlite").register(mcp)
+    UpdateTools(*single_target(backend), updates).register(mcp)
 
     async with create_connected_server_and_client_session(
         mcp, raise_exceptions=True
@@ -472,7 +474,7 @@ async def test_multiple_rows_returns_warning_token(tmp_path: Path) -> None:
         )
     }
     mcp = FastMCP("test-multi")
-    UpdateTools(backend, updates, "sqlite").register(mcp)
+    UpdateTools(*single_target(backend), updates).register(mcp)
 
     async with create_connected_server_and_client_session(
         mcp, raise_exceptions=True
@@ -500,7 +502,7 @@ async def test_sql_injection_blocked_via_values(sqlite_db: Path) -> None:
         )
     }
     mcp = FastMCP("test-inject-value")
-    UpdateTools(backend, updates, "sqlite").register(mcp)
+    UpdateTools(*single_target(backend), updates).register(mcp)
 
     payload = "'); DROP TABLE customers; --"
     async with create_connected_server_and_client_session(
@@ -526,7 +528,7 @@ async def test_sql_injection_blocked_via_key_value(sqlite_db: Path) -> None:
         )
     }
     mcp = FastMCP("test-inject-key")
-    UpdateTools(backend, updates, "sqlite").register(mcp)
+    UpdateTools(*single_target(backend), updates).register(mcp)
 
     payload = "'); DROP TABLE customers; --"
     async with create_connected_server_and_client_session(
@@ -557,7 +559,7 @@ async def test_required_field_omitted_errors(sqlite_db: Path) -> None:
         )
     }
     mcp = FastMCP("test-required")
-    UpdateTools(backend, updates, "sqlite").register(mcp)
+    UpdateTools(*single_target(backend), updates).register(mcp)
 
     async with create_connected_server_and_client_session(mcp) as client:
         result = await client.call_tool("update_set_status", {"id": 1})
@@ -593,7 +595,7 @@ async def test_schema_empty_generates_bare_table(
         )
     }
     mcp = FastMCP("test-bare")
-    UpdateTools(backend, updates, "sqlite").register(mcp)
+    UpdateTools(*single_target(backend), updates).register(mcp)
 
     async with create_connected_server_and_client_session(
         mcp, raise_exceptions=True
@@ -627,7 +629,7 @@ async def test_schema_nonempty_generates_qualified_table(
         )
     }
     mcp = FastMCP("test-qualified")
-    UpdateTools(backend, updates, "sqlite").register(mcp)
+    UpdateTools(*single_target(backend), updates).register(mcp)
 
     async with create_connected_server_and_client_session(
         mcp, raise_exceptions=True
@@ -660,8 +662,8 @@ async def test_query_and_update_same_base_name_coexist(sqlite_db: Path) -> None:
         )
     }
     mcp = FastMCP("test-coexist")
-    QueryTools(backend, queries, "sqlite").register(mcp)
-    UpdateTools(backend, updates, "sqlite").register(mcp)
+    QueryTools(*single_target(backend), queries).register(mcp)
+    UpdateTools(*single_target(backend), updates).register(mcp)
 
     async with create_connected_server_and_client_session(
         mcp, raise_exceptions=True
@@ -689,7 +691,7 @@ def test_field_name_clashes_with_key_raises_at_registration(sqlite_db: Path) -> 
     }
     mcp = FastMCP("test-clash")
     with pytest.raises(ValueError) as exc:
-        UpdateTools(backend, updates, "sqlite").register(mcp)
+        UpdateTools(*single_target(backend), updates).register(mcp)
     msg = str(exc.value)
     assert "id" in msg
 
@@ -714,5 +716,107 @@ def test_identifier_error_message_shared(sqlite_db: Path) -> None:
     }
     mcp = FastMCP("test-shared-msg")
     with pytest.raises(ValueError) as exc:
-        UpdateTools(backend, updates, "sqlite").register(mcp)
+        UpdateTools(*single_target(backend), updates).register(mcp)
     assert str(exc.value) == identifier_error("bad-table", "set_name")
+
+
+# ---------------------------------------------------------------------------
+# Pinned per-target backend selection (multi-target)
+# ---------------------------------------------------------------------------
+
+
+def _multi_target_registry(
+    backend: SQLiteBackend,
+) -> tuple[RecordingRegistry, ResolvedTargets, dict[str, object]]:
+    """Build a 3-target ``(registry, targets, by_key)`` for pinning tests.
+
+    Connection ``default`` has databases ``sales`` (default) and ``hr``;
+    connection ``second`` has a lone ``sales`` database. Every target maps to
+    the same *backend* so registration succeeds without a real second DB.
+    """
+    t_default = make_target(
+        "default",
+        "sales",
+        is_default=True,
+        default_database="sales",
+        backend_name="mssql",
+    )
+    t_hr = make_target("default", "hr", default_database="sales", backend_name="mssql")
+    t_second = make_target(
+        "second", "sales", default_database="sales", backend_name="mssql"
+    )
+    targets = ResolvedTargets(
+        targets=[t_default, t_hr, t_second],
+        default=t_default,
+        file_default_connection="default",
+    )
+    registry = RecordingRegistry(
+        {
+            ("default", "sales"): backend,
+            ("default", "hr"): backend,
+            ("second", "sales"): backend,
+        }
+    )
+    return registry, targets, {"default": t_default, "hr": t_hr, "second": t_second}
+
+
+def _set_name_update(**pins: str) -> dict[str, UpdateConfig]:
+    """Return a ``set_name`` update config with the given pinned fields."""
+    return {
+        "set_name": UpdateConfig(
+            description="",
+            table="customers",
+            key=UpdateKeyConfig(field="id", type="int"),
+            fields=[UpdateFieldConfig(field="name", type="str")],
+            **pins,
+        )
+    }
+
+
+def test_unpinned_update_binds_default_target(sqlite_db: Path) -> None:
+    """An update with no pinned fields binds to the default target's backend."""
+    backend = _sqlite_backend(sqlite_db)
+    registry, targets, by_key = _multi_target_registry(backend)
+    mcp = FastMCP("test-update-pin-default")
+
+    UpdateTools(registry, targets, _set_name_update()).register(mcp)
+
+    assert registry.calls == [by_key["default"]]
+
+
+def test_update_pinned_to_connection_binds_that_backend(sqlite_db: Path) -> None:
+    """An update pinned to a second connection binds to that connection's backend."""
+    backend = _sqlite_backend(sqlite_db)
+    registry, targets, by_key = _multi_target_registry(backend)
+    mcp = FastMCP("test-update-pin-connection")
+
+    UpdateTools(registry, targets, _set_name_update(connection="second")).register(mcp)
+
+    assert registry.calls == [by_key["second"]]
+
+
+def test_update_pinned_to_database_resolves_default_connection(
+    sqlite_db: Path,
+) -> None:
+    """An update pinned to ``database='hr'`` resolves ``(default_conn, hr)``."""
+    backend = _sqlite_backend(sqlite_db)
+    registry, targets, by_key = _multi_target_registry(backend)
+    mcp = FastMCP("test-update-pin-database")
+
+    UpdateTools(registry, targets, _set_name_update(database="hr")).register(mcp)
+
+    assert registry.calls == [by_key["hr"]]
+    assert registry.calls[0].connection == "default"
+    assert registry.calls[0].database == "hr"
+
+
+def test_update_pinned_to_unknown_target_raises(sqlite_db: Path) -> None:
+    """An invalid pinned target surfaces as ValueError at register()."""
+    backend = _sqlite_backend(sqlite_db)
+    registry, targets, _ = _multi_target_registry(backend)
+    mcp = FastMCP("test-update-pin-invalid")
+
+    with pytest.raises(ValueError, match="nope"):
+        UpdateTools(registry, targets, _set_name_update(connection="nope")).register(
+            mcp
+        )
