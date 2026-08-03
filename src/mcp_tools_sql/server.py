@@ -21,6 +21,7 @@ from mcp_tools_sql.query_tools import QueryTools
 from mcp_tools_sql.schema_tools import (
     PROGRAMMATIC_BUILTIN_TOOLS,
     SchemaTools,
+    build_read_databases_tool,
     load_default_queries,
 )
 from mcp_tools_sql.update_tools import UpdateTools
@@ -30,6 +31,14 @@ if TYPE_CHECKING:
     from mcp_tools_sql.config.models import QueryFileConfig, ResolvedTargets
 
 logger = logging.getLogger(__name__)
+
+_READ_DATABASES_DESC = (
+    "List the (connection, database) targets configured for this server, with "
+    "their backend, description, and which one is the default. This reports the "
+    "*configured* targets from the server config — not a live `sys.databases` "
+    "listing — so a database missing here means it is not configured, not that "
+    "it does not exist."
+)
 
 
 class ToolServer:
@@ -60,6 +69,12 @@ class ToolServer:
         SchemaTools(backend, default.backend_name).register(self._mcp)
         ValidationTools(backend, default.backend_name).register(self._mcp)
         CountTools(backend, default.backend_name).register(self._mcp)
+        if self._targets.is_multi:
+            self._mcp.add_tool(
+                build_read_databases_tool(self._targets),
+                name="read_databases",
+                description=_READ_DATABASES_DESC,
+            )
 
     def _register_configured_tools(self) -> None:
         QueryTools(self._registry, self._targets, self._config.queries).register(

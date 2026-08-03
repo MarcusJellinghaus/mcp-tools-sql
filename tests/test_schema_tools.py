@@ -16,9 +16,15 @@ from mcp_tools_sql.config.models import (
     BackendQueryConfig,
     ConnectionConfig,
     QueryConfig,
+    ResolvedTarget,
+    ResolvedTargets,
 )
 from mcp_tools_sql.query_helpers import build_query_body, build_query_sig_params
-from mcp_tools_sql.schema_tools import SchemaTools, load_default_queries
+from mcp_tools_sql.schema_tools import (
+    SchemaTools,
+    build_read_databases_tool,
+    load_default_queries,
+)
 from mcp_tools_sql.tool_builder import build_tool_fn
 
 
@@ -400,3 +406,99 @@ async def test_truncation_hint_preserved(sqlite_wide_db: Path) -> None:
         )
         text = result.content[0].text  # type: ignore[union-attr]
         assert "Use filter to narrow" in text
+
+
+# ---------------------------------------------------------------------------
+# build_read_databases_tool (config-only, no backend access)
+# ---------------------------------------------------------------------------
+
+
+def _target(
+    connection: str,
+    database: str,
+    *,
+    backend_name: str = "sqlite",
+    is_default: bool = False,
+    connection_description: str = "",
+    database_description: str = "",
+) -> ResolvedTarget:
+    """Build a ResolvedTarget with an arbitrary (unused-at-runtime) config."""
+    return ResolvedTarget(
+        connection=connection,
+        database=database,
+        config=ConnectionConfig(backend="sqlite", path="unused.db"),
+        backend_name=backend_name,
+        is_default=is_default,
+        connection_description=connection_description,
+        database_description=database_description,
+    )
+
+
+@pytest.mark.asyncio
+async def test_read_databases_lists_every_target_in_config_order() -> None:
+    """The tool tabulates each configured target in config order."""
+    t1 = _target("prod", "sales", is_default=True, database_description="Sales DB")
+    t2 = _target("prod", "hr", database_description="HR DB")
+    t3 = _target("analytics", "warehouse", backend_name="postgresql")
+    targets = ResolvedTargets(
+        targets=[t1, t2, t3], default=t1, file_default_connection="prod"
+    )
+
+    text = await build_read_databases_tool(targets)()
+
+    # All targets present, in config order (sales before hr before warehouse).
+    assert text.index("sales") < text.index("hr") < text.index("warehouse")
+    assert "analytics" in text
+    assert "postgresql" in text
+
+
+@pytest.mark.asyncio
+async def test_read_databases_marks_only_the_default() -> None:
+    """``is_default`` is True for exactly the default target."""
+    t1 = _target("prod", "sales", is_default=True)
+    t2 = _target("prod", "hr")
+    targets = ResolvedTargets(
+        targets=[t1, t2], default=t1, file_default_connection="prod"
+    )
+
+    text = await build_read_databases_tool(targets)()
+
+    assert "True" in text
+    assert "False" in text
+
+
+@pytest.mark.asyncio
+async def test_read_databases_description_falls_back_to_connection() -> None:
+    """Row description prefers db description, else the connection description."""
+    t1 = _target(
+        "prod",
+        "sales",
+        is_default=True,
+        connection_description="Prod server",
+        database_description="Sales catalog",
+    )
+    t2 = _target("prod", "hr", connection_description="Prod server")
+    targets = ResolvedTargets(
+        targets=[t1, t2], default=t1, file_default_connection="prod"
+    )
+
+    text = await build_read_databases_tool(targets)()
+
+    assert "Sales catalog" in text  # db description wins when present
+    assert "Prod server" in text  # falls back to connection description
+
+
+@pytest.mark.asyncio
+async def test_read_databases_performs_no_backend_access() -> None:
+    """The tool takes only targets — calling it never touches a backend."""
+    t1 = _target("prod", "sales", is_default=True)
+    t2 = _target("prod", "hr")
+    targets = ResolvedTargets(
+        targets=[t1, t2], default=t1, file_default_connection="prod"
+    )
+
+    # No registry / backend is involved at all; the call simply succeeds.
+    text = await build_read_databases_tool(targets)()
+
+    assert "sales" in text
+    assert "hr" in text

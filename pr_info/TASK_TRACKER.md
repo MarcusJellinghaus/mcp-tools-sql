@@ -65,9 +65,9 @@ Detail: [step_7.md](./steps/step_7.md)
 
 ### Step 8: `read_databases` tool (config-only, when >1 target)
 Detail: [step_8.md](./steps/step_8.md)
-- [ ] Implementation (tests + production code): `build_read_databases_tool(targets)` + register in server only when `targets.is_multi`
-- [ ] Quality checks: pylint, pytest (`-n auto` + unit markers), mypy — fix all issues
-- [ ] Commit message prepared
+- [x] Implementation (tests + production code): `build_read_databases_tool(targets)` + register in server only when `targets.is_multi`
+- [x] Quality checks: pylint, pytest (`-n auto` + unit markers), mypy — fix all issues
+- [x] Commit message prepared
 
 ### Step 9: Extract shared `execute_and_format` core (pure refactor)
 Detail: [step_9.md](./steps/step_9.md)

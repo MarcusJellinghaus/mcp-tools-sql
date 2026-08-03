@@ -307,6 +307,88 @@ def test_startup_builtin_tools_counter_includes_programmatic_builtins(
     assert len(matching) == 1
 
 
+def _write_multi_sqlite_configs(tmp_path: Path) -> argparse.Namespace:
+    """Create two SQLite connections (two targets) and return parsed args."""
+    db_a = tmp_path / "a.db"
+    db_b = tmp_path / "b.db"
+    sqlite3.connect(str(db_a)).close()
+    sqlite3.connect(str(db_b)).close()
+    qcfg = tmp_path / "mcp-tools-sql.toml"
+    qcfg.write_text('connection = "default"\n')
+    dbcfg = tmp_path / "db.toml"
+    dbcfg.write_text(
+        f'[connections.default]\nbackend = "sqlite"\npath = "{db_a.as_posix()}"\n'
+        'description = "Primary"\n'
+        f'\n[connections.second]\nbackend = "sqlite"\npath = "{db_b.as_posix()}"\n'
+        'description = "Secondary"\n'
+    )
+    return argparse.Namespace(
+        config=qcfg,
+        database_config=dbcfg,
+        log_level="INFO",
+    )
+
+
+@pytest.mark.asyncio
+async def test_read_databases_not_registered_for_single_target(
+    tmp_path: Path,
+) -> None:
+    """With one target, ``read_databases`` is not registered."""
+    from mcp.shared.memory import create_connected_server_and_client_session
+
+    args = _write_sqlite_configs(tmp_path)
+    qcfg = load_query_config(args.config)
+    dbcfg = load_database_config(args.database_config)
+    targets = resolve_targets(qcfg, dbcfg)
+    registry = BackendRegistry()
+    server = ToolServer(qcfg, targets, registry, allow_updates=False)
+    server._register_builtin_tools()  # pylint: disable=protected-access
+
+    try:
+        async with create_connected_server_and_client_session(
+            server.mcp, raise_exceptions=True
+        ) as client:
+            result = await client.list_tools()
+            names = {t.name for t in result.tools}
+            assert "read_databases" not in names
+    finally:
+        registry.close_all()
+
+
+@pytest.mark.asyncio
+async def test_read_databases_registered_and_lists_targets_when_multi(
+    tmp_path: Path,
+) -> None:
+    """With >1 target, ``read_databases`` is registered and lists every target."""
+    from mcp.shared.memory import create_connected_server_and_client_session
+
+    args = _write_multi_sqlite_configs(tmp_path)
+    qcfg = load_query_config(args.config)
+    dbcfg = load_database_config(args.database_config)
+    targets = resolve_targets(qcfg, dbcfg)
+    registry = BackendRegistry()
+    server = ToolServer(qcfg, targets, registry, allow_updates=False)
+    server._register_builtin_tools()  # pylint: disable=protected-access
+
+    try:
+        async with create_connected_server_and_client_session(
+            server.mcp, raise_exceptions=True
+        ) as client:
+            result = await client.list_tools()
+            names = {t.name for t in result.tools}
+            assert "read_databases" in names
+
+            call = await client.call_tool("read_databases", {})
+            text = call.content[0].text  # type: ignore[union-attr]
+            assert "default" in text
+            assert "second" in text
+            # Default connection's target is flagged; the other is not.
+            assert "True" in text
+            assert "False" in text
+    finally:
+        registry.close_all()
+
+
 def _write_update_configs(tmp_path: Path, allow_updates: bool) -> argparse.Namespace:
     """Create configs with an [updates.set_name] entry and given allow_updates."""
     db = tmp_path / "test.db"

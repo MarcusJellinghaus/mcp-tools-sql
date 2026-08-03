@@ -8,13 +8,17 @@ from pathlib import Path
 from typing import TYPE_CHECKING
 
 from mcp_tools_sql.config.models import QueryConfig
+from mcp_tools_sql.formatting import format_rows
 from mcp_tools_sql.query_helpers import build_query_body, build_query_sig_params
 from mcp_tools_sql.tool_builder import build_tool_fn
 
 if TYPE_CHECKING:
+    from collections.abc import Awaitable, Callable
+
     from mcp.server.fastmcp import FastMCP
 
     from mcp_tools_sql.backends.base import DatabaseBackend
+    from mcp_tools_sql.config.models import ResolvedTargets
 
 logger = logging.getLogger(__name__)
 
@@ -47,6 +51,38 @@ def load_default_queries(path: Path | None = None) -> dict[str, QueryConfig]:
             continue
         result[name] = QueryConfig.model_validate(cfg)
     return result
+
+
+def build_read_databases_tool(
+    targets: ResolvedTargets,
+) -> Callable[[], Awaitable[str]]:
+    """Build the config-only ``read_databases`` tool over *targets*.
+
+    The returned async tool tabulates every configured
+    ``(connection, database)`` target — ``connection``, ``database``,
+    ``backend``, ``description`` (the database description, falling back to the
+    connection description), and ``is_default`` — in config order. It reads only
+    the resolved config and never touches a backend.
+
+    Returns:
+        An async callable rendering the configured targets as a table.
+    """
+    rows = [
+        {
+            "connection": t.connection,
+            "database": t.database,
+            "backend": t.backend_name,
+            "description": t.database_description or t.connection_description,
+            "is_default": t.is_default,
+        }
+        for t in targets.targets
+    ]
+
+    async def read_databases() -> str:
+        """List the configured (connection, database) targets."""
+        return format_rows(rows, max_rows=len(rows))
+
+    return read_databases
 
 
 class SchemaTools:
