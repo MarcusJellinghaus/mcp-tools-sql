@@ -54,11 +54,22 @@ connection=None, database=None) -> str`.
    column from the `c{idx}__{stat}` aliases.
 9. `clamped_n, clamp_note = clamp_n(n)` **before** the view dispatch, so
    `clamp_note` is always bound regardless of view. If deep: for each
-   non-`other` column pick `kind` (`distinct < non_null → top`, else `sample`),
-   run `build_value_list_sql(..., clamped_n, ...)`. (Triage has no value lists,
-   so `clamped_n` is unused there, but `clamp_note` still reports the clamp.)
-10. Build `ColumnProfile`s; `return render_summary(profiles, total_columns, n,
-    distinct_gated=not include_distinct) + clamp_note`.
+   non-`other` column pick `kind`:
+   - `non_null == 0` (all-NULL / empty column) → `kind = "none"` (no value
+     list). Skip the value-list query — a lone `NULL` sample row renders the
+     nonsensical `sample values (1 of 0 distinct — every value unique)`, and an
+     empty column carries no values to sample.
+   - else `distinct < non_null → top`; `distinct == non_null → sample`.
+
+   Run `build_value_list_sql(..., clamped_n, ...)` for the `top`/`sample`
+   columns. (Triage has no value lists, so `clamped_n` is unused there, but
+   `clamp_note` still reports the clamp.)
+10. Build `ColumnProfile`s; `return render_summary(profiles, total_columns,
+    clamped_n, distinct_gated=not include_distinct) + clamp_note`. Pass
+    **`clamped_n`**, not the raw `n`, so the sample-values header count never
+    exceeds the 50-value cap. The renderer derives the *shown* count from
+    `len(values)` (not from any `n`), so the header stays correct even when
+    fewer than `clamped_n` distinct values exist.
 
 Wrap the DB calls in the same exception-mapping tail as `count_tools`
 (`_INVALID_SQL_EXC`, `KeyError/TypeError/ValueError`, `RuntimeError`, `Exception`).
@@ -97,14 +108,22 @@ total_columns = len(chosen); profiled = sorted(chosen, key=ordinal)[:50]
 `tests/summarize/conftest.py` — a `profiling_db` SQLite fixture with a table
 carrying: an integer column (with a zero and a negative), a text column with
 duplicates + a NULL + a whitespace value, a unique-key text column, a date
-column, and a boolean column.
+column, a boolean column (mixed true/false + a NULL), and an all-NULL column
+(to exercise the `non_null == 0` → `value_kind == "none"` path).
 
 `tests/summarize/test_tools.py`:
 
 - End-to-end deep view for a duplicated column → asserts nulls/empty/distinct
   line + `top values` + remainder.
-- Unique-key column → `sample values (… every value unique)`.
+- Unique-key column → `sample values (… every value unique)`; assert the header
+  count equals the number of values shown, and that `n=999` (clamped to 50)
+  never yields a header claiming `999`.
 - Numeric column → min/max/mean/zero/negative counts correct.
+- Date (temporal) column → deep block renders `min`/`max` bounds and distinct.
+- Boolean column → deep block renders the `true/false/null` counts and `true %`
+  (the boolean distinct-stat shape).
+- All-NULL column → nulls line `100%`, **no** value-list section (verifies the
+  `value_kind == "none"` short-circuit; no `sample values (1 of 0 …)`).
 - Zero-row table → empty-table message; `where` matching nothing → empty-filter
   message.
 - Non-existent table (`table="no_such_table"`) → table-not-found message

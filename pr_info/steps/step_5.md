@@ -37,13 +37,33 @@ def _render_values(p: ColumnProfile, n: int) -> list[str]
 - Header line: `name  (declared_type, category)`.
 - Stat lines grouped per category, thousands-separated, percentages beside
   counts. `nulls = rows - non_null`; `empty`/`nulls` show `(x.y%)` of `rows`.
-- Value list (never for `value_kind == "none"`):
+  Per-category stat lines (all counts `_fmt_int`, all `%` via `_fmt_pct`
+  of `rows`):
+  - **numeric**: `rows … | nulls … | distinct …`; then
+    `min … | max … | mean … | sum …`; then `zeros … | negatives …`.
+  - **temporal**: `rows … | nulls … | distinct …`; then `min … | max …`
+    (min/max are the date/time bounds, rendered as-is, no thousands
+    separators on the value itself).
+  - **string**: as in the issue's `customer_city` example — `rows … | nulls …
+    | empty … | distinct …`; then `length  min … | max … | avg …`.
+  - **boolean**: `rows … | nulls …`; then
+    `true {count} ({true%}) | false {count} | null {count}` — `true %` is of
+    `rows`; `false`/`null` counts shown without a redundant second percentage.
+  - **other/binary**: `rows … | nulls …`; on T-SQL a
+    `size (bytes)  min … | max … | avg …` line from the `DATALENGTH`
+    aggregates (`stats.get("size_*")`); omit the size line entirely when those
+    stats are absent (SQLite other → rows/nulls only). No `distinct` line.
+- Value list (never for `value_kind == "none"` — includes all-NULL columns and
+  every `other`/binary column):
   - **top**: rows `value  freq  (pct)`, `pct` of `rows`; then a remainder line
     `… {distinct - shown_non_null} other values, {rows - shown_rows} rows (pct)`
     — pure arithmetic from `distinct` and returned counts. `NULL` printed
     literally as a value row.
-  - **sample**: header `sample values (N of D distinct — every value unique):`
-    then values only, no counts.
+  - **sample**: header `sample values ({len(values)} of D distinct — every
+    value unique):` then values only, no counts. The shown count is
+    `len(p.values)` (the rows the SQL actually returned, already capped at
+    `clamped_n`) — **never** the requested `n`, so it can never claim more than
+    were shown. `D` is `distinct`.
 - Display-truncate each value via `_truncate`; **counts stay exact**.
 
 ## ALGORITHM (`_render_values`, top)
@@ -77,8 +97,18 @@ Hand-build `ColumnProfile`s (no DB) and assert on rendered text:
 - near-unique column (`distinct == non_null - 1`) → the duplicate surfaces at
   the top; remainder line present.
 - perfectly unique (`distinct == non_null`) → `sample values (N of D distinct —
-  every value unique)` header, no counts.
+  every value unique)` header, no counts; assert the header count equals
+  `len(values)`, and that a profile whose `values` was capped below the
+  requested `n` (e.g. 3 values, `n=999`) still renders `sample values (3 of …`,
+  never `999 of …`.
+- all-NULL column (`non_null == 0`, `value_kind == "none"`) → nulls line reads
+  `100%`, **no** value-list section (neither `top values` nor `sample values`).
 - numeric block: min/max/mean/sum/zero/neg present, thousands separators.
+- temporal block: `min`/`max` bounds rendered on their own line; distinct
+  present; no value min/max thousands-separator mangling.
+- boolean block: the `true {count} ({true%}) | false {count} | null {count}`
+  stat line renders with the correct `true %` of `rows`; assert the boolean
+  distinct-stat shape explicitly (true/false/null counts).
 - `_truncate` caps at 60 chars + `…`; `_fmt_pct(_, 0)` does not divide by zero.
 
 ## COMMIT
