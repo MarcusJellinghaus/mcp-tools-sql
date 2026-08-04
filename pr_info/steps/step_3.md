@@ -57,13 +57,18 @@ def _other_exprs(idx, col_ref, decl_type, dialect, include_distinct) -> list[exp
     integers overflow and a FLOAT cast is lossy on exact decimals; on sqlite
     `SUM(c)` uncast throughout; `zero = COUNT(CASE WHEN c = 0 …)`,
     `neg = COUNT(CASE WHEN c < 0 …)`.
-  - **string**: `empty = COUNT(CASE WHEN LTRIM(RTRIM(c)) = '' …)`; lengths via
-    `exp.Length` (renders `LENGTH` on sqlite, `LEN` on tsql), `len_avg` cast to
-    FLOAT.
-  - **boolean**: `true = COUNT(CASE WHEN c = 1 …)`, `false = … c = 0 …`.
+  - **string**: value `min = MIN(c)`, `max = MAX(c)` (legal on non-LOB
+    character types; feeds the triage line so string columns carry value
+    min/max like numeric/temporal); `empty = COUNT(CASE WHEN LTRIM(RTRIM(c)) =
+    '' …)`; lengths via `exp.Length` (renders `LENGTH` on sqlite, `LEN` on
+    tsql), `len_avg` cast to FLOAT.
+  - **boolean**: `true = COUNT(CASE WHEN c = 1 …)`, `false = … c = 0 …`. No
+    value min/max — T-SQL rejects `MIN`/`MAX` on `bit`.
   - **other**: **no distinct, no min/max, no value list**. tsql only:
-    `size_min/max/avg = DATALENGTH(c)` (legal on LOB). sqlite other: rows/nulls
-    only.
+    `size_min = MIN(DATALENGTH(c))`, `size_max = MAX(DATALENGTH(c))`,
+    `size_avg = AVG(CAST(DATALENGTH(c) AS FLOAT))` (all legal on LOB; the FLOAT
+    cast on the average avoids the same silent integer truncation guarded for
+    numeric `mean` and string `len_avg`). sqlite other: rows/nulls only.
   - `non_null = COUNT(c)` for every category; `distinct = COUNT(DISTINCT c)`
     only when `include_distinct` **and** category != other.
 
@@ -93,9 +98,13 @@ Rendered-SQL assertions per dialect (build `ColumnMeta`s directly):
 
 - numeric tsql: `AVG(CAST(... AS FLOAT))` and `SUM(CAST(... AS BIGINT))`
   present; sqlite uses `SUM` without BIGINT cast.
-- string: `LEN(` on tsql vs `LENGTH(` on sqlite; `LTRIM(RTRIM(` empty predicate.
-- other/LOB tsql: `DATALENGTH(` present; **no** `COUNT(DISTINCT` and **no**
-  `MIN(`/`MAX(` for that column.
+- string: `LEN(` on tsql vs `LENGTH(` on sqlite; `LTRIM(RTRIM(` empty predicate;
+  value `MIN(`/`MAX(` present (aliased `c{idx}__min`/`c{idx}__max`, feeding the
+  triage line).
+- boolean: **no** `MIN(`/`MAX(` for that column (T-SQL forbids it on `bit`).
+- other/LOB tsql: `DATALENGTH(` present with the average FLOAT-cast
+  (`AVG(CAST(DATALENGTH(... AS FLOAT))`); **no** `COUNT(DISTINCT` and **no**
+  value `MIN(`/`MAX(` for that column.
 - `include_distinct=False` omits every `COUNT(DISTINCT`; `True` includes it for
   non-other columns.
 - alias scheme: assert `AS c0__` / `AS c1__` prefixes so the assembler contract

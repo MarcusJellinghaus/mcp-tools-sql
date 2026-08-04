@@ -36,16 +36,17 @@ def column_cap_footer(shown: int, total: int) -> str: ...
   `mcp_tools_sql.formatting`) with keys
   `{name, type, null_pct, distinct, min, max}`. `distinct` shows `—` (or the
   gate note) when `distinct_gated`. **`min`/`max` are the value min/max, which
-  the scalar pass (step 3) computes only for numeric/temporal columns; for
-  string/boolean/other columns they show `—`** (read `stats.get("min")` /
+  the scalar pass (step 3) computes for numeric, temporal, and string columns;
+  boolean and other/LOB columns show `—`** (read `stats.get("min")` /
   `stats.get("max")`, blanking the marker when absent).
-  **Accepted scope reduction (not in the issue's Out-of-scope list):** the issue's
-  triage line lists `min/max` for every column, but v1 populates value min/max
-  only for numeric/temporal columns. Lexical min/max on string columns is judged
-  low value (and is illegal on LOB), so the scalar pass (step 3) omits it and
-  string/boolean/other cells render `—`. This is a deliberate narrowing of the
-  triage contract, documented here so it is a decision rather than a silent gap;
-  revisit if callers need string ranges. Append `column_cap_footer` when
+  **The boolean/other exclusion is a hard SQL constraint, not a discretionary
+  reduction:** T-SQL rejects `MIN`/`MAX` on `bit` (boolean) and on the LOB
+  types (`text`/`ntext`/`image`, classified as other), so those aggregates
+  cannot legally appear in the scalar pass at all. Every column type where value
+  min/max is legal — numeric, temporal, string — populates the triage line as
+  the issue's contract requires; the two excluded categories are blank because
+  the database forbids the aggregate, so the triage line matches the issue for
+  every column it can. Append `column_cap_footer` when
   `total_columns > len(profiles)`, plus a footer hint that a narrowed `columns=`
   call yields the deep block. When gated, state the 1M-row reason in the footer.
 - `render_summary`: `render_triage` when `len(profiles) > TRIAGE_THRESHOLD`,
@@ -84,8 +85,9 @@ All functions return `str`.
 - each message renders the exact wording; `unknown_columns_message` echoes
   declared casing and lists availables; `table_not_found_message` and
   `empty_table_message` render distinct text (not-found vs empty).
-- triage with a string/boolean column whose `stats` has no `min`/`max` → those
-  cells render `—` (numeric/temporal columns still show their value min/max).
+- triage with numeric/temporal/string columns → each shows its value
+  `min`/`max`; a boolean/other column whose `stats` has no `min`/`max` → those
+  cells render `—`.
 - 1-column list → deep block (not a special tier).
 
 ## COMMIT

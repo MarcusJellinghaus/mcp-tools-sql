@@ -158,9 +158,9 @@ Scalar-pass aggregates are aliased `c{idx}__{stat}` (e.g. `c0__nonnull`,
 |---|---|---|
 | numeric | non_null, nulls, distinct, min, max, mean `AVG(CAST … FLOAT)`, sum `SUM(CAST … BIGINT)` on T-SQL ints else `SUM(c)` uncast (no lossy FLOAT cast on decimal/money), zero count, negative count | yes |
 | temporal | non_null, nulls, distinct, min, max | yes |
-| string | non_null, nulls, distinct, empty `LTRIM(RTRIM(c))=''`, len min/max/avg via `LEN`/`LENGTH` (characters) | yes |
-| boolean | true / false / null counts, true % | yes |
-| other/binary | non_null, nulls; size in bytes via `DATALENGTH` (T-SQL only) | **no** — LOB types (`text`/`ntext`/`image`) cannot appear in `GROUP BY`/`DISTINCT`/comparisons, so this category has no distinct and no value list |
+| string | non_null, nulls, distinct, value min/max (`MIN`/`MAX`, feeds triage), empty `LTRIM(RTRIM(c))=''`, len min/max/avg via `LEN`/`LENGTH` (characters) | yes |
+| boolean | true / false / null counts, true % (no value min/max — T-SQL forbids `MIN`/`MAX` on `bit`) | yes |
+| other/binary | non_null, nulls; size in bytes via `DATALENGTH` (T-SQL only), average FLOAT-cast `AVG(CAST(DATALENGTH(c) AS FLOAT))` to avoid integer truncation | **no** — LOB types (`text`/`ntext`/`image`) cannot appear in `GROUP BY`/`DISTINCT`/comparisons, so this category has no distinct and no value list |
 
 ---
 
