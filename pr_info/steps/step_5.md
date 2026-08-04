@@ -53,7 +53,7 @@ lines = ["  top values:"]
 shown_rows = sum(freq); shown_nonnull_distinct = len([v for v in values if v is not NULL])
 for value, freq in values: lines.append(f"    {_truncate(value)}  {_fmt_int(freq)}  {_fmt_pct(freq, rows)}")
 rem_vals = distinct - shown_nonnull_distinct
-rem_rows = rows - shown_rows                      # rows here = non_null + null rows shown? use total returned
+rem_rows = rows - shown_rows                      # `rows` is the total filtered COUNT(*) (p.rows); denominator for every % is this same total
 if rem_vals > 0: lines.append(f"    … {rem_vals} other values, {_fmt_int(rem_rows)} rows {_fmt_pct(rem_rows, rows)}")
 return lines
 ```

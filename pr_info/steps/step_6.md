@@ -24,6 +24,7 @@ def render_summary(profiles: list[ColumnProfile], total_columns: int,
     # dispatch: len(profiles) > 15 -> triage else deep
 
 def empty_table_message(schema: str, table: str) -> str: ...
+def table_not_found_message(schema: str, table: str) -> str: ...
 def empty_filter_message(total_rows: int) -> str: ...
 def unknown_columns_message(bad: list[str], available: list[str]) -> str: ...
 def column_cap_footer(shown: int, total: int) -> str: ...
@@ -34,7 +35,11 @@ def column_cap_footer(shown: int, total: int) -> str: ...
 - `render_triage`: one row per column via `format_rows` (import from
   `mcp_tools_sql.formatting`) with keys
   `{name, type, null_pct, distinct, min, max}`. `distinct` shows `—` (or the
-  gate note) when `distinct_gated`. Append `column_cap_footer` when
+  gate note) when `distinct_gated`. **`min`/`max` are the value min/max, which
+  the scalar pass (step 3) computes only for numeric/temporal columns; for
+  string/boolean/other columns they show `—`** (read `stats.get("min")` /
+  `stats.get("max")`, blanking the marker when absent). Value min/max for
+  strings is deliberately out of scope for v1. Append `column_cap_footer` when
   `total_columns > len(profiles)`, plus a footer hint that a narrowed `columns=`
   call yields the deep block. When gated, state the 1M-row reason in the footer.
 - `render_summary`: `render_triage` when `len(profiles) > TRIAGE_THRESHOLD`,
@@ -43,6 +48,10 @@ def column_cap_footer(shown: int, total: int) -> str: ...
 - Messages (exact wording from the issue):
   - empty table → `Table {schema}.{table} is empty (0 rows). Use read_columns
     for its column definitions.`
+  - table not found → `Table {schema}.{table} not found (no such table or no
+    columns). Check the schema and table name.` (emitted when the metadata query
+    returns zero rows — the table does not exist, distinct from an existing but
+    empty table)
   - empty filter → `No rows match the where predicate (table has {N} rows).`
   - unknown columns → `Unknown column(s): {bad}. Available: {available…}` (echo
     declared casing).
@@ -66,8 +75,11 @@ All functions return `str`.
 - triage with `total_columns=412, len=50` → cap footer
   `Showing 50 of 412 columns.`; with `distinct_gated=True` → gate reason in
   footer and `distinct` column shows the gated marker.
-- each message renders the exact issue wording; `unknown_columns_message`
-  echoes declared casing and lists availables.
+- each message renders the exact wording; `unknown_columns_message` echoes
+  declared casing and lists availables; `table_not_found_message` and
+  `empty_table_message` render distinct text (not-found vs empty).
+- triage with a string/boolean column whose `stats` has no `min`/`max` → those
+  cells render `—` (numeric/temporal columns still show their value min/max).
 - 1-column list → deep block (not a special tier).
 
 ## COMMIT

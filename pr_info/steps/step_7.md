@@ -37,7 +37,11 @@ connection=None, database=None) -> str`.
    `dialect = to_dialect(target.backend_name)`; open `log_tool_call`.
 2. `validate_where(...)` → predicate or error string (return on error).
 3. Run `metadata_sql(dialect)` with `{schema, table}` via
-   `backend.execute_readonly_query`. No rows → `empty_table_message`.
+   `backend.execute_readonly_query`. No rows means the table does **not exist**
+   (`INFORMATION_SCHEMA.COLUMNS` / `pragma_table_info` return zero rows only for
+   an unknown table — an existing table always has columns), so return
+   `table_not_found_message`, **not** `empty_table_message` (which asserts the
+   table exists but holds 0 rows).
 4. Build `ColumnMeta` list (`categorize_type` per row, keep ordinal).
 5. **Narrow** by `columns` (case-insensitive match; unknown →
    `unknown_columns_message`; echo declared casing). **Cap** to first 50 by
@@ -48,8 +52,11 @@ connection=None, database=None) -> str`.
    `include_distinct = view == "deep" or rows <= 1_000_000`.
 8. `build_scalar_sql(..., include_distinct=...)` → one row; assemble stats per
    column from the `c{idx}__{stat}` aliases.
-9. If deep: for each non-`other` column pick `kind` (`distinct < non_null →
-   top`, else `sample`), run `build_value_list_sql(clamp_n(n))`.
+9. `clamped_n, clamp_note = clamp_n(n)` **before** the view dispatch, so
+   `clamp_note` is always bound regardless of view. If deep: for each
+   non-`other` column pick `kind` (`distinct < non_null → top`, else `sample`),
+   run `build_value_list_sql(..., clamped_n, ...)`. (Triage has no value lists,
+   so `clamped_n` is unused there, but `clamp_note` still reports the clamp.)
 10. Build `ColumnProfile`s; `return render_summary(profiles, total_columns, n,
     distinct_gated=not include_distinct) + clamp_note`.
 
@@ -100,6 +107,8 @@ column, and a boolean column.
 - Numeric column → min/max/mean/zero/negative counts correct.
 - Zero-row table → empty-table message; `where` matching nothing → empty-filter
   message.
+- Non-existent table (`table="no_such_table"`) → table-not-found message
+  (distinct from the empty-table wording).
 - Unknown `columns=["Nope"]` → unknown-column message (declared casing echoed).
 - Wide table (> 15 cols) → triage; narrowed `columns=[…]` (≤ 15) → deep.
 - `n` clamp note appears for `n=999`.
