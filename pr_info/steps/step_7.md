@@ -129,13 +129,43 @@ _DESCRIPTION = (
 
    Run `build_value_list_sql(..., clamped_n, ...)` for the `top`/`sample`
    columns. (Triage has no value lists, so `clamped_n` is unused there, but
-   `clamp_note` still reports the clamp.)
+   `clamp_note` still reports the clamp.) Every column that does **not** get a
+   value list — the whole triage view, and every `other`-category column in the
+   deep view — takes `kind = "none"`, `values = None`.
 10. Build `ColumnProfile`s; `return render_summary(profiles, total_columns,
-    clamped_n, distinct_gated=not include_distinct) + clamp_note`. Pass
-    **`clamped_n`**, not the raw `n`, so the sample-values header count never
-    exceeds the 50-value cap. The renderer derives the *shown* count from
-    `len(values)` (not from any `n`), so the header stays correct even when
-    fewer than `clamped_n` distinct values exist.
+    distinct_gated=not include_distinct) + clamp_note`. `render_summary` takes
+    **no `n`** (step 5/6): `clamped_n` is consumed by the value-list SQL only,
+    and the renderer derives every printed count from the profile
+    (`len(values)`, `p.distinct`), so a header can never claim more values than
+    were actually returned.
+
+    **`ColumnProfile` construction (all seven fields, always explicit).** The
+    dataclass is frozen and declares **no defaults**, so every field is passed
+    at every construction site:
+
+    - `meta` / `rows` — the `ColumnMeta` and the filtered `COUNT(*)` from
+      step 6 (the same `rows` for every column).
+    - `non_null` / `distinct` / `stats` — read out of the single scalar row by
+      the `c{idx}__{stat}` aliases; `distinct` is `None` whenever the alias was
+      not emitted (gated out, or an `other`/binary column).
+    - `values` — **dict rows must be mapped to tuples.**
+      `backend.execute_readonly_query` returns `list[dict[str, Any]]`
+      (`backends/base.py:35-37`) while `ColumnProfile.values` is
+      `list[tuple[Any, ...]] | None`, so convert by the aliases
+      `build_value_list_sql` emits:
+      - `kind == "top"` → `[(r["value"], r["freq"]) for r in rows]`
+      - `kind == "sample"` → `[(r["value"],) for r in rows]`
+
+      This is what makes `for value, freq in values` in `_render_values`
+      (step 5) type-check and unpack.
+    - `value_kind` — `"top"` / `"sample"` / `"none"` as chosen in step 9.
+
+    **Triage and other/binary columns carry no value list.** Value lists are
+    built in the deep branch only, and never for `other`-category columns, so
+    every profile outside that branch is constructed with the explicit pair
+    `value_kind="none", values=None` — not omitted (there are no defaults to
+    fall back on). `render_summary`'s triage path ignores both, and
+    `_render_values` short-circuits on `value_kind == "none"`.
 
 Wrap the DB calls in the same exception-mapping tail as `count_tools`
 (`_INVALID_SQL_EXC`, `KeyError/TypeError/ValueError`, `RuntimeError`, `Exception`).

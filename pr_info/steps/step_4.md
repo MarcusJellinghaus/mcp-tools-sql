@@ -43,6 +43,13 @@ def build_value_list_sql(
   `D = COUNT(DISTINCT c)` excludes nulls, so a returned `NULL` row would make
   `len(values)` exceed `D` and render the nonsensical `N of D` with `N > D` for
   a unique-non-null column that also holds nulls.
+- **Build the null test as `exp.Is(this=ref, expression=exp.Null(),
+  negate=True)`**, which renders literal `"c" IS NOT NULL` on both dialects.
+  Do **not** use `ref.is_(exp.null()).not_()`: that builds
+  `exp.Not(exp.Is(...))` and renders `NOT "c" IS NULL` (sqlglot's
+  `Generator.not_sql` is `f"NOT {this}"`, with no sqlite/tsql override).
+  Semantically equivalent, but it would contradict the `WHERE c IS NOT NULL`
+  wording above, the ALGORITHM comment, and the TEST assertion below.
 - Limit via sqlglot `.limit(n)` so the renderer emits `LIMIT n` (sqlite) /
   `TOP n` (tsql) automatically. Do **not** call this for `other`-category
   columns (caller skips them — LOB cannot be grouped).
@@ -63,7 +70,7 @@ if kind == "top":
     q = q.group_by(ref).order_by(Count(Star()).desc(), ref.asc())
 else:
     q = exp.select(alias(ref,"value")).distinct().from_(t).order_by(ref.asc())
-    q = q.where(ref.is_(exp.null()).not_())  # c IS NOT NULL; sample excludes NULL
+    q = q.where(exp.Is(this=ref, expression=exp.Null(), negate=True))  # c IS NOT NULL
 if predicate: q = q.where(predicate)   # sqlglot .where() AND-combines
 return q.limit(n).sql(dialect=dialect)
 ```
@@ -79,9 +86,10 @@ Rendered-SQL per dialect:
 
 - top: contains `GROUP BY`, `ORDER BY COUNT(*) DESC` **and** the `value`/column
   ASC tiebreak; `LIMIT 20` (sqlite) vs `TOP 20` (tsql).
-- sample: `SELECT DISTINCT`, no `freq`, `WHERE c IS NOT NULL` (NULL excluded),
-  `ORDER BY` the column, correct limit; with a predicate the two conditions are
-  AND-combined.
+- sample: `SELECT DISTINCT`, no `freq`, `WHERE c IS NOT NULL` (NULL excluded —
+  assert the literal `IS NOT NULL` text, which pins the `exp.Is(..., negate=
+  True)` construction against a `NOT … IS NULL` regression), `ORDER BY` the
+  column, correct limit; with a predicate the two conditions are AND-combined.
 - predicate embedded in `WHERE` for both kinds.
 - `clamp_n(20) == (20, "")`; `clamp_n(500)[0] == 50` with a non-empty note;
   `clamp_n(0)[0] == 1` and `clamp_n(-5)[0] == 1`, both with a non-empty note

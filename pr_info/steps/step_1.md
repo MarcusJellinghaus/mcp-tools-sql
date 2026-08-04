@@ -35,17 +35,36 @@ def categorize_type(declared_type: str, dialect: str) -> Category: ...
 ```
 t = declared_type.strip().lower()
 if dialect == "tsql" and t in {"text","ntext","image"}: return "other"   # LOB
+if dialect == "tsql" and t in {"timestamp","rowversion"}: return "other" # binary(8)
 if t is boolean-like ("bit","bool","boolean"):          return "boolean"
-if any int/decimal/float/numeric/real/money token in t: return "numeric"
+if any int/decimal/float/num/real/money token in t:     return "numeric"
+#   `num` (prefix) covers both the bare SQLite affinity `NUM` and `NUMERIC`
 if any date/time/timestamp token in t:                  return "temporal"
 if any char/text/clob/string token in t OR t == "":     return "string"
 return "other"   # binary/blob/varbinary/uniqueidentifier/xml/…
 ```
 
-Order matters: LOB check before the generic `text` string-token check;
+Order matters: LOB check before the generic `text` string-token check; the
+tsql `timestamp`/`rowversion` guard before the temporal token check;
 `boolean` before `numeric` (so `bit` is not swept up by an int token if you
 match substrings). Prefer whole-token/prefix matching over naive `in` to avoid
 e.g. `timestamp` hitting the `int`… it will not, but keep the token list tidy.
+
+**T-SQL `timestamp` is not temporal.** `INFORMATION_SCHEMA.COLUMNS.DATA_TYPE`
+reports `timestamp` for a `rowversion` column, but in T-SQL that is a
+`binary(8)` row-version stamp, not a date/time. Left to the `date/time/timestamp`
+token rule it would classify as `temporal`, and step 3 would emit
+`MIN(c)`/`MAX(c)` — which SQL Server rejects (Msg 8117, *"Operand data type
+timestamp is invalid for max operator"*). Because every scalar aggregate shares
+one `SELECT`, a single legacy rowversion column would take down the whole
+table's scalar pass — exactly the failure mode the LOB guard above exists to
+prevent. The guard is **tsql-only**: SQLite's `TIMESTAMP` really is a date/time
+affinity and must stay `temporal`.
+
+Both prefix/affinity notes above are load-bearing for the bare SQLite affinity
+`NUM`, which the HOW section names as the motivating case: SQLite gives a
+`NUM`-declared column NUMERIC affinity, so `NUM` must classify as `numeric`,
+not fall through to `other`.
 
 ## DATA
 
@@ -56,12 +75,18 @@ Returns one of the five `Category` string literals.
 Parametrised classification table covering:
 
 - SQLite affinities: `INTEGER`, `INT`, `BIGINT`, `REAL`, `NUMERIC`,
-  `DECIMAL(10,2)`, `VARCHAR(20)`, `TEXT`, `""` (empty → string), `BLOB`,
-  `BOOLEAN`, `DATE`, `DATETIME`.
+  `NUM` (→ `numeric` — the bare NUMERIC affinity named in HOW; pins that it
+  does **not** fall through to `other`), `DECIMAL(10,2)`, `VARCHAR(20)`,
+  `TEXT`, `""` (empty → string), `BLOB`, `BOOLEAN`, `DATE`, `DATETIME`.
 - T-SQL: `int`, `bigint`, `decimal`, `money`, `float`, `bit`, `nvarchar`,
   `varchar`, `nvarchar(max)` (→ string, **not** other), `datetime2`, `date`,
   `varbinary`, `uniqueidentifier`, and the LOB trio `text`/`ntext`/`image`
   (→ `other`).
+- **`timestamp` is dialect-dependent** — assert both directions in one pair:
+  `categorize_type("timestamp", "tsql") == "other"` (rowversion = binary(8);
+  `MIN`/`MAX` would break the shared scalar `SELECT`) and
+  `categorize_type("TIMESTAMP", "sqlite") == "temporal"`. Also
+  `categorize_type("rowversion", "tsql") == "other"`.
 - Case-insensitivity (`Int`, `VARCHAR`).
 
 ## COMMIT
@@ -76,7 +101,10 @@ Run `pylint`, `pytest -n auto`, `mypy` — all green.
 > `pr_info/steps/summary.md`). Create the `summarize` package skeleton and a
 > pure, prefix/affinity-based `categorize_type(declared_type, dialect)`
 > returning the five-value `Category` literal, with LOB (`text`/`ntext`/`image`)
-> classified as `other` on T-SQL. Write the parametrised classification test
+> **and `timestamp`/`rowversion`** classified as `other` on T-SQL — the latter
+> is a `binary(8)` row-version, not a date/time, and SQLite's `TIMESTAMP` must
+> still classify as `temporal`. The bare SQLite affinity `NUM` classifies as
+> `numeric`. Write the parametrised classification test
 > first, then the function. Keep it in `summarize/sql.py` — do **not** add a new
 > `utils` module. Run pylint, pytest (`-n auto`), and mypy; fix everything
 > before committing as one commit.

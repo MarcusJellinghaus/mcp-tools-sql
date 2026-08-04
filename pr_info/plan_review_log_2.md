@@ -29,3 +29,21 @@ Implementation not started (TASK_TRACKER: 0 of 7 steps complete).
 **Changes**: `step_1.md`, `step_4.md`, `step_5.md`, `step_6.md`, `step_7.md`, `summary.md` updated; `Decisions.md` created logging all 12 with rationale. No implementation code touched.
 
 **Status**: committed.
+
+## Round 2 — 2026-08-04
+
+**Findings** (6). The review agent first re-verified every round-1 edit against the live codebase and found them all internally consistent and correct (`columns=[]`/duplicate guards, param threading, `None`-distinct blanking, mypy narrowing, `DISTINCT_GATE_ROWS`, `clamp_n`, `async core` vs `tool_builder.py:33`, tach `config` removal, `exp.Length` → `LEN`/`LENGTH`, `LIMIT_IS_TOP` for tsql). New findings:
+- `step_1.md:40` — medium — T-SQL `timestamp` (rowversion) misclassified as temporal. `INFORMATION_SCHEMA.COLUMNS.DATA_TYPE` reports `timestamp` for `rowversion`, which is binary(8), not date/time; `MIN`/`MAX` on it raises Msg 8117 and, since all scalar aggregates share one `SELECT`, one legacy column takes down the whole table's pass — the failure mode the LOB rule exists to prevent.
+- `step_4.md:66,39-40,82` — low — `ref.is_(exp.null()).not_()` renders `NOT "c" IS NULL`, contradicting the HOW/ALGORITHM/TEST text that all say `IS NOT NULL`.
+- `step_5.md:90` — low — remainder pseudocode contradicts the line below it (unbound `freq`; iterates tuples not values) on the one calculation the plan says to pin with a test.
+- `step_7.md:134-138` — low — `n` is a dead parameter threaded through four renderer functions with a self-cancelling rationale.
+- `step_7.md:133` — low — `ColumnProfile` construction underspecified: dict→tuple mapping unstated, and triage profiles have no stated `value_kind`/`values` on a frozen dataclass with no defaults.
+- `step_1.md:30` vs `:39` — low — `NUM` is cited as the motivating affinity but the numeric token list does not match it, so it falls through to `other`.
+
+**Decisions**: all 6 accepted. Finding 1 is a genuine correctness gap and was the round's justification; 2–6 are spec tidiness. None affect scope or architecture, so none were escalated. For finding 4 the simpler option was taken — drop the parameter rather than find a use for it.
+
+**User decisions**: none required.
+
+**Changes**: `step_1.md`, `step_4.md`, `step_5.md`, `step_6.md`, `step_7.md` updated; `Decisions.md` appended. `summary.md` needed no change. No implementation code touched.
+
+**Status**: committed.

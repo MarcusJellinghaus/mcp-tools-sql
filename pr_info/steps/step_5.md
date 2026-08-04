@@ -22,15 +22,22 @@ class ColumnProfile:
     values: list[tuple[Any, ...]] | None  # (value, freq) for top; (value,) for sample
     value_kind: Literal["top", "sample", "none"]
 
-def render_deep(profiles: list[ColumnProfile], n: int) -> str: ...
+def render_deep(profiles: list[ColumnProfile]) -> str: ...
 
 # internal helpers:
 def _fmt_int(n: int) -> str                     # thousands separators
 def _fmt_pct(part: int, whole: int) -> str      # "(2.4%)", guards whole == 0
 def _truncate(value: Any) -> str                # 60-char display cap + "…"
-def _render_block(p: ColumnProfile, n: int) -> str
-def _render_values(p: ColumnProfile, n: int) -> list[str]
+def _render_block(p: ColumnProfile) -> str
+def _render_values(p: ColumnProfile) -> list[str]
 ```
+
+**No `n` parameter.** The renderers take no value-list length: every count they
+print is derived from the profile itself (`len(p.values)` for the shown count,
+`p.distinct` for the remainder arithmetic). The SQL layer has already applied
+the clamp and the `LIMIT`/`TOP`, so `p.values` *is* the capped list; a threaded
+`n` would be read by nothing and could only disagree with what was actually
+returned.
 
 ## HOW
 
@@ -87,7 +94,8 @@ def _render_values(p: ColumnProfile, n: int) -> list[str]
 if p.value_kind == "none" or not p.values: return []   # narrows p.values to a list
 values = p.values
 lines = ["  top values:"]
-shown_rows = sum(freq); shown_nonnull_distinct = len([v for v in values if v is not NULL])
+shown_rows = sum(f for _, f in values)
+shown_nonnull_distinct = len([v for v, _ in values if v is not None])
 for value, freq in values: lines.append(f"    {_truncate(value)}  {_fmt_int(freq)}  {_fmt_pct(freq, rows)}")
 if p.distinct is not None:                        # narrows before the arithmetic
     rem_vals = p.distinct - shown_nonnull_distinct

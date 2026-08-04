@@ -21,8 +21,9 @@ def render_triage(profiles: list[ColumnProfile], total_columns: int,
                   distinct_gated: bool) -> str: ...
 
 def render_summary(profiles: list[ColumnProfile], total_columns: int,
-                   n: int, distinct_gated: bool) -> str: ...
+                   distinct_gated: bool) -> str: ...
     # dispatch: len(profiles) > 15 -> triage else deep
+    # no `n` — see step_5.md; every printed count comes from the profile itself
 
 def empty_table_message(schema: str, table: str) -> str: ...
 def table_not_found_message(schema: str, table: str) -> str: ...
@@ -62,7 +63,7 @@ NO_COLUMNS_TEXT: str = "No columns to profile."   # render_summary defensive gua
   call yields the deep block. When gated, state the `DISTINCT_GATE_ROWS`
   (1M-row) reason in the footer.
 - `render_summary`: `render_triage` when `len(profiles) > TRIAGE_THRESHOLD`,
-  else `render_deep(profiles, n)`. A 1-column call renders the same deep block
+  else `render_deep(profiles)`. A 1-column call renders the same deep block
   as one of 10 (no focus tier).
 - Messages (exact wording from the issue):
   - empty table → `Table {schema}.{table} is empty (0 rows). Use read_columns
@@ -84,7 +85,7 @@ NO_COLUMNS_TEXT: str = "No columns to profile."   # render_summary defensive gua
 ```
 if not profiles: return NO_COLUMNS_TEXT   # defensive guard, see below
 if len(profiles) > TRIAGE_THRESHOLD: return render_triage(profiles, total_columns, distinct_gated)
-return render_deep(profiles, n)
+return render_deep(profiles)
 ```
 
 The empty branch is a **defensive guard, not a reachable path**: step 7 rejects
