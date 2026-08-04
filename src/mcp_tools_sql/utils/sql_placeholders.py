@@ -133,11 +133,21 @@ def extract_param_names(sql: str, dialect: str | None = None) -> set[str]:
     }
 
 
-def translate_named_to_qmark(sql: str) -> tuple[str, list[str]]:
+def translate_named_to_qmark(
+    sql: str, dialect: str | None = None
+) -> tuple[str, list[str]]:
     """Translate ``:name`` placeholders to ``?`` markers.
 
     Each named placeholder node is replaced by an anonymous placeholder and
     the statements are re-rendered through sqlglot.
+
+    Args:
+        sql: SQL with ``:name`` placeholders.
+        dialect: The sqlglot dialect to parse and render under, or ``None``
+            for the dialect-neutral default. Passing the backend dialect
+            (e.g. ``"tsql"``) preserves dialect-specific quoting such as
+            bracket-quoted T-SQL identifiers (``[id]``), which the neutral
+            renderer would otherwise corrupt.
 
     Returns:
         Tuple ``(translated_sql, ordered_names)`` where every ``:name``
@@ -147,11 +157,11 @@ def translate_named_to_qmark(sql: str) -> tuple[str, list[str]]:
     """
     names: list[str] = []
     rendered: list[str] = []
-    for stmt in _statements(sql):
+    for stmt in _statements(sql, dialect):
         for ph in _named_placeholders(stmt):
             names.append(ph.name)
             ph.replace(exp.Placeholder())
-        rendered.append(stmt.sql())
+        rendered.append(stmt.sql(dialect=dialect))
     return "; ".join(rendered), names
 
 
@@ -197,7 +207,9 @@ def _sql_literal(value: Any) -> str:
     raise TypeError(msg)
 
 
-def substitute_named_with_literals(sql: str, params: dict[str, Any]) -> str:
+def substitute_named_with_literals(
+    sql: str, params: dict[str, Any], dialect: str | None = None
+) -> str:
     """Replace ``:name`` placeholders with rendered SQL literals.
 
     Used by the MSSQL ``explain`` path: pyodbc's prepared-statement
@@ -214,16 +226,21 @@ def substitute_named_with_literals(sql: str, params: dict[str, Any]) -> str:
     Args:
         sql: SQL with ``:name`` placeholders.
         params: Mapping of placeholder name to Python value.
+        dialect: The sqlglot dialect to parse and render under, or ``None``
+            for the dialect-neutral default. Passing the backend dialect
+            (e.g. ``"tsql"``) preserves dialect-specific quoting such as
+            bracket-quoted T-SQL identifiers (``[id]``), which the neutral
+            renderer would otherwise corrupt.
 
     Returns:
         SQL with each placeholder replaced by ``_sql_literal(params[name])``.
     """
     rendered: list[str] = []
-    for stmt in _statements(sql):
+    for stmt in _statements(sql, dialect):
         for ph in _named_placeholders(stmt):
             literal = sqlglot.parse_one(_sql_literal(params[ph.name]))
             ph.replace(literal)
-        rendered.append(stmt.sql())
+        rendered.append(stmt.sql(dialect=dialect))
     return "; ".join(rendered)
 
 
@@ -369,6 +386,11 @@ def build_count_query(sql: str, dialect: str) -> str:
     ``:name`` placeholders in ``sql`` survive into the rendered wrapper as
     bindable placeholders.
 
+    The inner query's statement-level ``ORDER BY`` is dropped before wrapping:
+    ``COUNT(*)`` is order-independent, so removing it is semantically free and
+    avoids T-SQL error 1033 (``ORDER BY`` invalid in a derived table unless
+    accompanied by ``TOP``/``OFFSET``/``FOR XML``).
+
     Args:
         sql: The (already read-only-verified) SQL to wrap.
         dialect: The sqlglot dialect to parse and render under.
@@ -377,6 +399,9 @@ def build_count_query(sql: str, dialect: str) -> str:
         The rendered count query, dialect-targeted.
     """
     inner = sqlglot.parse_one(sql, read=dialect)
+    # Drop the statement-level ORDER BY; it is meaningless once wrapped in
+    # COUNT(*) and illegal inside a T-SQL derived table (error 1033).
+    inner.set("order", None)
     # Build the derived table directly (rather than ``inner.subquery(...)``)
     # so every read-only root renders uniformly: ``subquery`` lives on
     # ``exp.Query`` (Select/Union) but not on ``exp.Values``, which the gate

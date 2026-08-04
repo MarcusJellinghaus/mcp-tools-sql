@@ -2,11 +2,14 @@
 
 from __future__ import annotations
 
+import inspect
 import sqlite3
-from typing import TYPE_CHECKING, Annotated, Any
+from typing import TYPE_CHECKING, Annotated, Any, Optional
 
 from pydantic import Field
 
+from mcp_tools_sql.query_helpers import build_target_params
+from mcp_tools_sql.tool_builder import build_tool_fn
 from mcp_tools_sql.tool_logging import log_tool_call
 from mcp_tools_sql.utils.sql_placeholders import (
     basic_preflight,
@@ -30,6 +33,8 @@ if TYPE_CHECKING:
     from mcp.server.fastmcp import FastMCP
 
     from mcp_tools_sql.backends.base import DatabaseBackend
+    from mcp_tools_sql.backends.registry import BackendRegistry
+    from mcp_tools_sql.config.models import ResolvedTargets
 
 
 _DESCRIPTION = (
@@ -75,7 +80,7 @@ def _explain(
     """Return the execution plan, dispatching on backend type."""
     if backend_name == "sqlite":
         return backend.explain(sql, params)
-    explain_sql = substitute_named_with_literals(sql, params or {})
+    explain_sql = substitute_named_with_literals(sql, params or {}, "tsql")
     with backend.get_isolated_connection() as conn:
         cursor = conn.cursor()
         try:
@@ -90,29 +95,77 @@ def _explain(
             cursor.close()
 
 
+def _base_validate_params() -> list[inspect.Parameter]:
+    """Return the fixed base signature params for ``validate_sql``.
+
+    The runtime ``connection``/``database`` selector params (added only for
+    multi-target installs) are appended separately via
+    :func:`build_target_params`, so a single-target signature is exactly these
+    three parameters.
+
+    Returns:
+        The ``sql`` / ``params`` / ``return_plan`` parameters in order.
+    """
+    return [
+        inspect.Parameter(
+            "sql",
+            kind=inspect.Parameter.POSITIONAL_OR_KEYWORD,
+            annotation=Annotated[str, Field(description="The SQL to validate.")],
+        ),
+        inspect.Parameter(
+            "params",
+            kind=inspect.Parameter.POSITIONAL_OR_KEYWORD,
+            default=None,
+            annotation=Annotated[
+                Optional[dict[str, Any]],  # noqa: UP007
+                Field(description="Bound values for :name placeholders."),
+            ],
+        ),
+        inspect.Parameter(
+            "return_plan",
+            kind=inspect.Parameter.POSITIONAL_OR_KEYWORD,
+            default=False,
+            annotation=Annotated[
+                bool,
+                Field(description="Append the execution plan on success."),
+            ],
+        ),
+    ]
+
+
 class ValidationTools:
     """Registers the ``validate_sql`` tool on an MCP server."""
 
-    def __init__(self, backend: DatabaseBackend, backend_name: str) -> None:
-        self._backend = backend
-        self._backend_name = backend_name
+    def __init__(self, registry: BackendRegistry, targets: ResolvedTargets) -> None:
+        self._registry = registry
+        self._targets = targets
 
     def register(self, mcp: FastMCP) -> None:
-        """Register the ``validate_sql`` tool on ``mcp``."""
-        backend = self._backend
-        backend_name = self._backend_name
+        """Register the ``validate_sql`` tool on ``mcp``.
 
-        async def validate_sql(
-            sql: Annotated[str, Field(description="The SQL to validate.")],
-            params: Annotated[
-                dict[str, Any] | None,
-                Field(description="Bound values for :name placeholders."),
-            ] = None,
-            return_plan: Annotated[
-                bool,
-                Field(description="Append the execution plan on success."),
-            ] = False,
+        The ``(connection, database)`` target — and therefore the backend and
+        sqlglot dialect — is resolved per call from optional keyword-only
+        ``connection``/``database`` selector params (present only for
+        multi-target installs). Single-target installs keep a byte-identical
+        signature and behaviour.
+        """
+        registry = self._registry
+        targets = self._targets
+
+        async def core(
+            sql: str,
+            params: dict[str, Any] | None = None,
+            return_plan: bool = False,
+            *,
+            connection: str | None = None,
+            database: str | None = None,
         ) -> str:
+            try:
+                target = targets.resolve_pinned(connection, database)
+            except ValueError as exc:
+                return str(exc)
+            backend = registry.backend_for(target)
+            backend_name = target.backend_name
             async with log_tool_call("validate_sql", params or {}, sql=sql) as rec:
                 rec.record(rows=0, cols=0)
                 verdict = _preflight(sql, params, to_dialect(backend_name))
@@ -132,4 +185,6 @@ class ValidationTools:
                     return f"Valid.\nExecution plan:\n{plan}"
                 return "Valid."
 
-        mcp.add_tool(validate_sql, name="validate_sql", description=_DESCRIPTION)
+        sig_params = _base_validate_params() + build_target_params(targets)
+        fn = build_tool_fn("validate_sql", sig_params, core, _DESCRIPTION)
+        mcp.add_tool(fn, name="validate_sql", description=_DESCRIPTION)

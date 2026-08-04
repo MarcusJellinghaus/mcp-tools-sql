@@ -17,9 +17,16 @@ from mcp_tools_sql.config.models import (
     ConnectionConfig,
     QueryConfig,
 )
-from mcp_tools_sql.query_helpers import build_query_body, build_query_sig_params
-from mcp_tools_sql.schema_tools import SchemaTools, load_default_queries
+from mcp_tools_sql.query_helpers import (
+    build_query_body,
+    build_query_sig_params,
+)
+from mcp_tools_sql.schema_tools import (
+    SchemaTools,
+    load_default_queries,
+)
 from mcp_tools_sql.tool_builder import build_tool_fn
+from tests.target_helpers import single_target
 
 
 def _assemble(
@@ -46,7 +53,7 @@ def _make_mcp_with_tools(db_path: str) -> FastMCP:
     backend = SQLiteBackend(config)
     backend.connect()
     mcp = FastMCP("test-schema-tools")
-    SchemaTools(backend, "sqlite").register(mcp)
+    SchemaTools(*single_target(backend)).register(mcp)
     return mcp
 
 

@@ -33,3 +33,20 @@ def make_entry(
         Dict containing ``ok``, ``value``, ``error`` and ``install_hint`` keys.
     """
     return {"ok": ok, "value": value, "error": error, "install_hint": install_hint}
+
+
+def make_skipped_entry(connection: str) -> dict[str, Any]:
+    """Build a WARN entry for a check skipped because its connection is down.
+
+    Emitted by the M2 (QUERIES/UPDATES) verifiers when an entry's resolved
+    target belongs to an unreachable connection: instead of blanking the row,
+    it names the offending connection. Rendered as ``[WARN]`` (``warn=True``)
+    so it does not itself flip the exit code — the connection's own probe
+    failure in the CONNECTION section already records the error.
+
+    Returns:
+        A verifier entry dict with ``warn`` set.
+    """
+    entry = make_entry(ok=True, value=f"skipped (connection {connection} unreachable)")
+    entry["warn"] = True
+    return entry

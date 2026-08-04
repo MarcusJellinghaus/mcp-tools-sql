@@ -8,13 +8,21 @@ from pathlib import Path
 from typing import TYPE_CHECKING
 
 from mcp_tools_sql.config.models import QueryConfig
-from mcp_tools_sql.query_helpers import build_query_body, build_query_sig_params
+from mcp_tools_sql.formatting import format_rows
+from mcp_tools_sql.query_helpers import (
+    build_query_sig_params,
+    build_schema_body,
+    build_target_params,
+)
 from mcp_tools_sql.tool_builder import build_tool_fn
 
 if TYPE_CHECKING:
+    from collections.abc import Awaitable, Callable
+
     from mcp.server.fastmcp import FastMCP
 
-    from mcp_tools_sql.backends.base import DatabaseBackend
+    from mcp_tools_sql.backends.registry import BackendRegistry
+    from mcp_tools_sql.config.models import ResolvedTargets
 
 logger = logging.getLogger(__name__)
 
@@ -49,6 +57,42 @@ def load_default_queries(path: Path | None = None) -> dict[str, QueryConfig]:
     return result
 
 
+def build_read_databases_tool(
+    targets: ResolvedTargets,
+) -> Callable[[], Awaitable[str]]:
+    """Build the config-only ``read_databases`` tool over *targets*.
+
+    The returned async tool tabulates every configured
+    ``(connection, database)`` target — ``connection``, ``database``,
+    ``backend``, ``description`` (the database description, falling back to the
+    connection description), and ``is_default`` — in config order. It reads only
+    the resolved config and never touches a backend.
+
+    Returns:
+        An async callable rendering the configured targets as a table.
+    """
+    rows = [
+        {
+            "connection": t.connection,
+            "database": t.database,
+            "backend": t.backend_name,
+            "description": t.database_description or t.connection_description,
+            "is_default": t.is_default,
+        }
+        for t in targets.targets
+    ]
+
+    async def read_databases() -> str:
+        """List the configured (connection, database) targets.
+
+        Returns:
+            The formatted table of configured targets.
+        """
+        return format_rows(rows, max_rows=len(rows))
+
+    return read_databases
+
+
 class SchemaTools:
     """Registers built-in schema-exploration tools on an MCP server."""
 
@@ -56,21 +100,30 @@ class SchemaTools:
 
     def __init__(
         self,
-        backend: DatabaseBackend,
-        backend_name: str,
+        registry: BackendRegistry,
+        targets: ResolvedTargets,
     ) -> None:
-        self._backend = backend
-        self._backend_name = backend_name
+        self._registry = registry
+        self._targets = targets
 
     def register(self, mcp: FastMCP) -> None:
-        """Load default_queries.toml and register all schema tools on ``mcp``."""
+        """Load default_queries.toml and register all schema tools on ``mcp``.
+
+        Each tool resolves its ``(connection, database)`` target at call time,
+        with ``database="*"`` fanning out across every database of the resolved
+        connection (hence ``star=True``). For single-target installs
+        ``build_target_params`` adds nothing, so the signature is byte-identical
+        to a pinned build.
+        """
         for name, config in load_default_queries().items():
-            sig_params = build_query_sig_params(config)
-            body = build_query_body(
+            sig_params = build_query_sig_params(config) + build_target_params(
+                self._targets, star=True
+            )
+            body = build_schema_body(
                 name,
                 config,
-                self._backend,
-                self._backend_name,
+                self._registry,
+                self._targets,
                 self._TRUNCATION_HINT,
             )
             fn = build_tool_fn(name, sig_params, body, config.description)

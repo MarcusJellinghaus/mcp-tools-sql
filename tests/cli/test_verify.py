@@ -7,6 +7,7 @@ import re
 import shutil
 import sqlite3
 from pathlib import Path
+from unittest.mock import MagicMock
 
 import pytest
 
@@ -301,6 +302,46 @@ def test_verify_full_run_returns_1_on_error(tmp_path: Path) -> None:
         database_config=tmp_path / "missing-db.toml",
     )
     assert verify_cmd.run(args) == 1
+
+
+def test_verify_exit_code_nonzero_when_a_pair_fails(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+    capsys: pytest.CaptureFixture[str],
+) -> None:
+    """A failing (connection, database) pair yields a non-zero exit code."""
+    failing = MagicMock(name="failing_backend")
+    failing.connect.return_value = None
+    failing.execute_query.side_effect = RuntimeError("cannot connect")
+    failing.close.return_value = None
+    monkeypatch.setattr(
+        "mcp_tools_sql.backends.registry.create_backend",
+        MagicMock(return_value=failing),
+    )
+    monkeypatch.setattr(
+        "mcp_tools_sql.verification.connection.socket.gethostbyname",
+        MagicMock(return_value="10.0.0.1"),
+    )
+
+    query_cfg = tmp_path / "mcp-tools-sql.toml"
+    query_cfg.write_text('connection = "prod"\n', encoding="utf-8")
+
+    db_cfg = tmp_path / "db-config.toml"
+    db_cfg.write_text(
+        "[connections.prod]\n"
+        'backend = "mssql"\n'
+        'host = "h"\n'
+        'databases = ["sales", "hr"]\n'
+        'password = "pw"\n',
+        encoding="utf-8",
+    )
+
+    args = _make_args(config=query_cfg, database_config=db_cfg)
+    rc = verify_cmd.run(args)
+    captured = capsys.readouterr().out
+
+    assert rc == 1
+    assert "=== CONNECTION ===" in captured
 
 
 def test_verify_full_run_with_queries_and_updates_returns_0(

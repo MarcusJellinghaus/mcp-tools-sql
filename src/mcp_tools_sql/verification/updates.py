@@ -5,9 +5,10 @@ from __future__ import annotations
 from typing import Any
 
 from mcp_tools_sql.backends.base import DatabaseBackend
-from mcp_tools_sql.config.models import UpdateConfig
+from mcp_tools_sql.backends.registry import BackendRegistry
+from mcp_tools_sql.config.models import ResolvedTargets, UpdateConfig
 from mcp_tools_sql.identifiers import IDENTIFIER_PATTERN, identifier_error
-from mcp_tools_sql.verification._helpers import make_entry
+from mcp_tools_sql.verification._helpers import make_entry, make_skipped_entry
 
 
 def _list_table_columns(
@@ -47,14 +48,21 @@ def _list_table_columns(
 def verify_one_update(
     name: str,
     ucfg: UpdateConfig,
-    backend_name: str,
-    backend: DatabaseBackend,
+    targets: ResolvedTargets,
+    registry: BackendRegistry,
+    reachable: dict[tuple[str, str], bool],
 ) -> dict[str, Any]:
-    """Per-entry validation for a single update.
+    """Per-entry validation for a single update against its own pinned target.
+
+    The identifier checks run statically (independent of connectivity). When
+    the update's resolved target is reachable, its columns are listed via the
+    registry-owned backend; when unreachable, the three rows become skip rows
+    naming the connection instead of being blanked. An unresolvable pin (bad
+    connection/database) yields error rows.
 
     Returns:
         Dict containing 1 row on the bad-identifier branch (``<name>.table``)
-        or 3 rows on the missing-table / happy branches
+        or 3 rows on the missing-table / skip / happy branches
         (``<name>.table``, ``<name>.key_column``, ``<name>.fields``).
         No ``overall_ok``.
     """
@@ -75,7 +83,31 @@ def verify_one_update(
         # Do not refactor to dict comprehensions or dict() constructors.
         return result
 
-    cols = _list_table_columns(backend, backend_name, ucfg.schema_name, ucfg.table)
+    try:
+        target = targets.resolve_pinned(ucfg.connection or None, ucfg.database or None)
+    except ValueError as exc:
+        result[f"{name}.table"] = make_entry(ok=False, value=ucfg.table, error=str(exc))
+        result[f"{name}.key_column"] = make_entry(
+            ok=False, value="(skipped)", error=str(exc)
+        )
+        result[f"{name}.fields"] = make_entry(
+            ok=False, value="(skipped)", error=str(exc)
+        )
+        return result
+
+    if not reachable.get((target.connection, target.database), False):
+        result[f"{name}.table"] = make_skipped_entry(target.connection)
+        result[f"{name}.key_column"] = make_skipped_entry(target.connection)
+        result[f"{name}.fields"] = make_skipped_entry(target.connection)
+        # NOTE: Key insertion order is load-bearing — the CLI snapshot test and
+        # verify_queries/verify_updates assert byte-equality against this order.
+        # Do not refactor to dict comprehensions or dict() constructors.
+        return result
+
+    backend = registry.backend_for(target)
+    cols = _list_table_columns(
+        backend, target.backend_name, ucfg.schema_name, ucfg.table
+    )
 
     if cols is None:
         qualified = f"{ucfg.schema_name}.{ucfg.table}".lstrip(".")
@@ -141,10 +173,16 @@ def verify_one_update(
 
 def verify_updates(
     updates: dict[str, UpdateConfig],
-    backend_name: str,
-    backend: DatabaseBackend,
+    targets: ResolvedTargets,
+    registry: BackendRegistry,
+    reachable: dict[tuple[str, str], bool],
 ) -> dict[str, Any]:
     """Per-update validation: table exists, key column exists, fields exist.
+
+    Each update is validated against its own resolved target; updates pinned to
+    an unreachable connection report skip rows (naming the connection) instead
+    of being blanked, while a reachable update in the same run still gets a real
+    verdict.
 
     Returns:
         Standard verifier result dict with three rows per update
@@ -154,8 +192,10 @@ def verify_updates(
     """
     result: dict[str, Any] = {}
     for name, ucfg in updates.items():
-        result.update(verify_one_update(name, ucfg, backend_name, backend))
+        result.update(verify_one_update(name, ucfg, targets, registry, reachable))
     result["overall_ok"] = all(
-        entry["ok"] for key, entry in result.items() if key != "overall_ok"
+        entry["ok"] or entry.get("warn", False)
+        for key, entry in result.items()
+        if key != "overall_ok"
     )
     return result

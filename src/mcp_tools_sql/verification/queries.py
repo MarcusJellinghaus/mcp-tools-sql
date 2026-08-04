@@ -6,9 +6,10 @@ import datetime
 from typing import Any
 
 from mcp_tools_sql.backends.base import DatabaseBackend
-from mcp_tools_sql.config.models import QueryConfig, QueryParamConfig
+from mcp_tools_sql.backends.registry import BackendRegistry
+from mcp_tools_sql.config.models import QueryConfig, QueryParamConfig, ResolvedTargets
 from mcp_tools_sql.query_helpers import extract_sql_params
-from mcp_tools_sql.verification._helpers import make_entry
+from mcp_tools_sql.verification._helpers import make_entry, make_skipped_entry
 
 _VALID_PARAM_TYPES = {"str", "int", "float", "datetime"}
 _DUMMY_BY_TYPE: dict[str, Any] = {
@@ -78,24 +79,48 @@ def _check_params_well_formed(
 def verify_one_query(
     name: str,
     qcfg: QueryConfig,
-    backend_name: str,
-    backend: DatabaseBackend,
+    targets: ResolvedTargets,
+    registry: BackendRegistry,
+    reachable: dict[tuple[str, str], bool],
 ) -> dict[str, Any]:
-    """Per-entry validation for a single query.
+    """Per-entry validation for a single query against its own pinned target.
+
+    Resolves the query's pinned ``(connection, database)`` target and, when
+    that target's connection is reachable, EXPLAINs the SQL against the
+    registry-owned backend. When the target is unreachable the ``<name>.sql``
+    row is a skip row naming the connection (the static ``params`` /
+    ``max_rows_default`` checks always run). An unresolvable pin (bad
+    connection/database) yields error rows.
 
     Returns:
         Three-row dict with keys ``<name>.sql``, ``<name>.params``,
         ``<name>.max_rows_default`` in that order. No ``overall_ok``.
     """
     result: dict[str, Any] = {}
-    sql = qcfg.resolve_sql(backend_name)
+    try:
+        target = targets.resolve_pinned(qcfg.connection or None, qcfg.database or None)
+    except ValueError as exc:
+        result[f"{name}.sql"] = make_entry(ok=False, value="failed", error=str(exc))
+        result[f"{name}.params"] = make_entry(
+            ok=False, value="(skipped)", error=str(exc)
+        )
+        result[f"{name}.max_rows_default"] = make_entry(
+            ok=False, value="(skipped)", error=str(exc)
+        )
+        return result
 
-    ok, err = _check_sql_explain(sql, qcfg.params, backend_name, backend)
-    result[f"{name}.sql"] = make_entry(
-        ok=ok,
-        value="EXPLAIN ok" if ok else "failed",
-        error=err,
-    )
+    sql = qcfg.resolve_sql(target.backend_name)
+
+    if reachable.get((target.connection, target.database), False):
+        backend = registry.backend_for(target)
+        ok, err = _check_sql_explain(sql, qcfg.params, target.backend_name, backend)
+        result[f"{name}.sql"] = make_entry(
+            ok=ok,
+            value="EXPLAIN ok" if ok else "failed",
+            error=err,
+        )
+    else:
+        result[f"{name}.sql"] = make_skipped_entry(target.connection)
 
     ok, err = _check_params_well_formed(sql, qcfg.params)
     result[f"{name}.params"] = make_entry(
@@ -115,10 +140,16 @@ def verify_one_query(
 
 def verify_queries(
     queries: dict[str, QueryConfig],
-    backend_name: str,
-    backend: DatabaseBackend,
+    targets: ResolvedTargets,
+    registry: BackendRegistry,
+    reachable: dict[tuple[str, str], bool],
 ) -> dict[str, Any]:
     """Per-query validation: SQL EXPLAIN, params well-formed, max_rows_default > 0.
+
+    Each query is EXPLAINed against its own resolved target; queries pinned to
+    an unreachable connection report a skip row (naming the connection) instead
+    of being blanked, while a reachable query in the same run still gets a real
+    verdict.
 
     Returns:
         Standard verifier result dict with three rows per query
@@ -127,8 +158,10 @@ def verify_queries(
     """
     result: dict[str, Any] = {}
     for name, qcfg in queries.items():
-        result.update(verify_one_query(name, qcfg, backend_name, backend))
+        result.update(verify_one_query(name, qcfg, targets, registry, reachable))
     result["overall_ok"] = all(
-        entry["ok"] for key, entry in result.items() if key != "overall_ok"
+        entry["ok"] or entry.get("warn", False)
+        for key, entry in result.items()
+        if key != "overall_ok"
     )
     return result

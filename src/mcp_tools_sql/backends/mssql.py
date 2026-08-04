@@ -170,7 +170,7 @@ class MSSQLBackend(DatabaseBackend):
             Tuple ``(translated_sql, args)`` where ``args[i]`` corresponds to
             the *i*-th ``?`` in ``translated_sql``.
         """
-        sql_q, ordered_names = translate_named_to_qmark(sql)
+        sql_q, ordered_names = translate_named_to_qmark(sql, "tsql")
         bound = params or {}
         args = [bound[name] for name in ordered_names]
         return sql_q, args
@@ -251,7 +251,7 @@ class MSSQLBackend(DatabaseBackend):
             plan rows.
         """
         conn = self._ensure_connected()
-        explain_sql = substitute_named_with_literals(sql, params or {})
+        explain_sql = substitute_named_with_literals(sql, params or {}, "tsql")
         cursor = conn.cursor()
         try:
             cursor.execute("SET SHOWPLAN_TEXT ON")

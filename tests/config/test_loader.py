@@ -14,7 +14,7 @@ from mcp_tools_sql.config.loader import (
     discover_query_config,
     load_database_config,
     load_query_config,
-    resolve_connection,
+    resolve_targets,
 )
 from mcp_tools_sql.config.models import (
     ConnectionConfig,
@@ -215,45 +215,106 @@ password = "secret"
             config_file.chmod(stat.S_IRUSR | stat.S_IWUSR)
 
 
-class TestResolveConnection:
-    """Tests for resolve_connection."""
+class TestResolveTargets:
+    """Tests for resolve_targets."""
 
-    def test_valid_connection_found(self) -> None:
-        """Returns ConnectionConfig when name matches."""
-        conn = ConnectionConfig(backend="sqlite", path="./test.db")
-        query_config = QueryFileConfig(connection="mydb")
-        db_config = DatabaseConfig(connections={"mydb": conn})
+    def test_single_connection_single_database(self) -> None:
+        """One connection with one database yields one default target."""
+        conn = ConnectionConfig.model_validate(
+            {"backend": "mssql", "database": "sales"}
+        )
+        query_config = QueryFileConfig(connection="prod")
+        db_config = DatabaseConfig(connections={"prod": conn})
 
-        result = resolve_connection(query_config, db_config)
+        result = resolve_targets(query_config, db_config)
 
-        assert result is conn
-        assert result.backend == "sqlite"
-        assert result.path == "./test.db"
+        assert result.is_multi is False
+        assert len(result.targets) == 1
+        target = result.targets[0]
+        assert target.connection == "prod"
+        assert target.database == "sales"
+        assert target.config.database == "sales"
+        assert target.backend_name == "mssql"
+        assert target.is_default is True
+        assert target.connection_description == ""
+        assert target.database_description == ""
+        assert result.default is target
+        assert result.file_default_connection == "prod"
 
-    def test_missing_connection_raises(self) -> None:
-        """ValueError when connection name not in database config."""
-        conn = ConnectionConfig(backend="sqlite")
+    def test_two_connections_with_fanout(self) -> None:
+        """Config-order targets across connections/databases, deduped names."""
+        prod = ConnectionConfig.model_validate(
+            {
+                "backend": "mssql",
+                "databases": {
+                    "sales": {"description": "Sales DB"},
+                    "hr": {"description": "HR DB"},
+                },
+                "description": "Prod server",
+            }
+        )
+        local = ConnectionConfig.model_validate(
+            {"backend": "mssql", "database": "sales"}
+        )
+        query_config = QueryFileConfig(connection="prod")
+        db_config = DatabaseConfig(connections={"prod": prod, "localdb": local})
+
+        result = resolve_targets(query_config, db_config)
+
+        assert result.is_multi is True
+        assert len(result.targets) == 3
+        assert [(t.connection, t.database) for t in result.targets] == [
+            ("prod", "sales"),
+            ("prod", "hr"),
+            ("localdb", "sales"),
+        ]
+        assert result.connection_names == ["prod", "localdb"]
+        assert result.database_names == ["sales", "hr"]
+        assert result.default.connection == "prod"
+        assert result.default.database == "sales"
+        assert result.targets[0].connection_description == "Prod server"
+        assert result.targets[0].database_description == "Sales DB"
+
+    def test_resolve_pinned_paths(self) -> None:
+        """resolve_pinned honours defaults, explicit pairs, and unknown dbs."""
+        prod = ConnectionConfig.model_validate(
+            {"backend": "mssql", "databases": ["sales", "hr"]}
+        )
+        local = ConnectionConfig.model_validate(
+            {"backend": "mssql", "database": "sales"}
+        )
+        query_config = QueryFileConfig(connection="prod")
+        db_config = DatabaseConfig(connections={"prod": prod, "localdb": local})
+
+        result = resolve_targets(query_config, db_config)
+
+        assert result.resolve_pinned(None, None) is result.default
+        pinned = result.resolve_pinned("prod", "hr")
+        assert (pinned.connection, pinned.database) == ("prod", "hr")
+        with pytest.raises(ValueError, match="hr"):
+            result.resolve_pinned("localdb", "hr")  # hr not in localdb
+
+    def test_unknown_file_default_connection_raises(self) -> None:
+        """Unknown file-default connection names it and lists availables."""
+        conn = ConnectionConfig.model_validate(
+            {"backend": "mssql", "database": "sales"}
+        )
         query_config = QueryFileConfig(connection="missing")
-        db_config = DatabaseConfig(connections={"other": conn})
+        db_config = DatabaseConfig(connections={"prod": conn})
 
-        with pytest.raises(ValueError, match="missing"):
-            resolve_connection(query_config, db_config)
+        with pytest.raises(ValueError, match=r"Connection 'missing' not found"):
+            resolve_targets(query_config, db_config)
 
-    def test_empty_connection_name_raises(self) -> None:
-        """ValueError when query_config.connection is empty."""
+    def test_empty_file_default_connection_raises(self) -> None:
+        """Empty file-default connection raises the no-connection-name error."""
+        conn = ConnectionConfig.model_validate(
+            {"backend": "mssql", "database": "sales"}
+        )
         query_config = QueryFileConfig(connection="")
-        db_config = DatabaseConfig(connections={"mydb": ConnectionConfig()})
+        db_config = DatabaseConfig(connections={"prod": conn})
 
-        with pytest.raises(ValueError, match="No connection name"):
-            resolve_connection(query_config, db_config)
-
-    def test_empty_connections_dict_raises(self) -> None:
-        """ValueError when db_config has no connections."""
-        query_config = QueryFileConfig(connection="mydb")
-        db_config = DatabaseConfig(connections={})
-
-        with pytest.raises(ValueError, match="mydb"):
-            resolve_connection(query_config, db_config)
+        with pytest.raises(ValueError, match="No connection name specified"):
+            resolve_targets(query_config, db_config)
 
 
 class TestEnvVarExpansion:
@@ -266,7 +327,10 @@ class TestEnvVarExpansion:
         monkeypatch.setenv("MY_PW", "secret")
         config_file = tmp_path / "config.toml"
         config_file.write_text(
-            "[connections.default]\n" 'backend = "mssql"\n' 'password = "${MY_PW}"\n',
+            "[connections.default]\n"
+            'backend = "mssql"\n'
+            'database = "mydb"\n'
+            'password = "${MY_PW}"\n',
             encoding="utf-8",
         )
 
@@ -315,7 +379,10 @@ class TestEnvVarExpansion:
         monkeypatch.setenv("MY_PORT", "1433")
         config_file = tmp_path / "config.toml"
         config_file.write_text(
-            "[connections.default]\n" 'backend = "mssql"\n' 'port = "${MY_PORT}"\n',
+            "[connections.default]\n"
+            'backend = "mssql"\n'
+            'database = "mydb"\n'
+            'port = "${MY_PORT}"\n',
             encoding="utf-8",
         )
 

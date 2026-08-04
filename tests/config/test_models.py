@@ -9,9 +9,12 @@ from mcp_tools_sql.config.models import (
     BackendQueryConfig,
     ConnectionConfig,
     DatabaseConfig,
+    DatabaseSpec,
     QueryConfig,
     QueryFileConfig,
     QueryParamConfig,
+    ResolvedTarget,
+    ResolvedTargets,
     UpdateConfig,
     UpdateFieldConfig,
 )
@@ -223,3 +226,324 @@ class TestQueryConfigBackendsParsing:
         assert config.resolve_sql("mssql") == (
             "SELECT * FROM information_schema.tables"
         )
+
+
+class TestDatabaseSpec:
+    """Tests for the DatabaseSpec model."""
+
+    def test_name_only(self) -> None:
+        """DatabaseSpec accepts a name with an empty description default."""
+        spec = DatabaseSpec(name="sales")
+        assert spec.name == "sales"
+        assert spec.description == ""
+
+    def test_name_and_description(self) -> None:
+        """DatabaseSpec preserves an explicit description."""
+        spec = DatabaseSpec(name="sales", description="Sales catalog")
+        assert spec.description == "Sales catalog"
+
+
+class TestConnectionConfigDatabaseNormalisation:
+    """Tests for ConnectionConfig databases/default_database normalisation."""
+
+    def test_sqlite_normalises_to_main(self) -> None:
+        """sqlite ignores authored database info and uses the 'main' catalog."""
+        config = ConnectionConfig(backend="sqlite", path="/tmp/db.sqlite")
+        assert [d.name for d in config.databases] == ["main"]
+        assert config.default_database == "main"
+        assert config.database == "main"
+
+    def test_sqlite_ignores_authored_databases(self) -> None:
+        """sqlite discards any authored databases/database values."""
+        config = ConnectionConfig.model_validate(
+            {"backend": "sqlite", "databases": ["sales", "hr"], "database": "x"}
+        )
+        assert [d.name for d in config.databases] == ["main"]
+        assert config.default_database == "main"
+
+    def test_list_form(self) -> None:
+        """List form produces DatabaseSpec entries preserving order."""
+        config = ConnectionConfig.model_validate(
+            {"backend": "mssql", "databases": ["sales", "hr"]}
+        )
+        assert [d.name for d in config.databases] == ["sales", "hr"]
+        assert config.default_database == "sales"
+        assert config.database == "sales"
+
+    def test_table_form(self) -> None:
+        """Table form maps names to descriptions preserving declared order."""
+        config = ConnectionConfig.model_validate(
+            {
+                "backend": "mssql",
+                "databases": {
+                    "sales": {"description": "Sales DB"},
+                    "hr": {"description": "HR DB"},
+                },
+            }
+        )
+        assert [d.name for d in config.databases] == ["sales", "hr"]
+        assert config.databases[0].description == "Sales DB"
+        assert config.databases[1].description == "HR DB"
+        assert config.default_database == "sales"
+
+    def test_legacy_database(self) -> None:
+        """Legacy single database normalises to a one-entry list."""
+        config = ConnectionConfig.model_validate(
+            {"backend": "mssql", "database": "sales"}
+        )
+        assert [d.name for d in config.databases] == ["sales"]
+        assert config.default_database == "sales"
+        assert config.database == "sales"
+
+    def test_default_database_explicit(self) -> None:
+        """An explicit default_database is honoured when a member."""
+        config = ConnectionConfig.model_validate(
+            {
+                "backend": "mssql",
+                "databases": ["sales", "hr"],
+                "default_database": "hr",
+            }
+        )
+        assert config.default_database == "hr"
+        assert config.database == "hr"
+
+    def test_default_database_defaults_to_first(self) -> None:
+        """default_database defaults to the first entry when unset."""
+        config = ConnectionConfig.model_validate(
+            {"backend": "mssql", "databases": ["sales", "hr"]}
+        )
+        assert config.default_database == "sales"
+
+    def test_description_field(self) -> None:
+        """ConnectionConfig accepts a connection-level description."""
+        config = ConnectionConfig.model_validate(
+            {"backend": "mssql", "database": "sales", "description": "Prod server"}
+        )
+        assert config.description == "Prod server"
+
+
+class TestConnectionConfigValidationErrors:
+    """Tests for ConnectionConfig validation failures."""
+
+    def test_default_database_not_member(self) -> None:
+        """default_database not in databases raises ValidationError."""
+        with pytest.raises(ValidationError):
+            ConnectionConfig.model_validate(
+                {
+                    "backend": "mssql",
+                    "databases": ["sales", "hr"],
+                    "default_database": "finance",
+                }
+            )
+
+    def test_postgresql_two_databases(self) -> None:
+        """postgresql with more than one database raises ValidationError."""
+        with pytest.raises(ValidationError):
+            ConnectionConfig.model_validate(
+                {"backend": "postgresql", "databases": ["sales", "hr"]}
+            )
+
+    def test_postgresql_one_database_ok(self) -> None:
+        """postgresql with exactly one database validates."""
+        config = ConnectionConfig.model_validate(
+            {"backend": "postgresql", "databases": ["sales"]}
+        )
+        assert [d.name for d in config.databases] == ["sales"]
+
+    def test_mssql_empty_databases(self) -> None:
+        """mssql with neither database nor databases raises ValidationError."""
+        with pytest.raises(ValidationError):
+            ConnectionConfig.model_validate({"backend": "mssql"})
+
+    def test_pyodbc_empty_databases(self) -> None:
+        """pyodbc (mssql alias) with no database raises ValidationError."""
+        with pytest.raises(ValidationError):
+            ConnectionConfig.model_validate({"backend": "pyodbc"})
+
+    def test_legacy_conflicts_with_databases(self) -> None:
+        """Legacy database not among explicit databases raises ValidationError."""
+        with pytest.raises(ValidationError):
+            ConnectionConfig.model_validate(
+                {"backend": "mssql", "database": "hr", "databases": ["sales"]}
+            )
+
+    def test_legacy_conflicts_with_default_database(self) -> None:
+        """Legacy database disagreeing with default_database raises."""
+        with pytest.raises(ValidationError):
+            ConnectionConfig.model_validate(
+                {
+                    "backend": "mssql",
+                    "database": "sales",
+                    "databases": ["sales", "hr"],
+                    "default_database": "hr",
+                }
+            )
+
+    def test_legacy_consistent_with_databases(self) -> None:
+        """Legacy database that is a member of databases validates."""
+        config = ConnectionConfig.model_validate(
+            {"backend": "mssql", "database": "sales", "databases": ["sales", "hr"]}
+        )
+        assert config.default_database == "sales"
+
+
+class TestConnectionConfigBackwardCompat:
+    """Existing single-database configs keep loading unchanged."""
+
+    def test_default_sqlite_config(self) -> None:
+        """A bare ConnectionConfig still defaults to sqlite/main."""
+        config = ConnectionConfig()
+        assert config.backend == "sqlite"
+        assert config.default_database == "main"
+
+    def test_mssql_single_database_roundtrip(self) -> None:
+        """A legacy mssql config exposes database for the ODBC reader."""
+        config = ConnectionConfig(backend="mssql", database="AdventureWorks")
+        assert config.database == "AdventureWorks"
+        assert config.default_database == "AdventureWorks"
+
+
+class TestPinnedTargetFields:
+    """Tests for optional pinned connection/database on query/update configs."""
+
+    def test_query_config_pinned_defaults_empty(self) -> None:
+        """QueryConfig connection/database default to empty strings."""
+        config = QueryConfig(sql="SELECT 1")
+        assert config.connection == ""
+        assert config.database == ""
+
+    def test_query_config_pinned_values(self) -> None:
+        """QueryConfig accepts explicit pinned connection/database."""
+        config = QueryConfig(sql="SELECT 1", connection="prod", database="sales")
+        assert config.connection == "prod"
+        assert config.database == "sales"
+
+    def test_update_config_pinned_defaults_empty(self) -> None:
+        """UpdateConfig connection/database default to empty strings."""
+        config = UpdateConfig()
+        assert config.connection == ""
+        assert config.database == ""
+
+    def test_update_config_pinned_values(self) -> None:
+        """UpdateConfig accepts explicit pinned connection/database."""
+        config = UpdateConfig(connection="prod", database="hr")
+        assert config.connection == "prod"
+        assert config.database == "hr"
+
+
+def _make_target(
+    connection: str,
+    database: str,
+    *,
+    is_default: bool = False,
+    default_database: str = "",
+) -> ResolvedTarget:
+    """Build a ResolvedTarget for the given connection/database pair."""
+    default_db = default_database or database
+    names = list(dict.fromkeys([default_db, database]))
+    base = ConnectionConfig.model_validate(
+        {"backend": "mssql", "databases": names, "default_database": default_db}
+    )
+    config = base.model_copy(update={"database": database})
+    return ResolvedTarget(
+        connection=connection,
+        database=database,
+        config=config,
+        backend_name="mssql",
+        is_default=is_default,
+    )
+
+
+class TestResolvedTarget:
+    """Tests for the frozen ResolvedTarget model."""
+
+    def test_fields(self) -> None:
+        """ResolvedTarget exposes its connection/database/backend fields."""
+        target = _make_target("prod", "sales", is_default=True)
+        assert target.connection == "prod"
+        assert target.database == "sales"
+        assert target.backend_name == "mssql"
+        assert target.is_default is True
+        assert target.connection_description == ""
+        assert target.database_description == ""
+
+    def test_is_frozen(self) -> None:
+        """ResolvedTarget is immutable (frozen)."""
+        target = _make_target("prod", "sales")
+        with pytest.raises(ValidationError):
+            target.database = "hr"
+
+
+class TestResolvedTargets:
+    """Tests for ResolvedTargets helper methods."""
+
+    def test_single_target_not_multi(self) -> None:
+        """A one-target set reports is_multi False with matching names."""
+        target = _make_target("prod", "sales", is_default=True)
+        targets = ResolvedTargets(
+            targets=[target], default=target, file_default_connection="prod"
+        )
+        assert targets.is_multi is False
+        assert targets.connection_names == ["prod"]
+        assert targets.database_names == ["sales"]
+
+    def test_multi_target_dedup_order(self) -> None:
+        """Connection/database names dedup while preserving config order."""
+        t1 = _make_target("prod", "sales", is_default=True, default_database="sales")
+        t2 = _make_target("prod", "hr", default_database="sales")
+        t3 = _make_target("localdb", "sales", default_database="sales")
+        targets = ResolvedTargets(
+            targets=[t1, t2, t3], default=t1, file_default_connection="prod"
+        )
+        assert targets.is_multi is True
+        assert targets.connection_names == ["prod", "localdb"]
+        assert targets.database_names == ["sales", "hr"]
+
+    def test_for_connection(self) -> None:
+        """for_connection returns only the matching connection's targets."""
+        t1 = _make_target("prod", "sales", is_default=True, default_database="sales")
+        t2 = _make_target("prod", "hr", default_database="sales")
+        t3 = _make_target("localdb", "sales", default_database="sales")
+        targets = ResolvedTargets(
+            targets=[t1, t2, t3], default=t1, file_default_connection="prod"
+        )
+        assert targets.for_connection("prod") == [t1, t2]
+        assert targets.for_connection("localdb") == [t3]
+        assert targets.for_connection("missing") == []
+
+    def test_resolve_pinned_defaults(self) -> None:
+        """resolve_pinned(None, None) returns the file default target."""
+        t1 = _make_target("prod", "sales", is_default=True, default_database="sales")
+        t2 = _make_target("prod", "hr", default_database="sales")
+        targets = ResolvedTargets(
+            targets=[t1, t2], default=t1, file_default_connection="prod"
+        )
+        assert targets.resolve_pinned(None, None) is t1
+
+    def test_resolve_pinned_explicit(self) -> None:
+        """resolve_pinned selects the named connection/database pair."""
+        t1 = _make_target("prod", "sales", is_default=True, default_database="sales")
+        t2 = _make_target("prod", "hr", default_database="sales")
+        targets = ResolvedTargets(
+            targets=[t1, t2], default=t1, file_default_connection="prod"
+        )
+        assert targets.resolve_pinned("prod", "hr") is t2
+
+    def test_resolve_pinned_unknown_database_raises(self) -> None:
+        """resolve_pinned raises when the database is absent in the connection."""
+        t1 = _make_target("prod", "sales", is_default=True, default_database="sales")
+        t2 = _make_target("localdb", "sales", default_database="sales")
+        targets = ResolvedTargets(
+            targets=[t1, t2], default=t1, file_default_connection="prod"
+        )
+        with pytest.raises(ValueError, match="hr"):
+            targets.resolve_pinned("localdb", "hr")
+
+    def test_resolve_pinned_unknown_connection_raises(self) -> None:
+        """resolve_pinned raises when the connection is absent."""
+        t1 = _make_target("prod", "sales", is_default=True, default_database="sales")
+        targets = ResolvedTargets(
+            targets=[t1], default=t1, file_default_connection="prod"
+        )
+        with pytest.raises(ValueError, match="missing"):
+            targets.resolve_pinned("missing", None)

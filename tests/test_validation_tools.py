@@ -16,6 +16,7 @@ from mcp_tools_sql.config.models import ConnectionConfig
 from mcp_tools_sql.utils.sql_placeholders import basic_preflight
 from mcp_tools_sql.validation_tools import ValidationTools, _explain
 from tests.conftest import MSSQLTestEnv
+from tests.target_helpers import single_target
 
 
 def _sqlite_backend(db_path: Path) -> SQLiteBackend:
@@ -30,6 +31,9 @@ async def _call_validate(
     sql: str,
     params: dict[str, Any] | None = None,
     return_plan: bool = False,
+    *,
+    connection: str | None = None,
+    database: str | None = None,
 ) -> str:
     """Call ``validate_sql`` via the MCP client and return the text content."""
     args: dict[str, Any] = {"sql": sql}
@@ -37,6 +41,10 @@ async def _call_validate(
         args["params"] = params
     if return_plan:
         args["return_plan"] = return_plan
+    if connection is not None:
+        args["connection"] = connection
+    if database is not None:
+        args["database"] = database
     result = await client.call_tool("validate_sql", args)
     return result.content[0].text  # type: ignore[no-any-return]
 
@@ -52,7 +60,7 @@ async def test_preflight_empty_sql(sqlite_db: Path) -> None:
     backend = _sqlite_backend(sqlite_db)
     backend.explain = MagicMock()  # type: ignore[method-assign]
     mcp = FastMCP("test-preflight-empty")
-    ValidationTools(backend, "sqlite").register(mcp)
+    ValidationTools(*single_target(backend)).register(mcp)
     async with create_connected_server_and_client_session(
         mcp, raise_exceptions=True
     ) as client:
@@ -67,7 +75,7 @@ async def test_preflight_whitespace_only_sql(sqlite_db: Path) -> None:
     backend = _sqlite_backend(sqlite_db)
     backend.explain = MagicMock()  # type: ignore[method-assign]
     mcp = FastMCP("test-preflight-ws")
-    ValidationTools(backend, "sqlite").register(mcp)
+    ValidationTools(*single_target(backend)).register(mcp)
     async with create_connected_server_and_client_session(
         mcp, raise_exceptions=True
     ) as client:
@@ -82,7 +90,7 @@ async def test_preflight_missing_param_with_params_none(sqlite_db: Path) -> None
     backend = _sqlite_backend(sqlite_db)
     backend.explain = MagicMock()  # type: ignore[method-assign]
     mcp = FastMCP("test-preflight-missing-none")
-    ValidationTools(backend, "sqlite").register(mcp)
+    ValidationTools(*single_target(backend)).register(mcp)
     async with create_connected_server_and_client_session(
         mcp, raise_exceptions=True
     ) as client:
@@ -97,7 +105,7 @@ async def test_preflight_missing_param_with_empty_params(sqlite_db: Path) -> Non
     backend = _sqlite_backend(sqlite_db)
     backend.explain = MagicMock()  # type: ignore[method-assign]
     mcp = FastMCP("test-preflight-missing-empty")
-    ValidationTools(backend, "sqlite").register(mcp)
+    ValidationTools(*single_target(backend)).register(mcp)
     async with create_connected_server_and_client_session(
         mcp, raise_exceptions=True
     ) as client:
@@ -112,7 +120,7 @@ async def test_preflight_multi_statement(sqlite_db: Path) -> None:
     backend = _sqlite_backend(sqlite_db)
     backend.explain = MagicMock()  # type: ignore[method-assign]
     mcp = FastMCP("test-preflight-multi")
-    ValidationTools(backend, "sqlite").register(mcp)
+    ValidationTools(*single_target(backend)).register(mcp)
     async with create_connected_server_and_client_session(
         mcp, raise_exceptions=True
     ) as client:
@@ -127,7 +135,7 @@ async def test_preflight_use_statement(sqlite_db: Path) -> None:
     backend = _sqlite_backend(sqlite_db)
     backend.explain = MagicMock()  # type: ignore[method-assign]
     mcp = FastMCP("test-preflight-use")
-    ValidationTools(backend, "sqlite").register(mcp)
+    ValidationTools(*single_target(backend)).register(mcp)
     async with create_connected_server_and_client_session(
         mcp, raise_exceptions=True
     ) as client:
@@ -142,7 +150,7 @@ async def test_preflight_set_statement(sqlite_db: Path) -> None:
     backend = _sqlite_backend(sqlite_db)
     backend.explain = MagicMock()  # type: ignore[method-assign]
     mcp = FastMCP("test-preflight-set")
-    ValidationTools(backend, "sqlite").register(mcp)
+    ValidationTools(*single_target(backend)).register(mcp)
     async with create_connected_server_and_client_session(
         mcp, raise_exceptions=True
     ) as client:
@@ -162,7 +170,7 @@ async def test_preflight_declare_statement(sqlite_db: Path) -> None:
     backend = _sqlite_backend(sqlite_db)
     backend.explain = MagicMock()  # type: ignore[method-assign]
     mcp = FastMCP("test-preflight-declare")
-    ValidationTools(backend, "mssql").register(mcp)
+    ValidationTools(*single_target(backend, backend_name="mssql")).register(mcp)
     async with create_connected_server_and_client_session(
         mcp, raise_exceptions=True
     ) as client:
@@ -177,7 +185,7 @@ async def test_preflight_unparseable_sql_fail_closed(sqlite_db: Path) -> None:
     backend = _sqlite_backend(sqlite_db)
     backend.explain = MagicMock()  # type: ignore[method-assign]
     mcp = FastMCP("test-preflight-fail-closed")
-    ValidationTools(backend, "sqlite").register(mcp)
+    ValidationTools(*single_target(backend)).register(mcp)
     async with create_connected_server_and_client_session(
         mcp, raise_exceptions=True
     ) as client:
@@ -324,7 +332,7 @@ async def test_params_none_no_placeholders(sqlite_db: Path) -> None:
     """``params=None`` against non-parameterised SQL returns ``Valid.``."""
     backend = _sqlite_backend(sqlite_db)
     mcp = FastMCP("test-params-none")
-    ValidationTools(backend, "sqlite").register(mcp)
+    ValidationTools(*single_target(backend)).register(mcp)
     async with create_connected_server_and_client_session(
         mcp, raise_exceptions=True
     ) as client:
@@ -337,7 +345,7 @@ async def test_params_empty_no_placeholders(sqlite_db: Path) -> None:
     """``params={}`` against non-parameterised SQL returns ``Valid.``."""
     backend = _sqlite_backend(sqlite_db)
     mcp = FastMCP("test-params-empty")
-    ValidationTools(backend, "sqlite").register(mcp)
+    ValidationTools(*single_target(backend)).register(mcp)
     async with create_connected_server_and_client_session(
         mcp, raise_exceptions=True
     ) as client:
@@ -350,7 +358,7 @@ async def test_extra_params_silently_ignored(sqlite_db: Path) -> None:
     """Extra param names in ``params`` (not in SQL) are silently ignored."""
     backend = _sqlite_backend(sqlite_db)
     mcp = FastMCP("test-params-extra")
-    ValidationTools(backend, "sqlite").register(mcp)
+    ValidationTools(*single_target(backend)).register(mcp)
     async with create_connected_server_and_client_session(
         mcp, raise_exceptions=True
     ) as client:
@@ -363,7 +371,7 @@ async def test_extras_tolerated_alongside_required(sqlite_db: Path) -> None:
     """Extra param keys are tolerated when all referenced placeholders are bound."""
     backend = _sqlite_backend(sqlite_db)
     mcp = FastMCP("test-params-extras-required")
-    ValidationTools(backend, "sqlite").register(mcp)
+    ValidationTools(*single_target(backend)).register(mcp)
     async with create_connected_server_and_client_session(
         mcp, raise_exceptions=True
     ) as client:
@@ -381,7 +389,7 @@ async def test_valid_select_default(sqlite_db: Path) -> None:
     """A valid SELECT returns ``Valid.`` (no plan by default)."""
     backend = _sqlite_backend(sqlite_db)
     mcp = FastMCP("test-valid-select")
-    ValidationTools(backend, "sqlite").register(mcp)
+    ValidationTools(*single_target(backend)).register(mcp)
     async with create_connected_server_and_client_session(
         mcp, raise_exceptions=True
     ) as client:
@@ -394,7 +402,7 @@ async def test_valid_select_with_return_plan(sqlite_db: Path) -> None:
     """``return_plan=True`` appends the execution plan on success."""
     backend = _sqlite_backend(sqlite_db)
     mcp = FastMCP("test-valid-select-plan")
-    ValidationTools(backend, "sqlite").register(mcp)
+    ValidationTools(*single_target(backend)).register(mcp)
     async with create_connected_server_and_client_session(
         mcp, raise_exceptions=True
     ) as client:
@@ -409,7 +417,7 @@ async def test_valid_update_does_not_execute(sqlite_db: Path) -> None:
     """A valid UPDATE returns ``Valid.`` but does not actually run."""
     backend = _sqlite_backend(sqlite_db)
     mcp = FastMCP("test-valid-update")
-    ValidationTools(backend, "sqlite").register(mcp)
+    ValidationTools(*single_target(backend)).register(mcp)
     async with create_connected_server_and_client_session(
         mcp, raise_exceptions=True
     ) as client:
@@ -426,7 +434,7 @@ async def test_valid_ddl_does_not_execute(sqlite_db: Path) -> None:
     """A valid DDL returns ``Valid.`` but the schema is untouched."""
     backend = _sqlite_backend(sqlite_db)
     mcp = FastMCP("test-valid-ddl")
-    ValidationTools(backend, "sqlite").register(mcp)
+    ValidationTools(*single_target(backend)).register(mcp)
     async with create_connected_server_and_client_session(
         mcp, raise_exceptions=True
     ) as client:
@@ -453,7 +461,7 @@ async def test_syntax_error(sqlite_db: Path) -> None:
     """
     backend = _sqlite_backend(sqlite_db)
     mcp = FastMCP("test-syntax-error")
-    ValidationTools(backend, "sqlite").register(mcp)
+    ValidationTools(*single_target(backend)).register(mcp)
     async with create_connected_server_and_client_session(
         mcp, raise_exceptions=True
     ) as client:
@@ -467,7 +475,7 @@ async def test_unknown_table(sqlite_db: Path) -> None:
     """Unknown table yields ``Invalid SQL. ...``."""
     backend = _sqlite_backend(sqlite_db)
     mcp = FastMCP("test-unknown-table")
-    ValidationTools(backend, "sqlite").register(mcp)
+    ValidationTools(*single_target(backend)).register(mcp)
     async with create_connected_server_and_client_session(
         mcp, raise_exceptions=True
     ) as client:
@@ -480,7 +488,7 @@ async def test_return_plan_on_invalid_sql_omits_plan(sqlite_db: Path) -> None:
     """``return_plan=True`` on invalid SQL returns only the error verdict."""
     backend = _sqlite_backend(sqlite_db)
     mcp = FastMCP("test-invalid-plan")
-    ValidationTools(backend, "sqlite").register(mcp)
+    ValidationTools(*single_target(backend)).register(mcp)
     async with create_connected_server_and_client_session(
         mcp, raise_exceptions=True
     ) as client:
@@ -494,7 +502,7 @@ async def test_runtime_error_after_close(sqlite_db: Path) -> None:
     """``RuntimeError`` (backend closed) maps to ``Database connection error.``"""
     backend = _sqlite_backend(sqlite_db)
     mcp = FastMCP("test-runtime-error")
-    ValidationTools(backend, "sqlite").register(mcp)
+    ValidationTools(*single_target(backend)).register(mcp)
     backend.close()
     async with create_connected_server_and_client_session(
         mcp, raise_exceptions=True
@@ -515,7 +523,7 @@ async def test_mssql_valid_select(mssql_db: MSSQLTestEnv) -> None:
     backend = MSSQLBackend(mssql_db.config)
     try:
         mcp = FastMCP("test-mssql-valid-select")
-        ValidationTools(backend, "mssql").register(mcp)
+        ValidationTools(*single_target(backend, backend_name="mssql")).register(mcp)
         async with create_connected_server_and_client_session(
             mcp, raise_exceptions=True
         ) as client:
@@ -534,7 +542,7 @@ async def test_mssql_valid_select_return_plan(mssql_db: MSSQLTestEnv) -> None:
     backend = MSSQLBackend(mssql_db.config)
     try:
         mcp = FastMCP("test-mssql-valid-select-plan")
-        ValidationTools(backend, "mssql").register(mcp)
+        ValidationTools(*single_target(backend, backend_name="mssql")).register(mcp)
         async with create_connected_server_and_client_session(
             mcp, raise_exceptions=True
         ) as client:
@@ -557,7 +565,7 @@ async def test_mssql_syntax_error(mssql_db: MSSQLTestEnv) -> None:
     backend = MSSQLBackend(mssql_db.config)
     try:
         mcp = FastMCP("test-mssql-syntax-error")
-        ValidationTools(backend, "mssql").register(mcp)
+        ValidationTools(*single_target(backend, backend_name="mssql")).register(mcp)
         async with create_connected_server_and_client_session(
             mcp, raise_exceptions=True
         ) as client:
@@ -576,7 +584,7 @@ async def test_mssql_unknown_table(mssql_db: MSSQLTestEnv) -> None:
     backend = MSSQLBackend(mssql_db.config)
     try:
         mcp = FastMCP("test-mssql-unknown-table")
-        ValidationTools(backend, "mssql").register(mcp)
+        ValidationTools(*single_target(backend, backend_name="mssql")).register(mcp)
         async with create_connected_server_and_client_session(
             mcp, raise_exceptions=True
         ) as client:
@@ -595,7 +603,7 @@ async def test_mssql_unsupported_param_type(mssql_db: MSSQLTestEnv) -> None:
     backend = MSSQLBackend(mssql_db.config)
     try:
         mcp = FastMCP("test-mssql-unsupported-param")
-        ValidationTools(backend, "mssql").register(mcp)
+        ValidationTools(*single_target(backend, backend_name="mssql")).register(mcp)
         async with create_connected_server_and_client_session(
             mcp, raise_exceptions=True
         ) as client:
@@ -612,7 +620,7 @@ async def test_mssql_valid_update_does_not_execute(mssql_db: MSSQLTestEnv) -> No
     backend = MSSQLBackend(mssql_db.config)
     try:
         mcp = FastMCP("test-mssql-valid-update")
-        ValidationTools(backend, "mssql").register(mcp)
+        ValidationTools(*single_target(backend, backend_name="mssql")).register(mcp)
         rows_before = backend.execute_query(
             f"SELECT COUNT(*) AS n FROM {mssql_db.schema}.customers WHERE id = 999"
         )
@@ -640,7 +648,7 @@ async def test_mssql_session_state_containment(mssql_db: MSSQLTestEnv) -> None:
     backend = MSSQLBackend(mssql_db.config)
     try:
         mcp = FastMCP("test-mssql-session-state")
-        ValidationTools(backend, "mssql").register(mcp)
+        ValidationTools(*single_target(backend, backend_name="mssql")).register(mcp)
         async with create_connected_server_and_client_session(
             mcp, raise_exceptions=True
         ) as client:

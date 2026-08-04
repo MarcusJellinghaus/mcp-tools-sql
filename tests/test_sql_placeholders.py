@@ -139,6 +139,28 @@ class TestTranslateNamedToQmark:
         assert names == ["x", "y"]
         assert sql_out.count("?") == 2
 
+    def test_tsql_preserves_bracket_quoting(self) -> None:
+        # Under the tsql dialect, bracket-quoted identifiers ``[id]`` must
+        # survive parse+render unchanged. The dialect-neutral renderer would
+        # corrupt ``[id]`` into ``ARRAY(id)``; ``dialect="tsql"`` prevents it.
+        sql_out, names = translate_named_to_qmark(
+            "SELECT [id], [name] FROM dbo.[orders] WHERE [id] = :id", "tsql"
+        )
+        assert names == ["id"]
+        assert "[id]" in sql_out
+        assert "[name]" in sql_out
+        assert "[orders]" in sql_out
+        assert "ARRAY(" not in sql_out
+        assert sql_out.count("?") == 1
+
+    def test_tsql_bracketed_sql_parses_without_error(self) -> None:
+        # A bracket-quoted statement must parse cleanly under the tsql dialect.
+        sql_out, names = translate_named_to_qmark(
+            "SELECT * FROM [orders] WHERE id = :id", "tsql"
+        )
+        assert names == ["id"]
+        assert "[orders]" in sql_out
+
 
 class TestSubstituteNamedWithLiterals:
     """Tests for ``substitute_named_with_literals``."""
@@ -244,6 +266,18 @@ class TestSubstituteNamedWithLiterals:
     def test_missing_key_raises_keyerror(self) -> None:
         with pytest.raises(KeyError):
             substitute_named_with_literals("SELECT :a", {})
+
+    def test_tsql_preserves_bracket_quoting_with_literal(self) -> None:
+        # Under the tsql dialect, ``[id]`` bracket quoting is preserved and the
+        # ``:id`` placeholder is substituted with its literal value.
+        result = substitute_named_with_literals(
+            "SELECT * FROM [orders] WHERE [id] = :id", {"id": 5}, "tsql"
+        )
+        assert "[id]" in result
+        assert "[orders]" in result
+        assert "= 5" in result
+        assert "ARRAY(" not in result
+        assert ":id" not in result
 
 
 class TestReadOnlyViolation:
@@ -370,3 +404,42 @@ class TestBuildCountQuery:
         result = build_count_query("VALUES (1), (2)", "sqlite")
         assert "COUNT(*)" in result
         assert "count_sub" in result
+
+    def test_drops_order_by_tsql(self) -> None:
+        # T-SQL rejects ORDER BY inside a derived table (error 1033) unless
+        # accompanied by TOP/OFFSET/FOR XML. COUNT(*) is order-independent, so
+        # the statement-level ORDER BY must be dropped before wrapping.
+        sql = (
+            "SELECT TABLE_NAME AS name FROM INFORMATION_SCHEMA.TABLES "
+            "WHERE TABLE_SCHEMA = :schema ORDER BY name"
+        )
+        result = build_count_query(sql, "tsql")
+        assert "ORDER BY" not in result.upper()
+        # The ``:schema`` placeholder survives as a bindable node.
+        reparsed = sqlglot.parse_one(result, read="tsql")
+        names = {ph.name for ph in reparsed.find_all(exp.Placeholder)}
+        assert "schema" in names
+
+    def test_drops_order_by_sqlite(self) -> None:
+        sql = (
+            "SELECT TABLE_NAME AS name FROM INFORMATION_SCHEMA.TABLES "
+            "WHERE TABLE_SCHEMA = :schema ORDER BY name"
+        )
+        result = build_count_query(sql, "sqlite")
+        assert "ORDER BY" not in result.upper()
+        reparsed = sqlglot.parse_one(result, read="sqlite")
+        names = {ph.name for ph in reparsed.find_all(exp.Placeholder)}
+        assert "schema" in names
+
+    def test_no_order_by_unchanged_wrapper(self) -> None:
+        # A query without ORDER BY is wrapped exactly as before (regression).
+        result = build_count_query("SELECT * FROM customers", "tsql")
+        assert "ORDER BY" not in result.upper()
+        assert "COUNT(*)" in result
+        assert "count_sub" in result
+
+    def test_qualified_names_preserved(self) -> None:
+        # Three-part qualified names survive the ORDER BY stripping + wrapping.
+        result = build_count_query("SELECT * FROM sales.dbo.orders ORDER BY id", "tsql")
+        assert "ORDER BY" not in result.upper()
+        assert "sales.dbo.orders" in result
