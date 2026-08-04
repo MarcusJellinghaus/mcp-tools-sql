@@ -156,7 +156,7 @@ Scalar-pass aggregates are aliased `c{idx}__{stat}` (e.g. `c0__nonnull`,
 
 | Category | Statistics (in the scalar pass) | Value list? |
 |---|---|---|
-| numeric | non_null, nulls, distinct, min, max, mean `AVG(CAST … FLOAT)`, sum `SUM(CAST … BIGINT)` on T-SQL ints else `SUM(CAST … FLOAT)`, zero count, negative count | yes |
+| numeric | non_null, nulls, distinct, min, max, mean `AVG(CAST … FLOAT)`, sum `SUM(CAST … BIGINT)` on T-SQL ints else `SUM(c)` uncast (no lossy FLOAT cast on decimal/money), zero count, negative count | yes |
 | temporal | non_null, nulls, distinct, min, max | yes |
 | string | non_null, nulls, distinct, empty `LTRIM(RTRIM(c))=''`, len min/max/avg via `LEN`/`LENGTH` (characters) | yes |
 | boolean | true / false / null counts, true % | yes |

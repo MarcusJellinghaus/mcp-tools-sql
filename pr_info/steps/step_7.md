@@ -46,8 +46,15 @@ connection=None, database=None) -> str`.
 5. **Narrow** by `columns` (case-insensitive match; unknown →
    `unknown_columns_message`; echo declared casing). **Cap** to first 50 by
    ordinal (`total_columns` retained for the footer).
-6. `build_count_sql` → `rows`. `rows == 0` → `empty_filter_message` when a
-   predicate was supplied, else `empty_table_message`.
+6. `build_count_sql` → `rows` (the **filtered** count). `rows == 0` →
+   - predicate supplied → issue an **unfiltered** `build_count_sql(table_ref,
+     predicate=None, dialect)` to get the true table total, then
+     `empty_filter_message(total_rows)` — so the message reads
+     `No rows match the where predicate (table has N rows)` with the real
+     total, never the filtered `0`. (This extra count runs **only** in this
+     zero-match-with-predicate branch, so the normal path keeps its query
+     budget.)
+   - no predicate → `empty_table_message` (the filtered count *is* the total).
 7. `view = "triage" if len(profiled) > TRIAGE_THRESHOLD else "deep"`;
    `include_distinct = view == "deep" or rows <= 1_000_000`.
 8. `build_scalar_sql(..., include_distinct=...)` → one row; assemble stats per

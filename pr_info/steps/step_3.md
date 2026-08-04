@@ -48,8 +48,11 @@ def _other_exprs(idx, col_ref, dialect) -> list[exp.Alias]: ...
   when present. Render `.sql(dialect=...)`.
 - Category rules (§ summary table):
   - **numeric**: `min`,`max`, `mean = AVG(CAST(c AS FLOAT))`,
-    `sum = SUM(CAST(c AS BIGINT))` when tsql **and** integer-like declared type,
-    else `SUM(CAST(c AS FLOAT))`; `zero = COUNT(CASE WHEN c = 0 …)`,
+    `sum = SUM(CAST(c AS BIGINT))` when tsql **and** integer-like declared type
+    (guards the `int` overflow past 2^31-1); for **non-integer** numerics
+    (decimal/money/float) leave the argument **uncast** — `SUM(c)` — since only
+    integers overflow and a FLOAT cast is lossy on exact decimals; on sqlite
+    `SUM(c)` uncast throughout; `zero = COUNT(CASE WHEN c = 0 …)`,
     `neg = COUNT(CASE WHEN c < 0 …)`.
   - **string**: `empty = COUNT(CASE WHEN LTRIM(RTRIM(c)) = '' …)`; lengths via
     `exp.Length` (renders `LENGTH` on sqlite, `LEN` on tsql), `len_avg` cast to
