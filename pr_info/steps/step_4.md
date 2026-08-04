@@ -34,9 +34,13 @@ def build_value_list_sql(
   GROUP BY c ORDER BY COUNT(*) DESC, c ASC LIMIT n`. `NULL` groups as an
   ordinary row (no special handling). Ordering **must** carry the `value ASC`
   tiebreak for total determinism.
-- `kind == "sample"`: `SELECT DISTINCT c AS value FROM t [WHERE p]
-  ORDER BY c ASC LIMIT n` (no `freq` column — frequency is uninformative when
-  every count is 1).
+- `kind == "sample"`: `SELECT DISTINCT c AS value FROM t WHERE c IS NOT NULL
+  [AND p] ORDER BY c ASC LIMIT n` (no `freq` column — frequency is uninformative
+  when every count is 1). **`NULL` is excluded** (unlike the `top` kind, which
+  ranks `NULL` as a row): the sample header reads `N of D distinct` where
+  `D = COUNT(DISTINCT c)` excludes nulls, so a returned `NULL` row would make
+  `len(values)` exceed `D` and render the nonsensical `N of D` with `N > D` for
+  a unique-non-null column that also holds nulls.
 - Limit via sqlglot `.limit(n)` so the renderer emits `LIMIT n` (sqlite) /
   `TOP n` (tsql) automatically. Do **not** call this for `other`-category
   columns (caller skips them — LOB cannot be grouped).
@@ -52,7 +56,8 @@ if kind == "top":
     q = q.group_by(ref).order_by(Count(Star()).desc(), ref.asc())
 else:
     q = exp.select(alias(ref,"value")).distinct().from_(t).order_by(ref.asc())
-if predicate: q = q.where(predicate)
+    q = q.where(ref.is_(exp.null()).not_())  # c IS NOT NULL; sample excludes NULL
+if predicate: q = q.where(predicate)   # sqlglot .where() AND-combines
 return q.limit(n).sql(dialect=dialect)
 ```
 
@@ -67,7 +72,9 @@ Rendered-SQL per dialect:
 
 - top: contains `GROUP BY`, `ORDER BY COUNT(*) DESC` **and** the `value`/column
   ASC tiebreak; `LIMIT 20` (sqlite) vs `TOP 20` (tsql).
-- sample: `SELECT DISTINCT`, no `freq`, `ORDER BY` the column, correct limit.
+- sample: `SELECT DISTINCT`, no `freq`, `WHERE c IS NOT NULL` (NULL excluded),
+  `ORDER BY` the column, correct limit; with a predicate the two conditions are
+  AND-combined.
 - predicate embedded in `WHERE` for both kinds.
 - `clamp_n(20) == (20, "")`; `clamp_n(500)[0] == 50` with a non-empty note.
 

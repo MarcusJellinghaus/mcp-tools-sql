@@ -36,6 +36,16 @@ connection=None, database=None) -> str`.
    → return `str(exc)`); `backend = registry.backend_for(target)`;
    `dialect = to_dialect(target.backend_name)`; open `log_tool_call`.
 2. `validate_where(...)` → predicate or error string (return on error).
+
+   **Param threading:** the re-rendered predicate carries the user's `:name`
+   placeholders, so the user `params` dict must be passed as the second argument
+   to `backend.execute_readonly_query` for **every** data query that embeds the
+   predicate — `build_count_sql` (both the filtered and the empty-filter
+   unfiltered count), `build_scalar_sql`, and each `build_value_list_sql` — not
+   only the metadata query. Otherwise a `where` using placeholders parses and
+   validates but fails at execution with an unbound-parameter error. The
+   metadata query is the sole exception: it takes its own `{schema, table}`
+   dict and carries no predicate.
 3. Run `metadata_sql(dialect)` with `{schema, table}` via
    `backend.execute_readonly_query`. No rows means the table does **not exist**
    (`INFORMATION_SCHEMA.COLUMNS` / `pragma_table_info` return zero rows only for

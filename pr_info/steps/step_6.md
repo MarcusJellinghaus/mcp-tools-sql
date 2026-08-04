@@ -38,8 +38,14 @@ def column_cap_footer(shown: int, total: int) -> str: ...
   gate note) when `distinct_gated`. **`min`/`max` are the value min/max, which
   the scalar pass (step 3) computes only for numeric/temporal columns; for
   string/boolean/other columns they show `—`** (read `stats.get("min")` /
-  `stats.get("max")`, blanking the marker when absent). Value min/max for
-  strings is deliberately out of scope for v1. Append `column_cap_footer` when
+  `stats.get("max")`, blanking the marker when absent).
+  **Accepted scope reduction (not in the issue's Out-of-scope list):** the issue's
+  triage line lists `min/max` for every column, but v1 populates value min/max
+  only for numeric/temporal columns. Lexical min/max on string columns is judged
+  low value (and is illegal on LOB), so the scalar pass (step 3) omits it and
+  string/boolean/other cells render `—`. This is a deliberate narrowing of the
+  triage contract, documented here so it is a decision rather than a silent gap;
+  revisit if callers need string ranges. Append `column_cap_footer` when
   `total_columns > len(profiles)`, plus a footer hint that a narrowed `columns=`
   call yields the deep block. When gated, state the 1M-row reason in the footer.
 - `render_summary`: `render_triage` when `len(profiles) > TRIAGE_THRESHOLD`,
