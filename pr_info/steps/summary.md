@@ -21,10 +21,11 @@ build against.
 summarize_columns(
     schema: str,
     table: str,
-    columns: list[str] | None = None,   # narrow to specific columns
+    columns: list[str] | None = None,   # narrow to specific columns; None = all,
+                                        # [] is an error, repeats de-duplicated
     where: str | None = None,           # optional predicate, :name placeholders
     params: dict[str, Any] | None = None,
-    n: int = 20,                        # value-list length, hard clamp 50
+    n: int = 20,                        # value-list length, clamped to [1, 50]
     *, connection: str | None = None, database: str | None = None,
 ) -> str
 ```
@@ -141,9 +142,10 @@ class ColumnProfile:          # defined in render.py; built in tools.py
     meta: ColumnMeta
     rows: int                 # filtered COUNT(*)  (same for all columns)
     non_null: int
-    distinct: int | None      # None when gated out of triage
+    distinct: int | None      # None when gated out of triage, and always None
+                              # for other/binary (no COUNT(DISTINCT) on LOB)
     stats: dict[str, Any]     # category-specific: min/max/mean/len_avg/…
-    values: list[tuple[Any, int]] | None  # (value, freq) top OR (value,) sample
+    values: list[tuple[Any, ...]] | None  # (value, freq) top OR (value,) sample
     value_kind: Literal["top", "sample", "none"]
 ```
 
@@ -169,9 +171,13 @@ Scalar-pass aggregates are aliased `c{idx}__{stat}` (e.g. `c0__nonnull`,
 - Value-list ordering is **total**: `ORDER BY COUNT(*) DESC, value ASC`.
 - 50-column cap by ordinal (footer: `Showing 50 of N columns. Use columns= to
   select others.`); keeps the scalar pass under T-SQL's 4,096-expression limit.
-- `n` clamps to 50 (default 20), noted in `_cap_max_rows` style.
-- 1M-row distinct gate applies to **triage only**; deep view is always exact
-  (stated, un-gated, by design).
+- `n` clamps into `[1, 50]` (default 20), noted in `_cap_max_rows` style — the
+  lower bound stops `n=0` emitting an empty list and `n<0` rendering `TOP -1`.
+- `DISTINCT_GATE_ROWS` (1M rows) distinct gate applies to **triage only**; deep
+  view is always exact (stated, un-gated, by design). Named constant, never an
+  inline literal; the gate decision itself is tested.
+- `columns=[]` fails the call before any data query (`empty_columns_message`);
+  repeated names are de-duplicated case-insensitively, first-seen order.
 - `NULL` ranks as an ordinary row in the top-values list **and** keeps its
   separate null count; remainder line is pure arithmetic (no extra query).
 - Display-truncate list values at 60 chars + `…`; counts stay exact.

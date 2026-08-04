@@ -65,16 +65,34 @@ def _render_values(p: ColumnProfile, n: int) -> list[str]
     `clamped_n`) — **never** the requested `n`, so it can never claim more than
     were shown. `D` is `distinct`.
 - Display-truncate each value via `_truncate`; **counts stay exact**.
+- **Optional-field narrowing (mypy strict).** `ColumnProfile.distinct` is
+  `int | None` and `values` is `list[...] | None`; `run_mypy_check` runs
+  `--strict`, so neither may be used unguarded. Narrow explicitly before use:
+  - `_render_values` returns `[]` immediately unless
+    `p.value_kind != "none" and p.values` — after that guard `p.values` is a
+    concrete list, so `for value, freq in values` type-checks. Bind it to a
+    local (`values = p.values`) so the narrowing survives.
+  - The `top` remainder line is emitted **only** inside
+    `if p.distinct is not None:` — a gated-out `distinct` has no remainder
+    arithmetic to do, so the line is simply omitted rather than guessed.
+  - The `sample` header's `D` likewise comes from a narrowed `p.distinct`;
+    when it is `None`, render `sample values ({len(values)} distinct values):`
+    without the `of D` clause.
+  - Any block-level `distinct` stat line renders `—` when `p.distinct is None`
+    (same blank convention as an absent min/max).
 
 ## ALGORITHM (`_render_values`, top)
 
 ```
+if p.value_kind == "none" or not p.values: return []   # narrows p.values to a list
+values = p.values
 lines = ["  top values:"]
 shown_rows = sum(freq); shown_nonnull_distinct = len([v for v in values if v is not NULL])
 for value, freq in values: lines.append(f"    {_truncate(value)}  {_fmt_int(freq)}  {_fmt_pct(freq, rows)}")
-rem_vals = distinct - shown_nonnull_distinct
-rem_rows = rows - shown_rows                      # `rows` is the total filtered COUNT(*) (p.rows); denominator for every % is this same total
-if rem_vals > 0: lines.append(f"    … {rem_vals} other values, {_fmt_int(rem_rows)} rows {_fmt_pct(rem_rows, rows)}")
+if p.distinct is not None:                        # narrows before the arithmetic
+    rem_vals = p.distinct - shown_nonnull_distinct
+    rem_rows = rows - shown_rows                  # `rows` is the total filtered COUNT(*) (p.rows); denominator for every % is this same total
+    if rem_vals > 0: lines.append(f"    … {rem_vals} other values, {_fmt_int(rem_rows)} rows {_fmt_pct(rem_rows, rows)}")
 return lines
 ```
 
@@ -109,6 +127,9 @@ Hand-build `ColumnProfile`s (no DB) and assert on rendered text:
 - boolean block: the `true {count} ({true%}) | false {count} | null {count}`
   stat line renders with the correct `true %` of `rows`; assert the boolean
   distinct-stat shape explicitly (true/false/null counts).
+- `distinct=None` profile (narrowing guard) → the block renders without
+  crashing: `distinct` cell reads `—`, and a `top` list omits the remainder
+  line rather than computing arithmetic on `None`.
 - `_truncate` caps at 60 chars + `…`; `_fmt_pct(_, 0)` does not divide by zero.
 
 ## COMMIT

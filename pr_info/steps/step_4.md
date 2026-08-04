@@ -13,9 +13,11 @@ duplication. See `pr_info/steps/summary.md` (§ Execution pipeline step 5,
 
 ```python
 VALUE_LIST_HARD_CAP: int = 50
+VALUE_LIST_MIN: int = 1
 
 def clamp_n(n: int) -> tuple[int, str]: ...
-    # returns (min(n, 50), note) — note non-empty only when clamped
+    # returns (max(1, min(n, 50)), note) — note non-empty only when clamped
+    # (clamped in **either** direction)
 
 def build_value_list_sql(
     col: ColumnMeta,
@@ -46,6 +48,11 @@ def build_value_list_sql(
   columns (caller skips them — LOB cannot be grouped).
 - The caller (step 7) picks `kind` from scalar stats:
   `distinct < non_null → "top"`, `distinct == non_null → "sample"`.
+- `clamp_n` clamps in **both** directions: `VALUE_LIST_HARD_CAP` (50) above and
+  `VALUE_LIST_MIN` (1) below. The lower bound is not cosmetic — `n=0` would emit
+  an empty value list under a `top values:` header, and `n<0` renders
+  `TOP -1`, which SQL Server rejects outright. Both out-of-range directions
+  produce a non-empty note so the user sees what was applied.
 
 ## ALGORITHM (`build_value_list_sql`)
 
@@ -76,7 +83,9 @@ Rendered-SQL per dialect:
   `ORDER BY` the column, correct limit; with a predicate the two conditions are
   AND-combined.
 - predicate embedded in `WHERE` for both kinds.
-- `clamp_n(20) == (20, "")`; `clamp_n(500)[0] == 50` with a non-empty note.
+- `clamp_n(20) == (20, "")`; `clamp_n(500)[0] == 50` with a non-empty note;
+  `clamp_n(0)[0] == 1` and `clamp_n(-5)[0] == 1`, both with a non-empty note
+  (lower bound — no empty `top values:` header, no `TOP -1`).
 
 ## COMMIT
 
@@ -89,5 +98,6 @@ Rendered-SQL per dialect:
 > (`kind="top"|"sample"`) to `summarize/sql.py`. Top lists are
 > `COUNT(*) DESC, value ASC` (total order, `NULL` as a row); sample lists are
 > `SELECT DISTINCT … ORDER BY value` with no freq column. Use sqlglot `.limit`
-> so `TOP n`/`LIMIT n` fall out per dialect; clamp `n` to 50. Write
+> so `TOP n`/`LIMIT n` fall out per dialect; clamp `n` into `[1, 50]` (both
+> bounds — `n<=0` must not produce an empty list or `TOP -1`). Write
 > rendered-SQL-per-dialect assertions first. Run pylint/pytest/mypy; one commit.

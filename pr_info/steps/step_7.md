@@ -19,6 +19,8 @@ boundaries, and prove it end-to-end on SQLite. See `pr_info/steps/summary.md`
 ## WHAT
 
 ```python
+_DESCRIPTION: str   # module-level constant, see below
+
 def _base_summarize_params() -> list[inspect.Parameter]:
     # schema, table, columns, where, params, n  (POSITIONAL_OR_KEYWORD)
 
@@ -27,25 +29,66 @@ class SummarizeTools:
     def register(self, mcp: FastMCP) -> None: ...   # builds core + build_tool_fn
 ```
 
-`core(schema, table, columns=None, where=None, params=None, n=20, *,
-connection=None, database=None) -> str`.
+`async def core(schema, table, columns=None, where=None, params=None, n=20, *,
+connection=None, database=None) -> str` — **`async`**, exactly as
+`count_tools.py:135`: `build_tool_fn` awaits `body(**kwargs)`, so a plain
+`def core` would break at call time.
+
+### Tool description (required by `build_tool_fn` **and** `mcp.add_tool`)
+
+Both `build_tool_fn(name, sig_params, body, doc)` and
+`mcp.add_tool(fn, name=..., description=...)` take the description, so a
+module-level `_DESCRIPTION` constant is mandatory (mirroring
+`count_tools._DESCRIPTION`). It must advertise the `:name`-placeholder contract
+the issue requires:
+
+```python
+_DESCRIPTION = (
+    "Profile the data in a table's columns: row/null/distinct counts, "
+    "category-appropriate statistics (min/max/mean/sum for numeric, date "
+    "bounds for temporal, length stats for string, true/false counts for "
+    "boolean, byte sizes for binary), and duplication-driven value lists "
+    "(top values with frequencies when values repeat, a sample when every "
+    "value is unique). Read-only. Narrow with columns= and filter with a "
+    "read-only where predicate; the predicate must use :name placeholders "
+    "for values, bound via params (never inline literals). Returns a "
+    "formatted text block; tables wider than 15 profiled columns render a "
+    "compact one-line-per-column triage instead. n sets the value-list "
+    "length (default 20, clamped to 1..50)."
+)
+```
 
 ## HOW — `core` pipeline (mirrors `count_tools.CountTools.register`)
 
 1. `target = targets.resolve_pinned(connection, database)` (catch `ValueError`
    → return `str(exc)`); `backend = registry.backend_for(target)`;
    `dialect = to_dialect(target.backend_name)`; open `log_tool_call`.
+
+   **Logging contract.** Open
+   `async with log_tool_call("summarize_columns", params or {}, sql=where or "")
+   as rec:` — the logged `sql=` is the **user's raw `where` text** (empty string
+   when no predicate), not any generated query: the generated SQL is derived,
+   multi-query (metadata + count + scalar + one per value list) and would flood
+   the log line, whereas `where` is the only SQL the caller wrote. Call
+   `rec.record(rows=len(profiled), cols=1)` once the profiled column set is
+   known (step 5 below) — one rendered block/line per profiled column, one text
+   result — **explicitly**, because omitting the call leaves the success log
+   line reporting `rows=0 cols=0`. Early-return paths that fire *before*
+   narrowing (target/where validation error, table-not-found) keep the default
+   `0/0`, which is accurate there.
 2. `validate_where(...)` → predicate or error string (return on error).
 
    **Param threading:** the re-rendered predicate carries the user's `:name`
    placeholders, so the user `params` dict must be passed as the second argument
    to `backend.execute_readonly_query` for **every** data query that embeds the
-   predicate — `build_count_sql` (both the filtered and the empty-filter
-   unfiltered count), `build_scalar_sql`, and each `build_value_list_sql` — not
-   only the metadata query. Otherwise a `where` using placeholders parses and
-   validates but fails at execution with an unbound-parameter error. The
-   metadata query is the sole exception: it takes its own `{schema, table}`
-   dict and carries no predicate.
+   predicate — the filtered `build_count_sql`, `build_scalar_sql`, and each
+   `build_value_list_sql` — not only the metadata query. Otherwise a `where`
+   using placeholders parses and validates but fails at execution with an
+   unbound-parameter error. Two queries carry **no** predicate and therefore no
+   placeholders: the metadata query (takes its own `{schema, table}` dict), and
+   the empty-filter *unfiltered* count issued in step 6's zero-match branch
+   (built with `predicate=None`, so it embeds nothing to bind — passing `params`
+   there is harmless but unnecessary).
 3. Run `metadata_sql(dialect)` with `{schema, table}` via
    `backend.execute_readonly_query`. No rows means the table does **not exist**
    (`INFORMATION_SCHEMA.COLUMNS` / `pragma_table_info` return zero rows only for
@@ -54,8 +97,11 @@ connection=None, database=None) -> str`.
    table exists but holds 0 rows).
 4. Build `ColumnMeta` list (`categorize_type` per row, keep ordinal).
 5. **Narrow** by `columns` (case-insensitive match; unknown →
-   `unknown_columns_message`; echo declared casing). **Cap** to first 50 by
-   ordinal (`total_columns` retained for the footer).
+   `unknown_columns_message`; **explicitly empty list** →
+   `empty_columns_message`; **de-duplicate** case-insensitively, preserving
+   first-seen order; echo declared casing). **Cap** to first 50 by ordinal
+   (`total_columns` retained for the footer). See the narrowing ALGORITHM below
+   for both guards — each returns **before** any data query is issued.
 6. `build_count_sql` → `rows` (the **filtered** count). `rows == 0` →
    - predicate supplied → issue an **unfiltered** `build_count_sql(table_ref,
      predicate=None, dialect)` to get the true table total, then
@@ -66,7 +112,10 @@ connection=None, database=None) -> str`.
      budget.)
    - no predicate → `empty_table_message` (the filtered count *is* the total).
 7. `view = "triage" if len(profiled) > TRIAGE_THRESHOLD else "deep"`;
-   `include_distinct = view == "deep" or rows <= 1_000_000`.
+   `include_distinct = view == "deep" or rows <= DISTINCT_GATE_ROWS`
+   (`DISTINCT_GATE_ROWS = 1_000_000`, imported from `summarize.render` beside
+   `TRIAGE_THRESHOLD`/`COLUMN_CAP` — **no inline literal**, matching the
+   `VALUE_LIST_HARD_CAP` convention). The deep view is never gated by design.
 8. `build_scalar_sql(..., include_distinct=...)` → one row; assemble stats per
    column from the `c{idx}__{stat}` aliases.
 9. `clamped_n, clamp_note = clamp_n(n)` **before** the view dispatch, so
@@ -96,13 +145,37 @@ Signature: `_base_summarize_params() + build_target_params(targets, star=False)`
 
 ```
 by_lower = {m.name.lower(): m for m in metas}
+available = [m.name for m in metas]
 if columns is None: chosen = metas
 else:
+    if not columns:                          # explicitly empty list
+        return empty_columns_message(available)
     bad = [c for c in columns if c.lower() not in by_lower]
-    if bad: return unknown_columns_message(bad, [m.name for m in metas])
-    chosen = [by_lower[c.lower()] for c in columns]
-total_columns = len(chosen); profiled = sorted(chosen, key=ordinal)[:50]
+    if bad: return unknown_columns_message(bad, available)
+    seen: set[str] = set()                   # de-duplicate, first-seen order
+    chosen = []
+    for c in columns:
+        key = c.lower()
+        if key in seen: continue
+        seen.add(key)
+        chosen.append(by_lower[key])
+total_columns = len(chosen); profiled = sorted(chosen, key=ordinal)[:COLUMN_CAP]
 ```
+
+Both guards run **before** any data query.
+
+- **Empty list.** `columns=[]` is *not* the same as `columns=None` (all
+  columns): `bad` would be empty so no error fires, `chosen`/`profiled` would be
+  empty, and `build_scalar_sql([])` renders `SELECT FROM "t"` — which the
+  backend rejects with the opaque `Invalid SQL. OperationalError: near "FROM"`.
+  Fail the call with `empty_columns_message` (same error class as the
+  unknown-column error) instead.
+- **Duplicates.** `columns=["a", "A", "a"]` must profile `a` once. Without the
+  de-duplication the same column renders as three blocks, `total_columns` is
+  inflated (wrong cap footer), and a 15-name call with repeats can flip past
+  `TRIAGE_THRESHOLD` into triage. Keys are lower-cased (the same
+  case-insensitive matching used for lookup), and first-seen order is preserved
+  so the ordinal sort below is deterministic either way.
 
 ## DATA
 
@@ -112,9 +185,12 @@ total_columns = len(chosen); profiled = sorted(chosen, key=ordinal)[:50]
 ## WIRING
 
 - `tach.toml`: add `[[modules]] path = "mcp_tools_sql.summarize"` (layer
-  `tool_implementation`, `depends_on` = backends, config, formatting,
-  tool_logging, query_helpers, tool_builder, utils). Add `summarize` beside
-  `count_tools` in `server`'s `depends_on`.
+  `tool_implementation`, `depends_on` = backends, formatting, tool_logging,
+  query_helpers, tool_builder, utils). **No `config`** — matching
+  `summary.md` § 1 and the `count_tools` precedent (`tach.toml:88-96` lists no
+  `config`; its `ResolvedTargets` import is `TYPE_CHECKING`-only, which tach
+  does not count as a dependency). Add `summarize` beside `count_tools` in
+  `server`'s `depends_on`.
 - `.importlinter`: add `mcp_tools_sql.summarize` to the tool layer line
   (sibling of `count_tools`).
 - Run `mcp__mcp-tools-py__run_tach_check` and `run_lint_imports_check` — both
@@ -143,11 +219,32 @@ column, a boolean column (mixed true/false + a NULL), and an all-NULL column
   `value_kind == "none"` short-circuit; no `sample values (1 of 0 …)`).
 - Zero-row table → empty-table message; `where` matching nothing → empty-filter
   message.
+- **Param threading end-to-end**: a `where` using a `:name` placeholder *with*
+  a matching `params` dict (e.g. `where="category = :cat"`,
+  `params={"cat": "x"}`) that **matches rows** → a normal deep block whose
+  counts reflect only the filtered subset. This is the only test that binds
+  params through the whole pipeline (count + scalar + value-list queries); the
+  `validate_where` unit tests (`step_2.md`) exercise validation in isolation and
+  the nothing-matching `where` test above never reaches the scalar/value-list
+  queries, so neither would catch a dropped `params` argument. Assert the result
+  is **not** an `Invalid parameters.`/unbound-parameter error string.
 - Non-existent table (`table="no_such_table"`) → table-not-found message
   (distinct from the empty-table wording).
 - Unknown `columns=["Nope"]` → unknown-column message (declared casing echoed).
+- **Empty `columns=[]`** → empty-columns message; assert it is **not** an
+  `Invalid SQL.` string (proves the guard fires before any data query).
+- **Duplicate `columns=["a", "A", "a"]`** → the column's block appears exactly
+  once, and no cap footer / triage switch is triggered by the repeats.
 - Wide table (> 15 cols) → triage; narrowed `columns=[…]` (≤ 15) → deep.
-- `n` clamp note appears for `n=999`.
+- **Distinct-gate decision** (invariant, `summary.md` § invariants): a triage
+  call with `rows > DISTINCT_GATE_ROWS` builds the scalar SQL with
+  `include_distinct=False` and renders the gate footer, while `rows <=
+  DISTINCT_GATE_ROWS` keeps distinct; a **deep** call is never gated regardless
+  of `rows`. Drive it with a `MagicMock`/`RecordingRegistry` backend returning a
+  synthetic `row_count` above the threshold (no million-row fixture) and assert
+  on the issued SQL (`COUNT(DISTINCT` present/absent).
+- `n` clamp note appears for `n=999`; `n=0` clamps to 1 (note present, no empty
+  `top values:` block).
 - Registration: `SummarizeTools(*single_target(backend)).register(mcp)` then
   `list_tools()` exposes `summarize_columns`; multi-target install surfaces
   `connection`/`database` props but **not** `"*"`.
@@ -164,15 +261,20 @@ Use `create_connected_server_and_client_session` and the `single_target` /
 ## PROMPT
 
 > Implement Step 7 from `pr_info/steps/step_7.md` (context in
-> `pr_info/steps/summary.md`). Create `summarize/tools.py` with
+> `pr_info/steps/summary.md`). Create `summarize/tools.py` with `_DESCRIPTION`
+> (advertising the `:name`-placeholder/`params` contract),
 > `_base_summarize_params` and `SummarizeTools` (mirroring
-> `count_tools.CountTools`): resolve the pinned target per call, run the
-> metadata → narrow/cap → `COUNT(*)` short-circuit → scalar pass → value-lists
-> → `render_summary` pipeline, with the `count_tools` exception tail. Export it
+> `count_tools.CountTools`): resolve the pinned target per call, then an
+> **`async def core`** running the metadata → narrow/cap → `COUNT(*)`
+> short-circuit → scalar pass → value-lists → `render_summary` pipeline, with
+> the `count_tools` exception tail. Reject an empty `columns=[]` and de-duplicate
+> repeated names before any data query; thread `params` into every
+> predicate-bearing query; log via `log_tool_call(..., sql=where or "")` with an
+> explicit `rec.record`. Export it
 > from the package `__init__`, add `"summarize_columns"` to
 > `PROGRAMMATIC_BUILTIN_TOOLS`, register it in `server.py`, add the
 > `mcp_tools_sql.summarize` module to `tach.toml` and `.importlinter`, and
 > update the roadmap in `mcp-tools-sql.md`. Add the `profiling_db` fixture and
 > end-to-end SQLite tests plus a `MagicMock` T-SQL dialect check. Run pylint,
-> pytest (`-n auto`, fast markers), mypy, `run_tach_check`, and
-> `run_lint_imports_check`; fix everything; one commit.
+> pytest (`-n auto`), mypy, `run_tach_check`, and `run_lint_imports_check`; fix
+> everything; one commit.

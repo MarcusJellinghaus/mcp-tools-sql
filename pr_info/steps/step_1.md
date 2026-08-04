@@ -68,7 +68,7 @@ Parametrised classification table covering:
 
 `feat(summarize): add SQL type categoriser and package skeleton`
 
-Run `pylint`, `pytest -n auto` (fast markers), `mypy` — all green.
+Run `pylint`, `pytest -n auto`, `mypy` — all green.
 
 ## PROMPT
 
@@ -78,5 +78,5 @@ Run `pylint`, `pytest -n auto` (fast markers), `mypy` — all green.
 > returning the five-value `Category` literal, with LOB (`text`/`ntext`/`image`)
 > classified as `other` on T-SQL. Write the parametrised classification test
 > first, then the function. Keep it in `summarize/sql.py` — do **not** add a new
-> `utils` module. Run pylint, pytest (`-n auto` with the fast-exclusion
-> markers), and mypy; fix everything before committing as one commit.
+> `utils` module. Run pylint, pytest (`-n auto`), and mypy; fix everything
+> before committing as one commit.
