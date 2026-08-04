@@ -47,3 +47,40 @@ Implementation not started (TASK_TRACKER: 0 of 7 steps complete).
 **Changes**: `step_1.md`, `step_4.md`, `step_5.md`, `step_6.md`, `step_7.md` updated; `Decisions.md` appended. `summary.md` needed no change. No implementation code touched.
 
 **Status**: committed.
+
+## Round 3 — 2026-08-04
+
+**Findings**: none. The review agent re-verified every round-2 edit against the live codebase and the installed sqlglot rather than by reasoning alone:
+- `exp.Is(this=ref, expression=exp.Null(), negate=True)` confirmed to render `IS NOT NULL` on both dialects (`expressions/core.py:2186-2187`, `generator.py:4442-4447`, `generators/tsql.py:380-384`), and the rejected construction confirmed to render `NOT "c" IS NULL`.
+- `n` fully removed from every renderer signature, call site and test description; `clamped_n` correctly survives only as the value-list SQL argument, and `clamp_n` is still hoisted before the view dispatch so `clamp_note` stays bound.
+- Corrected remainder arithmetic reproduces both worked examples in issue #43 exactly (410 / 34,486 / 69.0% and 98 / 98 / 97.0%).
+- tsql `timestamp`/`rowversion` guard correctly ordered before the temporal rule and dialect-scoped; does not collide with step 3 (`other` emits only `DATALENGTH`, no `COUNT(DISTINCT)`, no `MIN`/`MAX`) or step 4 (never called for `other`).
+- `NUM` prefix covers both `NUM` and `NUMERIC` with no collateral misclassification.
+- `ColumnProfile`: all seven frozen fields specified at every construction site; dict→tuple mapping matches the `value`/`freq` aliases step 4 emits. Every referenced helper verified to exist.
+
+**Decisions**: nothing to accept, skip or escalate.
+
+**User decisions**: none required.
+
+**Changes**: none.
+
+**Status**: no changes needed — loop terminates.
+
+---
+
+## Final Status
+
+**Rounds run**: 3 (this log) — 9 cumulative across both logs.
+**Findings applied**: 18 in this run (12 in round 1, 6 in round 2); 0 in round 3.
+**Commits produced**:
+- `3623e7b` — `docs(steps): apply review-round-2 findings to summarize_columns plan`
+- `abd0169` — `docs(steps): fix rowversion classification, IS NOT NULL construction and renderer signatures`
+- plus this log.
+
+**Escalations to the user**: none. Every finding was a spec gap, internal contradiction, or missing plan-level test — none affected scope or architecture.
+
+**Requirement-level changes**: none. No new dependencies, no `pyproject.toml` edits, no mypy overrides. The only boundary change is the already-planned `tach.toml` / `.importlinter` entry for `mcp_tools_sql.summarize`, minus the spurious `config` dependency removed in round 1.
+
+**Most substantive fix**: T-SQL `timestamp`/`rowversion` was classified temporal, so `MIN`/`MAX` would have raised Msg 8117 and — because all scalar aggregates share one `SELECT` — taken down the entire table's profiling pass on any table with a legacy rowversion column.
+
+**Verdict**: plan is ready for approval and implementation. 7 steps, one commit each, implementation not yet started.
