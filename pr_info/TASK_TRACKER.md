@@ -21,7 +21,7 @@ This tracks **Feature Implementation** consisting of multiple **Tasks**.
 
 ## Tasks
 
-- [ ] [Step 1 — Type categoriser + package skeleton](./steps/step_1.md)
+- [x] [Step 1 — Type categoriser + package skeleton](./steps/step_1.md)
 - [ ] [Step 2 — where validation, table ref, metadata & count SQL](./steps/step_2.md)
 - [ ] [Step 3 — Scalar-aggregate pass SQL + ColumnMeta](./steps/step_3.md)
 - [ ] [Step 4 — Value-list SQL (top + sample)](./steps/step_4.md)
