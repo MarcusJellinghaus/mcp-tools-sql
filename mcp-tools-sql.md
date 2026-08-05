@@ -213,7 +213,7 @@ Enhance the discovery capabilities based on phase 1 learnings:
 Move from "run configured queries" to "help explore and understand data." Focus on master data / string columns, not numeric analysis.
 
 - **Smart filtering**: Tools that help the LLM understand what values exist in a column before querying. `read_distinct_values(schema, table, column, limit?)` — returns distinct values with counts. Essential for columns like `Country`, `Status`, `CustomerType` where the LLM needs to know valid filter values.
-- **Data profiling**: `read_table_profile(schema, table)` — row count, column stats (distinct count, null count, sample values). Compact overview, not full data.
+- **Data profiling**: `summarize_columns(schema, table, columns?, where?, params?, n?)` — per-column row/null/distinct counts, category-appropriate statistics, and duplication-driven value lists (top values with frequencies, or a sample when every value is unique). The value list subsumes `read_distinct_values`. Compact overview, not full data.
 - **SQL-based aggregations**: Configured aggregate queries (`GROUP BY`, `COUNT`, `DISTINCT`) as tools. Lets the LLM summarize data without pulling all rows.
 - **Result paging**: Cursor-based pagination for large result sets across multiple tool calls.
 - **Query builder assistance**: LLM uses introspection + profiling to help draft new configured queries for the config file.
