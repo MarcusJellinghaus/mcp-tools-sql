@@ -190,7 +190,7 @@ async def test_preflight_unparseable_sql_fail_closed(sqlite_db: Path) -> None:
         mcp, raise_exceptions=True
     ) as client:
         text = await _call_validate(client, "SELECT FROM WHERE")
-    assert text.startswith("Invalid SQL. ParseError: ")
+    assert text.startswith("Invalid SQL. ParseError (SQL parsed as ")
     assert backend.explain.call_count == 0
 
 
@@ -229,7 +229,7 @@ class TestBasicPreflight:
     def test_unparseable_returns_parse_error(self) -> None:
         verdict = basic_preflight("SELECT FROM WHERE", None, "sqlite")
         assert verdict is not None
-        assert verdict.startswith("Invalid SQL. ParseError: ")
+        assert verdict.startswith("Invalid SQL. ParseError (SQL parsed as ")
 
     def test_valid_sql_passes(self) -> None:
         assert basic_preflight("SELECT 1", None, "sqlite") is None

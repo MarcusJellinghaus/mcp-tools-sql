@@ -316,7 +316,7 @@ def basic_preflight(
     try:
         statement_count = count_statements(sql, dialect)
     except ParseError as exc:
-        return f"Invalid SQL. ParseError: {exc}"
+        return f"Invalid SQL. ParseError (SQL parsed as {dialect}): {exc}"
     if statement_count > 1:
         return "Invalid SQL. ValidationError: multiple statements not supported"
     missing = extract_param_names(sql, dialect) - (params or {}).keys()

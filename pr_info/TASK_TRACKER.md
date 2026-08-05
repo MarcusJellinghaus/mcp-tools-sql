@@ -33,9 +33,9 @@ See [step_1.md](./steps/step_1.md).
 
 See [step_2.md](./steps/step_2.md).
 
-- [ ] Implementation: change `basic_preflight`'s `ParseError` verdict to the dialect-first f-string, update the four parse-error assertions in the test suite
-- [ ] Quality checks: pylint, pytest, mypy (also ruff) — fix all issues
-- [ ] Commit message prepared
+- [x] Implementation: change `basic_preflight`'s `ParseError` verdict to the dialect-first f-string, update the four parse-error assertions in the test suite
+- [x] Quality checks: pylint, pytest, mypy (also ruff) — fix all issues
+- [x] Commit message prepared
 
 ### Step 3: Bump the sqlglot floor to `>=30`
 
