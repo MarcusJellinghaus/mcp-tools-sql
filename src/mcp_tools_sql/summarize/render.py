@@ -492,7 +492,9 @@ def render_summary(
 
     Args:
         profiles: The profiled columns, in output order.
-        total_columns: The table's full profilable column count (triage cap
+        total_columns: The number of columns the call selected before the cap
+            -- the table's full profilable column count for an unfiltered call,
+            or the requested count when ``columns=`` narrowed it (triage cap
             footer).
         distinct_gated: Whether the distinct count was gated out (triage).
 
