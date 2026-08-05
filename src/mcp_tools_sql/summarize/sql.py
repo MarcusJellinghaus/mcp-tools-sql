@@ -252,28 +252,48 @@ def build_count_sql(
 
 
 def _alias(expr: exp.Expression, idx: int, stat: str) -> exp.Alias:
-    """Alias an aggregate expression as ``c{idx}__{stat}`` for the result row."""
+    """Alias an aggregate expression as ``c{idx}__{stat}`` for the result row.
+
+    Returns:
+        The aliased aggregate expression.
+    """
     return exp.Alias(this=expr, alias=exp.to_identifier(f"c{idx}__{stat}"))
 
 
 def _cast_float(expr: exp.Expression) -> exp.Cast:
-    """Wrap ``expr`` in ``CAST(... AS FLOAT)`` to avoid integer truncation."""
+    """Wrap ``expr`` in ``CAST(... AS FLOAT)`` to avoid integer truncation.
+
+    Returns:
+        The FLOAT-cast expression.
+    """
     return exp.Cast(this=expr, to=exp.DataType.build("FLOAT"))
 
 
 def _count_case(condition: exp.Expression) -> exp.Count:
-    """Build ``COUNT(CASE WHEN <condition> THEN 1 END)`` -- a conditional tally."""
+    """Build ``COUNT(CASE WHEN <condition> THEN 1 END)`` -- a conditional tally.
+
+    Returns:
+        The conditional-tally count expression.
+    """
     case = exp.Case(ifs=[exp.If(this=condition, true=exp.Literal.number(1))])
     return exp.Count(this=case)
 
 
 def _non_null(idx: int, ref: exp.Column) -> exp.Alias:
-    """``COUNT(c)`` -- non-null tally, emitted for every category."""
+    """``COUNT(c)`` -- non-null tally, emitted for every category.
+
+    Returns:
+        The aliased non-null count aggregate.
+    """
     return _alias(exp.Count(this=ref.copy()), idx, "nonnull")
 
 
 def _distinct(idx: int, ref: exp.Column) -> exp.Alias:
-    """``COUNT(DISTINCT c)`` -- distinct tally (never emitted for ``other``)."""
+    """``COUNT(DISTINCT c)`` -- distinct tally (never emitted for ``other``).
+
+    Returns:
+        The aliased distinct count aggregate.
+    """
     return _alias(
         exp.Count(this=exp.Distinct(expressions=[ref.copy()])), idx, "distinct"
     )
@@ -284,6 +304,9 @@ def _is_integer_type(declared_type: str) -> bool:
 
     Only these overflow T-SQL's 32-bit ``SUM`` accumulator, so only these get
     the ``CAST(... AS BIGINT)`` guard; decimal/money/float are left uncast.
+
+    Returns:
+        ``True`` if the declared type is integer-like.
     """
     return "int" in declared_type.lower()
 
@@ -295,7 +318,11 @@ def _numeric_exprs(
     dialect: str,
     include_distinct: bool,
 ) -> list[exp.Alias]:
-    """Aggregates for a numeric column: min/max/mean/sum plus zero/neg tallies."""
+    """Aggregates for a numeric column: min/max/mean/sum plus zero/neg tallies.
+
+    Returns:
+        The built aliased aggregates for the numeric column.
+    """
     out = [_non_null(idx, col_ref)]
     if include_distinct:
         out.append(_distinct(idx, col_ref))
@@ -323,7 +350,11 @@ def _temporal_exprs(
     dialect: str,
     include_distinct: bool,
 ) -> list[exp.Alias]:
-    """Aggregates for a temporal column: non_null, distinct, min, max."""
+    """Aggregates for a temporal column: non_null, distinct, min, max.
+
+    Returns:
+        The built aliased aggregates for the temporal column.
+    """
     out = [_non_null(idx, col_ref)]
     if include_distinct:
         out.append(_distinct(idx, col_ref))
@@ -344,6 +375,9 @@ def _string_exprs(
     Value ``MIN``/``MAX`` feed the triage line (strings carry value min/max like
     numeric/temporal); lengths use :class:`exp.Length` (``LENGTH`` on SQLite,
     ``LEN`` on T-SQL) with the average FLOAT-cast to dodge integer truncation.
+
+    Returns:
+        The built aliased aggregates for the string column.
     """
     out = [_non_null(idx, col_ref)]
     if include_distinct:
@@ -376,6 +410,9 @@ def _boolean_exprs(
     """Aggregates for a boolean column: true/false tallies (no value min/max).
 
     T-SQL rejects ``MIN``/``MAX`` on ``bit``, so this category never emits them.
+
+    Returns:
+        The built aliased aggregates for the boolean column.
     """
     out = [_non_null(idx, col_ref)]
     if include_distinct:
@@ -401,6 +438,9 @@ def _other_exprs(
     ``include_distinct`` are accepted only to share the dispatch signature). On
     T-SQL the byte size comes from ``DATALENGTH`` with the average FLOAT-cast;
     SQLite gets rows/nulls only.
+
+    Returns:
+        The built aliased aggregates for the ``other`` / LOB column.
     """
     out = [_non_null(idx, col_ref)]
     if dialect == "tsql":

@@ -96,7 +96,11 @@ class ColumnProfile:
 
 
 def _fmt_int(n: int) -> str:
-    """Render an integer count with thousands separators (e.g. ``50,000``)."""
+    """Render an integer count with thousands separators (e.g. ``50,000``).
+
+    Returns:
+        The formatted integer string.
+    """
     return f"{n:,}"
 
 
@@ -169,7 +173,11 @@ def _fmt_stat(value: Any) -> str:
 
 
 def _numeric_lines(p: ColumnProfile, rows: int, nulls: int) -> list[str]:
-    """Stat lines for a numeric column: counts, then bounds, then zero/neg."""
+    """Stat lines for a numeric column: counts, then bounds, then zero/neg.
+
+    Returns:
+        The produced stat lines for the numeric column.
+    """
     s = p.stats
     zero = s.get("zero", 0)
     neg = s.get("neg", 0)
@@ -184,7 +192,11 @@ def _numeric_lines(p: ColumnProfile, rows: int, nulls: int) -> list[str]:
 
 
 def _temporal_lines(p: ColumnProfile, rows: int, nulls: int) -> list[str]:
-    """Stat lines for a temporal column: counts, then min/max date bounds."""
+    """Stat lines for a temporal column: counts, then min/max date bounds.
+
+    Returns:
+        The produced stat lines for the temporal column.
+    """
     s = p.stats
     return [
         f"  rows {_fmt_int(rows)} | nulls {_fmt_int(nulls)} {_fmt_pct(nulls, rows)}"
@@ -194,7 +206,11 @@ def _temporal_lines(p: ColumnProfile, rows: int, nulls: int) -> list[str]:
 
 
 def _string_lines(p: ColumnProfile, rows: int, nulls: int) -> list[str]:
-    """Stat lines for a string column: counts (+empty), then char lengths."""
+    """Stat lines for a string column: counts (+empty), then char lengths.
+
+    Returns:
+        The produced stat lines for the string column.
+    """
     s = p.stats
     empty = s.get("empty", 0)
     return [
@@ -211,6 +227,9 @@ def _boolean_lines(p: ColumnProfile, rows: int, nulls: int) -> list[str]:
 
     ``true %`` is of ``rows``; ``false`` and ``null`` carry no second
     percentage -- with a boolean partition it would be redundant.
+
+    Returns:
+        The produced stat lines for the boolean column.
     """
     s = p.stats
     true = s.get("true", 0)
@@ -228,6 +247,9 @@ def _other_lines(p: ColumnProfile, rows: int, nulls: int) -> list[str]:
     The ``size (bytes)`` line is emitted only when the ``DATALENGTH``
     aggregates are present (T-SQL); on SQLite those stats are absent and the
     line is omitted. There is never a distinct line for this category.
+
+    Returns:
+        The produced stat lines for the ``other`` / binary column.
     """
     s = p.stats
     lines = [
@@ -446,7 +468,11 @@ def render_summary(
 
 
 def empty_table_message(schema: str, table: str) -> str:
-    """Message for a table that exists but holds zero rows."""
+    """Message for a table that exists but holds zero rows.
+
+    Returns:
+        The empty-table message string.
+    """
     return (
         f"Table {schema}.{table} is empty (0 rows). "
         "Use read_columns for its column definitions."
@@ -454,7 +480,11 @@ def empty_table_message(schema: str, table: str) -> str:
 
 
 def table_not_found_message(schema: str, table: str) -> str:
-    """Message for a table whose metadata query returned no columns."""
+    """Message for a table whose metadata query returned no columns.
+
+    Returns:
+        The table-not-found message string.
+    """
     return (
         f"Table {schema}.{table} not found (no such table or no columns). "
         "Check the schema and table name."
@@ -462,7 +492,11 @@ def table_not_found_message(schema: str, table: str) -> str:
 
 
 def empty_filter_message(total_rows: int) -> str:
-    """Message when the ``where`` predicate matches no rows."""
+    """Message when the ``where`` predicate matches no rows.
+
+    Returns:
+        The empty-filter message string.
+    """
     return f"No rows match the where predicate (table has {_fmt_int(total_rows)} rows)."
 
 
@@ -471,12 +505,19 @@ def unknown_columns_message(bad: list[str], available: list[str]) -> str:
 
     Both lists echo the declared casing carried through from the metadata
     query.
+
+    Returns:
+        The unknown-columns message string.
     """
     return f"Unknown column(s): {', '.join(bad)}. Available: {', '.join(available)}"
 
 
 def empty_columns_message(available: list[str]) -> str:
-    """Message for an explicitly empty ``columns=[]`` request."""
+    """Message for an explicitly empty ``columns=[]`` request.
+
+    Returns:
+        The empty-columns message string.
+    """
     return (
         "No columns selected: columns= was an empty list. "
         f"Available: {', '.join(available)}"
@@ -484,7 +525,11 @@ def empty_columns_message(available: list[str]) -> str:
 
 
 def column_cap_footer(shown: int, total: int) -> str:
-    """Footer stating how many of the table's columns the cap left unshown."""
+    """Footer stating how many of the table's columns the cap left unshown.
+
+    Returns:
+        The column-cap footer string.
+    """
     return (
         f"Showing {_fmt_int(shown)} of {_fmt_int(total)} columns. "
         "Use columns= to select others."
