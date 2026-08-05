@@ -24,6 +24,7 @@ from mcp_tools_sql.schema_tools import (
     build_read_databases_tool,
     load_default_queries,
 )
+from mcp_tools_sql.summarize import SummarizeTools
 from mcp_tools_sql.update_tools import UpdateTools
 from mcp_tools_sql.validation_tools import ValidationTools
 
@@ -67,6 +68,7 @@ class ToolServer:
         SchemaTools(self._registry, self._targets).register(self._mcp)
         ValidationTools(self._registry, self._targets).register(self._mcp)
         CountTools(self._registry, self._targets).register(self._mcp)
+        SummarizeTools(self._registry, self._targets).register(self._mcp)
         if self._targets.is_multi:
             self._mcp.add_tool(
                 build_read_databases_tool(self._targets),

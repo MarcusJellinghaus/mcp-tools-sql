@@ -27,6 +27,6 @@ This tracks **Feature Implementation** consisting of multiple **Tasks**.
 - [x] [Step 4 — Value-list SQL (top + sample)](./steps/step_4.md)
 - [x] [Step 5 — Deep-view renderer + ColumnProfile](./steps/step_5.md)
 - [x] [Step 6 — Triage renderer + messages + dispatch](./steps/step_6.md)
-- [ ] [Step 7 — SummarizeTools orchestration + registration + wiring](./steps/step_7.md)
+- [x] [Step 7 — SummarizeTools orchestration + registration + wiring](./steps/step_7.md)
 
 ## Pull Request
