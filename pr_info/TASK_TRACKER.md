@@ -41,9 +41,9 @@ See [step_2.md](./steps/step_2.md).
 
 See [step_3.md](./steps/step_3.md).
 
-- [ ] Implementation: change `"sqlglot>=25"` to `"sqlglot>=30"` in `pyproject.toml` (no upper bound), confirm existing suite stays green
-- [ ] Quality checks: pylint, pytest, mypy — fix all issues
-- [ ] Commit message prepared
+- [x] Implementation: change `"sqlglot>=25"` to `"sqlglot>=30"` in `pyproject.toml` (no upper bound), confirm existing suite stays green
+- [x] Quality checks: pylint, pytest, mypy — fix all issues
+- [x] Commit message prepared
 
 ## Pull Request
 
