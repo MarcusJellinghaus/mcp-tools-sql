@@ -2,6 +2,8 @@
 
 from __future__ import annotations
 
+import pytest
+
 from mcp_tools_sql.config.models import (
     ConnectionConfig,
     DatabaseConfig,
@@ -57,10 +59,28 @@ def test_create_backend_sqlite(tmp_path: object) -> None:
 
 def test_create_backend_unknown() -> None:
     """create_backend raises ValueError for unknown backends."""
-    import pytest
-
     from mcp_tools_sql.backends.base import create_backend
 
     cfg = ConnectionConfig(backend="unknown")
     with pytest.raises(ValueError, match="Unsupported backend"):
         create_backend(cfg)
+
+
+def test_to_dialect_mappings() -> None:
+    """to_dialect maps each supported backend name to its sqlglot dialect."""
+    from mcp_tools_sql.backends.base import to_dialect
+
+    assert to_dialect("sqlite") == "sqlite"
+    assert to_dialect("mssql") == "tsql"
+    assert to_dialect("pyodbc") == "tsql"
+
+
+def test_to_dialect_unknown_raises() -> None:
+    """to_dialect raises ValueError with the enumerated supported set."""
+    from mcp_tools_sql.backends.base import to_dialect
+
+    with pytest.raises(
+        ValueError,
+        match="Unsupported backend: postgresql. Supported: mssql, pyodbc, sqlite.",
+    ):
+        to_dialect("postgresql")

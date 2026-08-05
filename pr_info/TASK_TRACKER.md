@@ -25,9 +25,9 @@ This tracks **Feature Implementation** consisting of multiple **Tasks**.
 
 See [step_1.md](./steps/step_1.md).
 
-- [ ] Implementation: add `_DIALECTS` + strict `to_dialect` to `backends/base.py`, update `create_backend`'s enumerated message, remove `to_dialect` from `utils/sql_placeholders.py` (`__all__` + docstring), move the three call-site imports, add `to_dialect` unit tests in `tests/test_smoke.py`, update `test_connection.py` fixture literal
-- [ ] Quality checks: pylint, pytest, mypy (also lint-imports, ruff) — fix all issues
-- [ ] Commit message prepared
+- [x] Implementation: add `_DIALECTS` + strict `to_dialect` to `backends/base.py`, update `create_backend`'s enumerated message, remove `to_dialect` from `utils/sql_placeholders.py` (`__all__` + docstring), move the three call-site imports, add `to_dialect` unit tests in `tests/test_smoke.py`, update `test_connection.py` fixture literal
+- [x] Quality checks: pylint, pytest, mypy (also lint-imports, ruff) — fix all issues
+- [x] Commit message prepared
 
 ### Step 2: Dialect-first parse-error verdict in `basic_preflight`
 

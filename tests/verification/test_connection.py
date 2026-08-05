@@ -90,7 +90,7 @@ def test_verify_connection_none_backend_uses_probe_error() -> None:
     result = verify_connection(
         _target(conn, database="db"),
         None,
-        probe_error="Unsupported backend: postgresql",
+        probe_error="Unsupported backend: postgresql. Supported: mssql, pyodbc, sqlite.",
     )
     assert result["select_1"]["ok"] is False
     assert "Unsupported backend" in result["select_1"]["error"]

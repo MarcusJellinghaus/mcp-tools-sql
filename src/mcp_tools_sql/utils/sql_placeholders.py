@@ -12,7 +12,7 @@ Exposes :func:`extract_param_names`, :func:`translate_named_to_qmark`, and
 return result rows under ``SET SHOWPLAN_TEXT ON``.
 
 It also hosts the shared, dialect-aware analysis helpers reused across the
-SQL-consuming tools: :func:`to_dialect`, :func:`count_statements`,
+SQL-consuming tools: :func:`count_statements`,
 :func:`first_statement_kind`, and the shared :func:`basic_preflight`.
 sqlglot's :class:`~sqlglot.errors.ParseError` is re-exported so callers can
 implement the fail-closed parse contract without importing sqlglot directly.
@@ -43,7 +43,6 @@ __all__ = [
     "first_statement_kind",
     "read_only_violation",
     "substitute_named_with_literals",
-    "to_dialect",
     "translate_named_to_qmark",
 ]
 
@@ -242,21 +241,6 @@ def substitute_named_with_literals(
             ph.replace(literal)
         rendered.append(stmt.sql(dialect=dialect))
     return "; ".join(rendered)
-
-
-def to_dialect(backend_name: str) -> str:
-    """Map a backend name to the sqlglot dialect used for parsing/rendering.
-
-    Args:
-        backend_name: The configured backend identifier (e.g. ``"sqlite"``,
-            ``"mssql"``, ``"pyodbc"``).
-
-    Returns:
-        ``"tsql"`` for MSSQL/pyodbc backends, ``"sqlite"`` otherwise.
-    """
-    if backend_name in {"mssql", "pyodbc"}:
-        return "tsql"
-    return "sqlite"
 
 
 def count_statements(sql: str, dialect: str) -> int:
