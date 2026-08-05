@@ -292,8 +292,8 @@ def _other_lines(p: ColumnProfile, rows: int, nulls: int) -> list[str]:
     ]
     if "size_min" in s:
         lines.append(
-            f"  size (bytes)  min {_fmt_int(s['size_min'])}"
-            f" | max {_fmt_int(s['size_max'])} | avg {_fmt_avg(s['size_avg'])}"
+            f"  size (bytes)  min {_fmt_stat(s['size_min'])}"
+            f" | max {_fmt_stat(s['size_max'])} | avg {_fmt_avg(s['size_avg'])}"
         )
     return lines
 
@@ -426,9 +426,11 @@ def render_triage(
     view is gated (``distinct_gated``), or an individual profile carries
     ``distinct is None`` (``other`` / LOB columns, which cannot be counted
     distinctly). ``min`` / ``max`` blank the same way when the scalar pass did
-    not compute them (boolean and other columns). The literal string ``None``
-    never reaches the table -- every optional cell passes through a blanking
-    helper.
+    not compute them (boolean and other columns), and are truncated to
+    :data:`_VALUE_DISPLAY_CAP` characters -- string value bounds surface only
+    here, and one long value would pad every row of the table. The literal
+    string ``None`` never reaches the table -- every optional cell passes
+    through a blanking helper.
 
     Footers: a column-cap notice when ``total_columns`` exceeds the number of
     profiles shown, a hint that a narrowed ``columns=`` call yields the deep
@@ -454,8 +456,8 @@ def render_triage(
                 "type": p.meta.declared_type,
                 "null_pct": _pct_cell(nulls, p.rows),
                 "distinct": _BLANK if distinct_gated else _fmt_stat(p.distinct),
-                "min": _fmt_stat(p.stats.get("min")),
-                "max": _fmt_stat(p.stats.get("max")),
+                "min": _truncate(_fmt_stat(p.stats.get("min"))),
+                "max": _truncate(_fmt_stat(p.stats.get("max"))),
             }
         )
     table = format_rows(rows, max_rows=COLUMN_CAP)

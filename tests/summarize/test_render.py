@@ -335,6 +335,30 @@ def test_other_block_size_line_present_and_absent() -> None:
     assert "distinct" not in out  # other never renders a distinct line
 
 
+def test_other_block_all_null_size_stats_render_blank() -> None:
+    """All-null ``other`` column: DATALENGTH aggregates are NULL, not missing.
+
+    On T-SQL ``MIN(DATALENGTH(c))`` / ``MAX(DATALENGTH(c))`` return SQL NULL
+    when every selected row is null, yet the aliases are still present in the
+    stats dict -- so the ``"size_min" in s`` guard does not fire and the cells
+    must render the blank em dash rather than raising on ``f"{None:,}"``.
+    """
+    profile = ColumnProfile(
+        meta=_meta("photo", "image", "other"),
+        rows=10,
+        non_null=0,
+        distinct=None,
+        stats={"size_min": None, "size_max": None, "size_avg": None},
+        values=None,
+        value_kind="none",
+    )
+
+    out = render_deep([profile])
+
+    assert "  size (bytes)  min — | max — | avg —" in out
+    assert "None" not in out
+
+
 def test_render_deep_separates_blocks_with_blank_line() -> None:
     """Multiple profiles render as blank-line-separated blocks."""
     a = ColumnProfile(
@@ -508,6 +532,40 @@ def test_triage_shows_value_min_max_per_category() -> None:
     assert "1,000,000" in out  # numeric value max, separator applied
     assert "2020-01-01" in out and "2024-12-31" in out  # temporal bounds verbatim
     assert "aaa" in out and "zzz" in out  # string value bounds
+
+
+def test_triage_truncates_long_value_min_max() -> None:
+    """A long string min/max is capped at 60 chars + ellipsis in triage.
+
+    String value bounds surface only in triage, and ``format_rows`` pads every
+    row to the widest cell -- one untruncated value would inflate the whole
+    table.
+    """
+    long_min = "a" * 100
+    long_max = "z" * 100
+    profile = ColumnProfile(
+        meta=_meta("notes", "varchar", "string"),
+        rows=100,
+        non_null=100,
+        distinct=50,
+        stats={
+            "min": long_min,
+            "max": long_max,
+            "empty": 0,
+            "len_min": 100,
+            "len_max": 100,
+            "len_avg": 100.0,
+        },
+        values=None,
+        value_kind="none",
+    )
+
+    out = render_triage([profile], total_columns=1, distinct_gated=False)
+
+    assert "a" * 60 + "…" in out
+    assert "z" * 60 + "…" in out
+    assert "a" * 61 not in out  # the full 100-char value never renders
+    assert "z" * 61 not in out
 
 
 def test_triage_boolean_and_other_blank_absent_min_max() -> None:
