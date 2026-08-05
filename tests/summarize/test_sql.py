@@ -6,7 +6,7 @@ from typing import get_args
 
 import pytest
 
-from mcp_tools_sql.summarize.sql import Category, categorize_type
+from mcp_tools_sql.summarize.sql import Category, ColumnMeta, categorize_type
 
 # (declared_type, dialect, expected_category)
 _CASES = [
@@ -209,3 +209,173 @@ def test_validate_where_missing_param_verdict() -> None:
     assert predicate is None
     assert error is not None
     assert "missing parameter" in error.lower()
+
+
+# --- build_scalar_sql ------------------------------------------------------
+
+
+def _meta(
+    name: str, declared_type: str, category: Category, ordinal: int = 0
+) -> ColumnMeta:
+    """Build a ColumnMeta without threading categorize_type through each test."""
+    return ColumnMeta(
+        name=name, declared_type=declared_type, category=category, ordinal=ordinal
+    )
+
+
+def test_scalar_numeric_tsql_casts_mean_and_sum() -> None:
+    """Numeric on T-SQL casts mean to FLOAT and integer sum to BIGINT."""
+    from mcp_tools_sql.summarize.sql import build_scalar_sql, build_table_ref
+
+    ref = build_table_ref("dbo", "t", "tsql")
+    sql = build_scalar_sql(
+        [_meta("amount", "int", "numeric")], ref, None, "tsql", include_distinct=True
+    )
+    assert "AVG(CAST([amount] AS FLOAT))" in sql
+    assert "SUM(CAST([amount] AS BIGINT))" in sql
+    assert "AS c0__mean" in sql
+    assert "AS c0__sum" in sql
+
+
+def test_scalar_numeric_non_integer_tsql_sum_uncast() -> None:
+    """A decimal/money numeric leaves SUM uncast (no lossy FLOAT/BIGINT cast)."""
+    from mcp_tools_sql.summarize.sql import build_scalar_sql, build_table_ref
+
+    ref = build_table_ref("dbo", "t", "tsql")
+    sql = build_scalar_sql(
+        [_meta("price", "money", "numeric")], ref, None, "tsql", include_distinct=True
+    )
+    assert "SUM([price])" in sql
+    assert "SUM(CAST(" not in sql
+
+
+def test_scalar_numeric_sqlite_sum_uncast() -> None:
+    """On SQLite the numeric sum is plain SUM(c) with no BIGINT cast."""
+    from mcp_tools_sql.summarize.sql import build_scalar_sql, build_table_ref
+
+    ref = build_table_ref("x", "t", "sqlite")
+    sql = build_scalar_sql(
+        [_meta("amount", "INTEGER", "numeric")],
+        ref,
+        None,
+        "sqlite",
+        include_distinct=True,
+    )
+    assert 'SUM("amount")' in sql
+    assert "BIGINT" not in sql
+    assert 'COUNT(CASE WHEN "amount" = 0 THEN 1 END) AS c0__zero' in sql
+    assert 'COUNT(CASE WHEN "amount" < 0 THEN 1 END) AS c0__neg' in sql
+
+
+def test_scalar_string_lengths_and_empty_per_dialect() -> None:
+    """String uses LEN on T-SQL, LENGTH on SQLite, and an LTRIM/RTRIM empty test."""
+    from mcp_tools_sql.summarize.sql import build_scalar_sql, build_table_ref
+
+    tsql = build_scalar_sql(
+        [_meta("name", "nvarchar", "string")],
+        build_table_ref("dbo", "t", "tsql"),
+        None,
+        "tsql",
+        include_distinct=True,
+    )
+    assert "LEN(" in tsql
+    assert "LENGTH(" not in tsql
+    sqlite = build_scalar_sql(
+        [_meta("name", "TEXT", "string")],
+        build_table_ref("x", "t", "sqlite"),
+        None,
+        "sqlite",
+        include_distinct=True,
+    )
+    assert "LENGTH(" in sqlite
+    assert "LTRIM(RTRIM(" in sqlite
+    # value MIN/MAX feed the triage line, aliased c{idx}__min / c{idx}__max.
+    assert "AS c0__min" in sqlite
+    assert "AS c0__max" in sqlite
+    assert 'MIN("name")' in sqlite
+    assert 'MAX("name")' in sqlite
+
+
+def test_scalar_boolean_has_no_value_min_max() -> None:
+    """Boolean emits true/false tallies but never MIN/MAX (T-SQL forbids it)."""
+    from mcp_tools_sql.summarize.sql import build_scalar_sql, build_table_ref
+
+    sql = build_scalar_sql(
+        [_meta("flag", "bit", "boolean")],
+        build_table_ref("dbo", "t", "tsql"),
+        None,
+        "tsql",
+        include_distinct=True,
+    )
+    assert "MIN(" not in sql
+    assert "MAX(" not in sql
+    assert "COUNT(CASE WHEN [flag] = 1 THEN 1 END) AS c0__true" in sql
+    assert "COUNT(CASE WHEN [flag] = 0 THEN 1 END) AS c0__false" in sql
+
+
+def test_scalar_other_lob_tsql_uses_datalength_no_distinct() -> None:
+    """Other/LOB on T-SQL profiles byte size via DATALENGTH, no distinct/min/max."""
+    from mcp_tools_sql.summarize.sql import build_scalar_sql, build_table_ref
+
+    sql = build_scalar_sql(
+        [_meta("data", "varbinary", "other")],
+        build_table_ref("dbo", "t", "tsql"),
+        None,
+        "tsql",
+        include_distinct=True,
+    )
+    assert "DATALENGTH(" in sql
+    assert "AVG(CAST(DATALENGTH([data]) AS FLOAT))" in sql
+    assert "COUNT(DISTINCT" not in sql
+    assert 'MIN("data")' not in sql
+    assert "MIN([data])" not in sql
+
+
+def test_scalar_other_sqlite_rows_and_nulls_only() -> None:
+    """Other on SQLite yields only the non-null tally (no DATALENGTH, no distinct)."""
+    from mcp_tools_sql.summarize.sql import build_scalar_sql, build_table_ref
+
+    sql = build_scalar_sql(
+        [_meta("data", "BLOB", "other")],
+        build_table_ref("x", "t", "sqlite"),
+        None,
+        "sqlite",
+        include_distinct=True,
+    )
+    assert 'COUNT("data") AS c0__nonnull' in sql
+    assert "DATALENGTH(" not in sql
+    assert "COUNT(DISTINCT" not in sql
+
+
+def test_scalar_include_distinct_gate() -> None:
+    """include_distinct toggles COUNT(DISTINCT for non-other columns."""
+    from mcp_tools_sql.summarize.sql import build_scalar_sql, build_table_ref
+
+    ref = build_table_ref("x", "t", "sqlite")
+    cols = [_meta("amount", "INTEGER", "numeric")]
+    with_distinct = build_scalar_sql(cols, ref, None, "sqlite", include_distinct=True)
+    without = build_scalar_sql(cols, ref, None, "sqlite", include_distinct=False)
+    assert 'COUNT(DISTINCT "amount") AS c0__distinct' in with_distinct
+    assert "COUNT(DISTINCT" not in without
+
+
+def test_scalar_multi_column_alias_indices_and_predicate() -> None:
+    """Multiple columns get c0__/c1__ prefixes and the predicate reaches WHERE."""
+    from mcp_tools_sql.summarize.sql import (
+        build_scalar_sql,
+        build_table_ref,
+        validate_where,
+    )
+
+    predicate, error = validate_where("status = :s", "x", "t", {"s": "open"}, "sqlite")
+    assert error is None
+    ref = build_table_ref("x", "t", "sqlite")
+    cols = [
+        _meta("amount", "INTEGER", "numeric", 0),
+        _meta("created", "DATE", "temporal", 1),
+    ]
+    sql = build_scalar_sql(cols, ref, predicate, "sqlite", include_distinct=True)
+    assert "AS c0__nonnull" in sql
+    assert "AS c1__nonnull" in sql
+    assert "AS c1__min" in sql
+    assert "WHERE status = :s" in sql

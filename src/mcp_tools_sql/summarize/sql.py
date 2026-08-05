@@ -3,9 +3,10 @@
 This module hosts the summarize package's data layer. It provides the pure,
 dialect-aware type categoriser that every later summarize step dispatches on,
 the front of the execution pipeline (the fail-closed ``where`` gate, the dialect
-table reference, the static metadata query, and the filtered ``COUNT(*)``); the
-scalar-aggregate / value-list SQL builders and the shared ``ColumnMeta``
-dataclass land in subsequent steps.
+table reference, the static metadata query, and the filtered ``COUNT(*)``), the
+shared ``ColumnMeta`` dataclass, and the single-scan scalar-aggregate pass
+(``build_scalar_sql`` and its per-category expression builders); the value-list
+SQL builders land in a subsequent step.
 
 The categoriser is prefix/affinity-based, not an exact-match lookup: SQLite's
 declared type is an arbitrary affinity string (``VARCHAR(20)``, ``NUM``, or even
@@ -20,6 +21,8 @@ metadata query is the sole exception: it injects only bound ``:schema``/
 
 from __future__ import annotations
 
+from collections.abc import Callable
+from dataclasses import dataclass
 from typing import Any, Literal
 
 import sqlglot
@@ -31,6 +34,30 @@ from mcp_tools_sql.utils.sql_placeholders import (
 )
 
 Category = Literal["numeric", "temporal", "string", "boolean", "other"]
+
+
+@dataclass(frozen=True)
+class ColumnMeta:
+    """Per-column metadata carried through the whole summarize pipeline.
+
+    Built once from the metadata query (declared casing / type / ordinal) and
+    the :func:`categorize_type` verdict, then consumed by the scalar-aggregate
+    pass (this step), the value-list pass, and both renderers.
+
+    Attributes:
+        name: Column name in its declared casing (echoed verbatim in output).
+        declared_type: Raw declared/reported type string from the metadata
+            query (e.g. ``int``, ``VARCHAR(20)``, ``nvarchar(max)``).
+        category: The coarse profiling category dispatched on.
+        ordinal: Zero-based-or-one-based ordinal position from the metadata
+            query; used for the 50-column cap and triage ordering.
+    """
+
+    name: str
+    declared_type: str
+    category: Category
+    ordinal: int
+
 
 # Exact declared types, matched before the generic token scans below.
 _BOOLEAN_TYPES = frozenset({"bit", "bool", "boolean"})
@@ -209,6 +236,254 @@ def build_count_sql(
     query = exp.select(exp.alias_(exp.Count(this=exp.Star()), "row_count")).from_(
         table_ref
     )
+    if predicate is not None:
+        query = query.where(predicate)
+    return query.sql(dialect=dialect)
+
+
+# --- Scalar-aggregate pass -------------------------------------------------
+#
+# One SELECT computes every statistic for every profiled column in a single
+# table scan. Each aggregate is aliased ``c{idx}__{stat}`` so the single result
+# row maps back per column in the assembler. Category dispatch keeps the SQL
+# legal per type: T-SQL rejects MIN/MAX on ``bit`` and any aggregate/DISTINCT on
+# LOB types, and silently truncates integer AVG/SUM -- both guarded here.
+
+
+def _alias(expr: exp.Expression, idx: int, stat: str) -> exp.Alias:
+    """Alias an aggregate expression as ``c{idx}__{stat}`` for the result row."""
+    return exp.Alias(this=expr, alias=exp.to_identifier(f"c{idx}__{stat}"))
+
+
+def _cast_float(expr: exp.Expression) -> exp.Cast:
+    """Wrap ``expr`` in ``CAST(... AS FLOAT)`` to avoid integer truncation."""
+    return exp.Cast(this=expr, to=exp.DataType.build("FLOAT"))
+
+
+def _count_case(condition: exp.Expression) -> exp.Count:
+    """Build ``COUNT(CASE WHEN <condition> THEN 1 END)`` -- a conditional tally."""
+    case = exp.Case(ifs=[exp.If(this=condition, true=exp.Literal.number(1))])
+    return exp.Count(this=case)
+
+
+def _non_null(idx: int, ref: exp.Column) -> exp.Alias:
+    """``COUNT(c)`` -- non-null tally, emitted for every category."""
+    return _alias(exp.Count(this=ref.copy()), idx, "nonnull")
+
+
+def _distinct(idx: int, ref: exp.Column) -> exp.Alias:
+    """``COUNT(DISTINCT c)`` -- distinct tally (never emitted for ``other``)."""
+    return _alias(
+        exp.Count(this=exp.Distinct(expressions=[ref.copy()])), idx, "distinct"
+    )
+
+
+def _is_integer_type(declared_type: str) -> bool:
+    """True for integer-like declared types (``int``/``bigint``/``smallint``…).
+
+    Only these overflow T-SQL's 32-bit ``SUM`` accumulator, so only these get
+    the ``CAST(... AS BIGINT)`` guard; decimal/money/float are left uncast.
+    """
+    return "int" in declared_type.lower()
+
+
+def _numeric_exprs(
+    idx: int,
+    col_ref: exp.Column,
+    decl_type: str,
+    dialect: str,
+    include_distinct: bool,
+) -> list[exp.Alias]:
+    """Aggregates for a numeric column: min/max/mean/sum plus zero/neg tallies."""
+    out = [_non_null(idx, col_ref)]
+    if include_distinct:
+        out.append(_distinct(idx, col_ref))
+    out.append(_alias(exp.Min(this=col_ref.copy()), idx, "min"))
+    out.append(_alias(exp.Max(this=col_ref.copy()), idx, "max"))
+    out.append(_alias(exp.Avg(this=_cast_float(col_ref.copy())), idx, "mean"))
+    if dialect == "tsql" and _is_integer_type(decl_type):
+        sum_arg: exp.Expression = exp.Cast(
+            this=col_ref.copy(), to=exp.DataType.build("BIGINT")
+        )
+    else:
+        sum_arg = col_ref.copy()
+    out.append(_alias(exp.Sum(this=sum_arg), idx, "sum"))
+    zero = exp.EQ(this=col_ref.copy(), expression=exp.Literal.number(0))
+    neg = exp.LT(this=col_ref.copy(), expression=exp.Literal.number(0))
+    out.append(_alias(_count_case(zero), idx, "zero"))
+    out.append(_alias(_count_case(neg), idx, "neg"))
+    return out
+
+
+def _temporal_exprs(
+    idx: int,
+    col_ref: exp.Column,
+    decl_type: str,
+    dialect: str,
+    include_distinct: bool,
+) -> list[exp.Alias]:
+    """Aggregates for a temporal column: non_null, distinct, min, max."""
+    out = [_non_null(idx, col_ref)]
+    if include_distinct:
+        out.append(_distinct(idx, col_ref))
+    out.append(_alias(exp.Min(this=col_ref.copy()), idx, "min"))
+    out.append(_alias(exp.Max(this=col_ref.copy()), idx, "max"))
+    return out
+
+
+def _string_exprs(
+    idx: int,
+    col_ref: exp.Column,
+    decl_type: str,
+    dialect: str,
+    include_distinct: bool,
+) -> list[exp.Alias]:
+    """Aggregates for a string column: value min/max, empty tally, char lengths.
+
+    Value ``MIN``/``MAX`` feed the triage line (strings carry value min/max like
+    numeric/temporal); lengths use :class:`exp.Length` (``LENGTH`` on SQLite,
+    ``LEN`` on T-SQL) with the average FLOAT-cast to dodge integer truncation.
+    """
+    out = [_non_null(idx, col_ref)]
+    if include_distinct:
+        out.append(_distinct(idx, col_ref))
+    out.append(_alias(exp.Min(this=col_ref.copy()), idx, "min"))
+    out.append(_alias(exp.Max(this=col_ref.copy()), idx, "max"))
+    trimmed = exp.Anonymous(
+        this="LTRIM",
+        expressions=[exp.Anonymous(this="RTRIM", expressions=[col_ref.copy()])],
+    )
+    empty = exp.EQ(this=trimmed, expression=exp.Literal.string(""))
+    out.append(_alias(_count_case(empty), idx, "empty"))
+    out.append(_alias(exp.Min(this=exp.Length(this=col_ref.copy())), idx, "len_min"))
+    out.append(_alias(exp.Max(this=exp.Length(this=col_ref.copy())), idx, "len_max"))
+    out.append(
+        _alias(
+            exp.Avg(this=_cast_float(exp.Length(this=col_ref.copy()))), idx, "len_avg"
+        )
+    )
+    return out
+
+
+def _boolean_exprs(
+    idx: int,
+    col_ref: exp.Column,
+    decl_type: str,
+    dialect: str,
+    include_distinct: bool,
+) -> list[exp.Alias]:
+    """Aggregates for a boolean column: true/false tallies (no value min/max).
+
+    T-SQL rejects ``MIN``/``MAX`` on ``bit``, so this category never emits them.
+    """
+    out = [_non_null(idx, col_ref)]
+    if include_distinct:
+        out.append(_distinct(idx, col_ref))
+    true = exp.EQ(this=col_ref.copy(), expression=exp.Literal.number(1))
+    false = exp.EQ(this=col_ref.copy(), expression=exp.Literal.number(0))
+    out.append(_alias(_count_case(true), idx, "true"))
+    out.append(_alias(_count_case(false), idx, "false"))
+    return out
+
+
+def _other_exprs(
+    idx: int,
+    col_ref: exp.Column,
+    decl_type: str,
+    dialect: str,
+    include_distinct: bool,
+) -> list[exp.Alias]:
+    """Aggregates for an ``other``/LOB column: non_null plus T-SQL byte sizes.
+
+    LOB types cannot appear in ``DISTINCT``/``GROUP BY``/comparisons, so no
+    distinct and no value min/max are emitted (``decl_type`` and
+    ``include_distinct`` are accepted only to share the dispatch signature). On
+    T-SQL the byte size comes from ``DATALENGTH`` with the average FLOAT-cast;
+    SQLite gets rows/nulls only.
+    """
+    out = [_non_null(idx, col_ref)]
+    if dialect == "tsql":
+        out.append(
+            _alias(
+                exp.Min(
+                    this=exp.Anonymous(this="DATALENGTH", expressions=[col_ref.copy()])
+                ),
+                idx,
+                "size_min",
+            )
+        )
+        out.append(
+            _alias(
+                exp.Max(
+                    this=exp.Anonymous(this="DATALENGTH", expressions=[col_ref.copy()])
+                ),
+                idx,
+                "size_max",
+            )
+        )
+        out.append(
+            _alias(
+                exp.Avg(
+                    this=_cast_float(
+                        exp.Anonymous(this="DATALENGTH", expressions=[col_ref.copy()])
+                    )
+                ),
+                idx,
+                "size_avg",
+            )
+        )
+    return out
+
+
+_ScalarBuilder = Callable[[int, exp.Column, str, str, bool], list[exp.Alias]]
+
+_DISPATCH: dict[Category, _ScalarBuilder] = {
+    "numeric": _numeric_exprs,
+    "temporal": _temporal_exprs,
+    "string": _string_exprs,
+    "boolean": _boolean_exprs,
+    "other": _other_exprs,
+}
+
+
+def build_scalar_sql(
+    columns: list[ColumnMeta],
+    table_ref: exp.Table,
+    predicate: exp.Expression | None,
+    dialect: str,
+    *,
+    include_distinct: bool,
+) -> str:
+    """Build the single scalar-aggregate ``SELECT`` for all profiled columns.
+
+    Every statistic for every column is computed in one table scan. Each column
+    is dispatched to its per-category builder (keyed on
+    :attr:`ColumnMeta.category`), and the aliases are collected into one
+    ``SELECT ... FROM <table_ref>`` with ``.where(predicate)`` applied when a
+    validated predicate is supplied. The result is a single row whose columns
+    are named ``c{idx}__{stat}`` for the assembler to map back per column.
+
+    Args:
+        columns: The profiled columns, in the order their ``c{idx}`` indices
+            are assigned (index == list position).
+        table_ref: The target table reference from :func:`build_table_ref`.
+        predicate: A validated predicate from :func:`validate_where`, or
+            ``None`` for an unfiltered scan.
+        dialect: Backend dialect, ``"sqlite"`` or ``"tsql"``.
+        include_distinct: When ``True``, emit ``COUNT(DISTINCT c)`` for every
+            non-``other`` column; when ``False``, omit it everywhere.
+
+    Returns:
+        The rendered scalar-aggregate query, dialect-targeted, producing one
+        result row.
+    """
+    aliases: list[exp.Alias] = []
+    for idx, meta in enumerate(columns):
+        col_ref = exp.Column(this=exp.to_identifier(meta.name, quoted=True))
+        aliases += _DISPATCH[meta.category](
+            idx, col_ref, meta.declared_type, dialect, include_distinct
+        )
+    query = exp.select(*aliases).from_(table_ref)
     if predicate is not None:
         query = query.where(predicate)
     return query.sql(dialect=dialect)
