@@ -394,7 +394,9 @@ def _run(  # noqa: PLR0913
                 value_kind=value_kind,
             )
         )
-    return (
-        render_summary(profiles, total_columns, distinct_gated=not include_distinct)
-        + clamp_note
+    summary = render_summary(
+        profiles, total_columns, distinct_gated=not include_distinct
     )
+    if clamp_note:
+        return f"{summary}\n\n{clamp_note}"
+    return summary

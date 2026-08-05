@@ -32,6 +32,11 @@ from mcp_tools_sql.summarize.sql import ColumnMeta
 # ellipsis. Counts printed alongside are never truncated.
 _VALUE_DISPLAY_CAP: int = 60
 
+# Decimal places for float stat cells (mean / len_avg / size_avg). Matches the
+# contract's one-decimal examples (``avg 11.4``) rather than emitting full float
+# precision (``18.666666666666668``).
+_FLOAT_STAT_DECIMALS: int = 1
+
 # Blank cell rendered when a stat is absent (all-null min/max) or a distinct
 # count was gated out of triage (``ColumnProfile.distinct is None``).
 _BLANK = "—"  # em dash
@@ -149,11 +154,13 @@ def _truncate(value: Any) -> str:
 def _fmt_stat(value: Any) -> str:
     """Render a stat cell (min / max / mean / sum / length / size).
 
-    Integers get thousands separators, floats are rendered with their natural
-    decimals and thousands separators, and everything else (temporal bounds are
-    date/time strings) is rendered verbatim so no separator is forced onto a
-    value that is not a plain number. A ``None`` (absent aggregate) renders as
-    the blank cell.
+    Integers get thousands separators, floats are rounded to
+    :data:`_FLOAT_STAT_DECIMALS` decimal place(s) with thousands separators (so
+    ``mean`` / ``len_avg`` / ``size_avg`` render as ``11.4``, matching the
+    contract examples, not full float precision), and everything else (temporal
+    bounds are date/time strings) is rendered verbatim so no separator is forced
+    onto a value that is not a plain number. A ``None`` (absent aggregate)
+    renders as the blank cell.
 
     Args:
         value: The stat value from :attr:`ColumnProfile.stats` (or ``distinct``).
@@ -168,7 +175,7 @@ def _fmt_stat(value: Any) -> str:
     if isinstance(value, int):
         return _fmt_int(value)
     if isinstance(value, float):
-        return f"{value:,}"
+        return f"{value:,.{_FLOAT_STAT_DECIMALS}f}"
     return str(value)
 
 

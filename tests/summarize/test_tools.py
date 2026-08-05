@@ -292,8 +292,12 @@ async def test_n_clamp_note_high_and_low(profiling_db: Path) -> None:
         low = await _call_summarize(
             client, "main", "profile_me", columns=["category"], n=0
         )
-    assert "exceeds the maximum 50" in high
-    assert "below the minimum 1" in low
+    # The clamp note is separated from the rendered block by a blank line, not
+    # glued onto the final value row.
+    assert "\n\nRequested n=999 exceeds the maximum 50; using 50." in high
+    assert high.endswith("Requested n=999 exceeds the maximum 50; using 50.")
+    assert not high.rstrip().splitlines()[-1].startswith("    ")  # not a value row
+    assert "\n\nRequested n=0 is below the minimum 1; using 1." in low
     assert "top values:" in low  # clamped to 1, still a non-empty list
 
 

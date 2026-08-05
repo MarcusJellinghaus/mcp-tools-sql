@@ -167,6 +167,38 @@ def test_numeric_block_thousands_separators() -> None:
     assert lines[3] == "  zeros 12 (0.0%) | negatives 3 (0.0%)"
 
 
+def test_float_stats_round_to_one_decimal() -> None:
+    """Non-round float stats render at one decimal, not full float precision."""
+    string_profile = ColumnProfile(
+        meta=_meta("customer_city", "varchar", "string"),
+        rows=50_000,
+        non_null=48_797,
+        distinct=412,
+        # 18.666666666666668 must render "18.7", never full float precision.
+        stats={"empty": 0, "len_min": 2, "len_max": 38, "len_avg": 56 / 3},
+        values=[("London", 8_201)],
+        value_kind="top",
+    )
+    numeric_profile = ColumnProfile(
+        meta=_meta("amount", "int", "numeric"),
+        rows=3,
+        non_null=3,
+        distinct=3,
+        # 10 / 3 == 3.3333... must render "3.3".
+        stats={"min": 1, "max": 6, "mean": 10 / 3, "sum": 10, "zero": 0, "neg": 0},
+        values=[(1, 1), (3, 1), (6, 1)],
+        value_kind="top",
+    )
+
+    string_out = render_deep([string_profile])
+    numeric_out = render_deep([numeric_profile])
+
+    assert "avg 18.7" in string_out
+    assert "18.666" not in string_out  # no full float precision leaks through
+    assert "mean 3.3" in numeric_out
+    assert "3.333" not in numeric_out
+
+
 def test_temporal_block_renders_bounds_verbatim() -> None:
     """Temporal min/max on their own line, no thousands-separator mangling."""
     profile = ColumnProfile(
