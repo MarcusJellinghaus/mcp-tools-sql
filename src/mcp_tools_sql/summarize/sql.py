@@ -168,7 +168,11 @@ def validate_where(
     through :func:`basic_preflight` (empty / multi-statement / parse /
     unbound-``:name`` checks) and then :func:`read_only_violation`, and only on
     success re-extracted from the *re-parsed* statement -- the user's text is
-    never echoed back into a later query.
+    never echoed back into a later query. A predicate that breaks out of the
+    WHERE clause into a read-only set operation (``1=1 UNION SELECT ...``)
+    survives both gates but re-parses to a non-``SELECT`` root, so the
+    re-extraction requires a ``SELECT`` root carrying a ``WHERE`` and rejects
+    anything else.
 
     Args:
         where: Raw predicate text with optional ``:name`` placeholders, or
@@ -192,8 +196,11 @@ def validate_where(
     verdict = read_only_violation(probe, dialect)
     if verdict is not None:
         return (None, verdict)
-    predicate = sqlglot.parse_one(probe, read=dialect).args["where"].this
-    return (predicate, None)
+    parsed = sqlglot.parse_one(probe, read=dialect)
+    where_clause = parsed.args.get("where") if isinstance(parsed, exp.Select) else None
+    if where_clause is None:
+        return (None, "Invalid SQL. ValidationError: where must be a single predicate")
+    return (where_clause.this, None)
 
 
 def metadata_sql(dialect: str) -> str:

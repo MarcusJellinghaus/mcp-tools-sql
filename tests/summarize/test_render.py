@@ -62,12 +62,16 @@ def test_string_block_matches_customer_city_example() -> None:
 
 
 def test_near_unique_surfaces_duplicate_and_remainder() -> None:
-    """distinct == non_null - 1: the duplicate is top, remainder present."""
+    """distinct == non_null - 1: the duplicate is top, remainder present.
+
+    Sized past 1,000 so the remainder line's value count is asserted with
+    thousands separators, like every other count in the block.
+    """
     profile = ColumnProfile(
         meta=_meta("customer_email", "varchar", "string"),
-        rows=101,
-        non_null=101,
-        distinct=100,
+        rows=10_001,
+        non_null=10_001,
+        distinct=10_000,
         stats={"empty": 0, "len_min": 9, "len_max": 34, "len_avg": 18.7},
         values=[("a.smith@example.com", 2), ("b.jones@example.com", 1)],
         value_kind="top",
@@ -75,8 +79,8 @@ def test_near_unique_surfaces_duplicate_and_remainder() -> None:
 
     out = render_deep([profile])
 
-    assert "    a.smith@example.com  2  (2.0%)" in out
-    assert "    … 98 other values, 98 rows (97.0%)" in out
+    assert "    a.smith@example.com  2  (0.0%)" in out
+    assert "    … 9,998 other values, 9,998 rows (100.0%)" in out
 
 
 def test_perfectly_unique_renders_sample_header_no_counts() -> None:

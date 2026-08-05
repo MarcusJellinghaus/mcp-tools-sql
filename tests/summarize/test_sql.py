@@ -201,6 +201,24 @@ def test_validate_where_rejects_statement_terminator() -> None:
     assert error is not None
 
 
+def test_validate_where_rejects_union_breakout() -> None:
+    """A UNION predicate is rejected, not crashed on.
+
+    ``1 = 1 UNION SELECT name FROM sqlite_master`` breaks out of the WHERE
+    clause: the probe parses as a single read-only statement, so both gates
+    pass, but its root is a ``UNION`` with no ``where`` arg. The re-extraction
+    must return an error string rather than raise.
+    """
+    from mcp_tools_sql.summarize.sql import validate_where
+
+    predicate, error = validate_where(
+        "1 = 1 UNION SELECT name FROM sqlite_master", "dbo", "t", None, "sqlite"
+    )
+    assert predicate is None
+    assert error is not None
+    assert "single predicate" in error
+
+
 def test_validate_where_missing_param_verdict() -> None:
     """An unbound :name without params fails via basic_preflight."""
     from mcp_tools_sql.summarize.sql import validate_where

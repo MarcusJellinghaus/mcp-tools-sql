@@ -346,7 +346,7 @@ def _render_values(p: ColumnProfile) -> list[str]:
             rem_rows = rows - shown_rows
             if rem_vals > 0:
                 lines.append(
-                    f"    … {rem_vals} other values, "
+                    f"    … {_fmt_int(rem_vals)} other values, "
                     f"{_fmt_int(rem_rows)} rows {_fmt_pct(rem_rows, rows)}"
                 )
         return lines
@@ -439,7 +439,9 @@ def render_triage(
 
     Args:
         profiles: The profiled columns, in output order (already capped).
-        total_columns: The table's full profilable column count (for the cap
+        total_columns: The number of columns the call selected before the cap
+            -- the table's full profilable column count for an unfiltered call,
+            or the requested count when ``columns=`` narrowed it (for the cap
             footer).
         distinct_gated: Whether the distinct count was gated out for the whole
             call (large table).
