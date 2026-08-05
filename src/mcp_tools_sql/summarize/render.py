@@ -152,18 +152,46 @@ def _truncate(value: Any) -> str:
 
 
 def _fmt_stat(value: Any) -> str:
-    """Render a stat cell (min / max / mean / sum / length / size).
+    """Render an exact stat cell (min / max / sum / distinct / length bounds).
 
-    Integers get thousands separators, floats are rounded to
-    :data:`_FLOAT_STAT_DECIMALS` decimal place(s) with thousands separators (so
-    ``mean`` / ``len_avg`` / ``size_avg`` render as ``11.4``, matching the
-    contract examples, not full float precision), and everything else (temporal
-    bounds are date/time strings) is rendered verbatim so no separator is forced
-    onto a value that is not a plain number. A ``None`` (absent aggregate)
-    renders as the blank cell.
+    Integers get thousands separators; floats keep their *exact* value with
+    thousands separators and no forced rounding, so a numeric ``min`` of
+    ``0.01`` or ``max`` of ``19.99`` is reported as-is rather than rounded away
+    -- exactness matters for the extremes and totals a data-quality tool exists
+    to surface. Averages (``mean`` / ``len_avg`` / ``size_avg``) are rendered by
+    :func:`_fmt_avg` instead, which rounds to one decimal. Everything else
+    (temporal bounds are date/time strings) is rendered verbatim so no separator
+    is forced onto a value that is not a plain number, and a ``None`` (absent
+    aggregate) renders as the blank cell.
 
     Args:
         value: The stat value from :attr:`ColumnProfile.stats` (or ``distinct``).
+
+    Returns:
+        The rendered cell text.
+    """
+    if value is None:
+        return _BLANK
+    if isinstance(value, bool):
+        return str(value)
+    if isinstance(value, int):
+        return _fmt_int(value)
+    if isinstance(value, float):
+        return f"{value:,}"
+    return str(value)
+
+
+def _fmt_avg(value: Any) -> str:
+    """Render an average cell (mean / len_avg / size_avg) at one decimal.
+
+    Averages are the only stats rounded: they carry no meaning past a fraction,
+    and full float precision (``18.666666666666668``) is noise. Rounds floats to
+    :data:`_FLOAT_STAT_DECIMALS` decimal place(s) with thousands separators (so
+    ``11.4`` matches the contract examples); integers and ``None`` fall back to
+    the shared integer / blank handling.
+
+    Args:
+        value: The average value from :attr:`ColumnProfile.stats`.
 
     Returns:
         The rendered cell text.
@@ -192,7 +220,7 @@ def _numeric_lines(p: ColumnProfile, rows: int, nulls: int) -> list[str]:
         f"  rows {_fmt_int(rows)} | nulls {_fmt_int(nulls)} {_fmt_pct(nulls, rows)}"
         f" | distinct {_fmt_stat(p.distinct)}",
         f"  min {_fmt_stat(s.get('min'))} | max {_fmt_stat(s.get('max'))}"
-        f" | mean {_fmt_stat(s.get('mean'))} | sum {_fmt_stat(s.get('sum'))}",
+        f" | mean {_fmt_avg(s.get('mean'))} | sum {_fmt_stat(s.get('sum'))}",
         f"  zeros {_fmt_int(zero)} {_fmt_pct(zero, rows)}"
         f" | negatives {_fmt_int(neg)} {_fmt_pct(neg, rows)}",
     ]
@@ -225,7 +253,7 @@ def _string_lines(p: ColumnProfile, rows: int, nulls: int) -> list[str]:
         f" | empty {_fmt_int(empty)} {_fmt_pct(empty, rows)}"
         f" | distinct {_fmt_stat(p.distinct)}",
         f"  length  min {_fmt_stat(s.get('len_min'))}"
-        f" | max {_fmt_stat(s.get('len_max'))} | avg {_fmt_stat(s.get('len_avg'))}",
+        f" | max {_fmt_stat(s.get('len_max'))} | avg {_fmt_avg(s.get('len_avg'))}",
     ]
 
 
@@ -265,7 +293,7 @@ def _other_lines(p: ColumnProfile, rows: int, nulls: int) -> list[str]:
     if "size_min" in s:
         lines.append(
             f"  size (bytes)  min {_fmt_int(s['size_min'])}"
-            f" | max {_fmt_int(s['size_max'])} | avg {_fmt_stat(s['size_avg'])}"
+            f" | max {_fmt_int(s['size_max'])} | avg {_fmt_avg(s['size_avg'])}"
         )
     return lines
 

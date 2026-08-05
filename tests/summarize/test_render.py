@@ -199,6 +199,40 @@ def test_float_stats_round_to_one_decimal() -> None:
     assert "3.333" not in numeric_out
 
 
+def test_numeric_float_min_max_sum_render_exactly() -> None:
+    """Float min/max/sum keep their exact value; only the mean rounds.
+
+    A ``price``-style decimal column stored as REAL comes back to the renderer
+    as Python floats. The extremes (``0.01`` / ``19.99``) and the total must be
+    reported as-is -- rounding them to one decimal would misstate the very
+    values a data-quality profile exists to surface -- while the mean, an
+    average, still collapses to a single decimal.
+    """
+    profile = ColumnProfile(
+        meta=_meta("price", "decimal", "numeric"),
+        rows=1_000,
+        non_null=1_000,
+        distinct=200,
+        stats={
+            "min": 0.01,
+            "max": 19.99,
+            "mean": 20 / 3,  # 6.6666... -> rounds to "6.7"
+            "sum": 12_345.67,
+            "zero": 0,
+            "neg": 0,
+        },
+        values=[(9.99, 100)],
+        value_kind="top",
+    )
+
+    lines = render_deep([profile]).splitlines()
+
+    assert lines[2] == "  min 0.01 | max 19.99 | mean 6.7 | sum 12,345.67"
+    # The exact extremes survive; the mean is the only rounded cell.
+    assert "min 0.0 " not in lines[2] and "max 20.0" not in lines[2]
+    assert "6.666" not in lines[2]
+
+
 def test_temporal_block_renders_bounds_verbatim() -> None:
     """Temporal min/max on their own line, no thousands-separator mangling."""
     profile = ColumnProfile(
