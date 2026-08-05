@@ -379,3 +379,147 @@ def test_scalar_multi_column_alias_indices_and_predicate() -> None:
     assert "AS c1__nonnull" in sql
     assert "AS c1__min" in sql
     assert "WHERE status = :s" in sql
+
+
+# --- clamp_n ---------------------------------------------------------------
+
+
+def test_clamp_n_within_range_unchanged() -> None:
+    """A value already in [1, 50] passes through with an empty note."""
+    from mcp_tools_sql.summarize.sql import clamp_n
+
+    assert clamp_n(20) == (20, "")
+
+
+@pytest.mark.parametrize("n", [1, 50])
+def test_clamp_n_bounds_inclusive(n: int) -> None:
+    """Both bounds are inclusive -- no note at exactly 1 or 50."""
+    from mcp_tools_sql.summarize.sql import clamp_n
+
+    assert clamp_n(n) == (n, "")
+
+
+def test_clamp_n_above_cap_notes() -> None:
+    """Above the hard cap, n is pinned to 50 with a non-empty note."""
+    from mcp_tools_sql.summarize.sql import clamp_n
+
+    value, note = clamp_n(500)
+    assert value == 50
+    assert note != ""
+
+
+def test_clamp_n_zero_floored_to_one() -> None:
+    """n=0 is floored to 1 (no empty 'top values:' list) with a note."""
+    from mcp_tools_sql.summarize.sql import clamp_n
+
+    value, note = clamp_n(0)
+    assert value == 1
+    assert note != ""
+
+
+def test_clamp_n_negative_floored_to_one() -> None:
+    """n<0 is floored to 1 (no 'TOP -1') with a note."""
+    from mcp_tools_sql.summarize.sql import clamp_n
+
+    value, note = clamp_n(-5)
+    assert value == 1
+    assert note != ""
+
+
+# --- build_value_list_sql --------------------------------------------------
+
+
+def test_value_list_top_sqlite_group_by_total_order_limit() -> None:
+    """Top list on SQLite: GROUP BY, COUNT(*) DESC + column ASC tiebreak, LIMIT."""
+    from mcp_tools_sql.summarize.sql import build_table_ref, build_value_list_sql
+
+    ref = build_table_ref("x", "t", "sqlite")
+    sql = build_value_list_sql(
+        _meta("c", "INTEGER", "numeric"), ref, None, 20, "sqlite", kind="top"
+    )
+    assert 'SELECT "c" AS value, COUNT(*) AS freq FROM "t"' in sql
+    assert 'GROUP BY "c"' in sql
+    # implicit ASC is the SQL default -- the column tiebreak keeps the order total
+    assert 'ORDER BY COUNT(*) DESC, "c"' in sql
+    assert "LIMIT 20" in sql
+    assert "DISTINCT" not in sql
+
+
+def test_value_list_top_tsql_uses_top_n() -> None:
+    """Top list on T-SQL emits TOP n (not LIMIT) with the bracketed tiebreak."""
+    from mcp_tools_sql.summarize.sql import build_table_ref, build_value_list_sql
+
+    ref = build_table_ref("dbo", "t", "tsql")
+    sql = build_value_list_sql(
+        _meta("c", "int", "numeric"), ref, None, 20, "tsql", kind="top"
+    )
+    assert "TOP 20" in sql
+    assert "LIMIT" not in sql
+    assert "GROUP BY [c]" in sql
+    assert "ORDER BY COUNT(*) DESC, [c]" in sql
+
+
+def test_value_list_sample_sqlite_distinct_no_freq_excludes_null() -> None:
+    """Sample list: SELECT DISTINCT, no freq, literal IS NOT NULL, column ORDER BY."""
+    from mcp_tools_sql.summarize.sql import build_table_ref, build_value_list_sql
+
+    ref = build_table_ref("x", "t", "sqlite")
+    sql = build_value_list_sql(
+        _meta("c", "INTEGER", "numeric"), ref, None, 20, "sqlite", kind="sample"
+    )
+    assert "SELECT DISTINCT" in sql
+    assert "freq" not in sql
+    assert '"c" IS NOT NULL' in sql  # pins exp.Is(negate=True)
+    assert 'NOT "c" IS NULL' not in sql  # guards the NOT ... IS NULL regression
+    assert 'ORDER BY "c"' in sql
+    assert "LIMIT 20" in sql
+
+
+def test_value_list_sample_tsql_top_n() -> None:
+    """Sample list on T-SQL emits TOP n and the bracketed IS NOT NULL test."""
+    from mcp_tools_sql.summarize.sql import build_table_ref, build_value_list_sql
+
+    ref = build_table_ref("dbo", "t", "tsql")
+    sql = build_value_list_sql(
+        _meta("c", "int", "numeric"), ref, None, 15, "tsql", kind="sample"
+    )
+    assert "SELECT DISTINCT" in sql
+    assert "TOP 15" in sql
+    assert "[c] IS NOT NULL" in sql
+    assert "freq" not in sql
+
+
+def test_value_list_top_predicate_in_where() -> None:
+    """A validated predicate renders into the top list's WHERE clause."""
+    from mcp_tools_sql.summarize.sql import (
+        build_table_ref,
+        build_value_list_sql,
+        validate_where,
+    )
+
+    predicate, error = validate_where("status = :s", "x", "t", {"s": "open"}, "sqlite")
+    assert error is None
+    ref = build_table_ref("x", "t", "sqlite")
+    sql = build_value_list_sql(
+        _meta("c", "INTEGER", "numeric"), ref, predicate, 20, "sqlite", kind="top"
+    )
+    assert "WHERE status = :s" in sql
+
+
+def test_value_list_sample_predicate_and_combined() -> None:
+    """Sample list AND-combines the null test with a supplied predicate."""
+    from mcp_tools_sql.summarize.sql import (
+        build_table_ref,
+        build_value_list_sql,
+        validate_where,
+    )
+
+    predicate, error = validate_where("status = :s", "x", "t", {"s": "open"}, "sqlite")
+    assert error is None
+    ref = build_table_ref("x", "t", "sqlite")
+    sql = build_value_list_sql(
+        _meta("c", "INTEGER", "numeric"), ref, predicate, 20, "sqlite", kind="sample"
+    )
+    assert '"c" IS NOT NULL' in sql
+    assert "status = :s" in sql
+    assert " AND " in sql  # AND-combined, not a replaced WHERE

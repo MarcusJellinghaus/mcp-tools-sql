@@ -5,8 +5,9 @@ dialect-aware type categoriser that every later summarize step dispatches on,
 the front of the execution pipeline (the fail-closed ``where`` gate, the dialect
 table reference, the static metadata query, and the filtered ``COUNT(*)``), the
 shared ``ColumnMeta`` dataclass, and the single-scan scalar-aggregate pass
-(``build_scalar_sql`` and its per-category expression builders); the value-list
-SQL builders land in a subsequent step.
+(``build_scalar_sql`` and its per-category expression builders), and the
+duplication-driven value-list SQL builders (``clamp_n`` and
+``build_value_list_sql``).
 
 The categoriser is prefix/affinity-based, not an exact-match lookup: SQLite's
 declared type is an arbitrary affinity string (``VARCHAR(20)``, ``NUM``, or even
@@ -487,3 +488,117 @@ def build_scalar_sql(
     if predicate is not None:
         query = query.where(predicate)
     return query.sql(dialect=dialect)
+
+
+# --- Value-list pass -------------------------------------------------------
+#
+# One GROUP BY (deep view only) per profiled column. The *shape* is chosen by
+# duplication: a ``top`` list ranks values by frequency (the caller passes this
+# when distinct < non_null), a ``sample`` list emits distinct non-null values
+# with no freq column (distinct == non_null, where every count is 1). Never
+# built for ``other``-category columns -- LOB types cannot be grouped.
+
+VALUE_LIST_HARD_CAP: int = 50
+VALUE_LIST_MIN: int = 1
+
+
+def clamp_n(n: int) -> tuple[int, str]:
+    """Clamp the value-list length ``n`` into ``[VALUE_LIST_MIN, HARD_CAP]``.
+
+    The clamp is two-sided and neither bound is cosmetic. Above
+    :data:`VALUE_LIST_HARD_CAP` the per-column ``GROUP BY`` cost is bounded;
+    below :data:`VALUE_LIST_MIN` an ``n`` of ``0`` would emit an empty list
+    under a ``top values:`` header, and a negative ``n`` renders ``TOP -1``
+    (which SQL Server rejects outright). A non-empty note is returned in
+    *either* clamped direction so the caller can tell the user what was applied.
+
+    Args:
+        n: Requested value-list length.
+
+    Returns:
+        A ``(clamped, note)`` pair. ``note`` is ``""`` when ``n`` was already in
+        range, else a human-readable explanation of the applied bound.
+    """
+    if n > VALUE_LIST_HARD_CAP:
+        note = (
+            f"Requested n={n} exceeds the maximum {VALUE_LIST_HARD_CAP}; "
+            f"using {VALUE_LIST_HARD_CAP}."
+        )
+        return (VALUE_LIST_HARD_CAP, note)
+    if n < VALUE_LIST_MIN:
+        note = (
+            f"Requested n={n} is below the minimum {VALUE_LIST_MIN}; "
+            f"using {VALUE_LIST_MIN}."
+        )
+        return (VALUE_LIST_MIN, note)
+    return (n, "")
+
+
+def build_value_list_sql(
+    col: ColumnMeta,
+    table_ref: exp.Table,
+    predicate: exp.Expression | None,
+    n: int,
+    dialect: str,
+    *,
+    kind: Literal["top", "sample"],
+) -> str:
+    """Build a single-column value-list query whose shape is set by ``kind``.
+
+    The caller (step 7) picks ``kind`` from the column's scalar stats:
+    ``"top"`` when the column has duplicates (``distinct < non_null``) and
+    ``"sample"`` when every value is unique (``distinct == non_null``), where a
+    frequency column would be uninformative. Never called for ``other``-category
+    columns: LOB types cannot appear in ``GROUP BY`` / ``DISTINCT``.
+
+    - ``kind == "top"``: ``SELECT c AS value, COUNT(*) AS freq ... GROUP BY c
+      ORDER BY COUNT(*) DESC, c ASC LIMIT n``. ``NULL`` ranks as an ordinary
+      group (no special handling); the ``c ASC`` tiebreak makes the ordering
+      total, hence deterministic.
+    - ``kind == "sample"``: ``SELECT DISTINCT c AS value ... WHERE c IS NOT NULL
+      ORDER BY c ASC LIMIT n`` -- no ``freq`` column, and ``NULL`` is excluded.
+      The sample header reads ``N of D distinct`` with ``D`` counting non-null
+      distinct values, so a returned ``NULL`` row would make ``N`` exceed ``D``.
+
+    The null test is built as ``exp.Is(this=ref, expression=exp.Null(),
+    negate=True)`` so it renders the literal ``c IS NOT NULL`` on both dialects;
+    ``ref.is_(exp.null()).not_()`` would instead render ``NOT c IS NULL``. The
+    limit is applied via sqlglot ``.limit(n)`` so the renderer emits ``LIMIT n``
+    (SQLite) / ``TOP n`` (T-SQL) automatically.
+
+    Args:
+        col: The profiled column (declared casing quoted into the query).
+        table_ref: The target table reference from :func:`build_table_ref`.
+        predicate: A validated predicate from :func:`validate_where`, AND-
+            combined into the ``WHERE`` clause, or ``None`` for no filter.
+        n: Value-list length; the caller should pass a :func:`clamp_n`-clamped
+            value so the emitted ``LIMIT``/``TOP`` stays in ``[1, 50]``.
+        dialect: Backend dialect, ``"sqlite"`` or ``"tsql"``.
+        kind: ``"top"`` for a frequency-ranked list, ``"sample"`` for a distinct
+            non-null sample.
+
+    Returns:
+        The rendered value-list query, dialect-targeted, returning
+        ``(value, freq)`` rows for ``"top"`` and ``(value,)`` rows for
+        ``"sample"``.
+    """
+    ref = exp.column(exp.to_identifier(col.name, quoted=True))
+    if kind == "top":
+        query = exp.select(
+            exp.alias_(ref.copy(), "value"),
+            exp.alias_(exp.Count(this=exp.Star()), "freq"),
+        ).from_(table_ref.copy())
+        query = query.group_by(ref.copy()).order_by(
+            exp.Count(this=exp.Star()).desc(), ref.asc()
+        )
+    else:
+        query = (
+            exp.select(exp.alias_(ref.copy(), "value"))
+            .distinct()
+            .from_(table_ref.copy())
+            .order_by(ref.asc())
+        )
+        query = query.where(exp.Is(this=ref.copy(), expression=exp.Null(), negate=True))
+    if predicate is not None:
+        query = query.where(predicate)
+    return query.limit(n).sql(dialect=dialect)
