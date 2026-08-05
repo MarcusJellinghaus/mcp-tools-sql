@@ -5,7 +5,9 @@ formatting -- it never touches a backend or issues a query. It defines the
 :class:`ColumnProfile` dataclass (the fully-assembled per-column result that
 ``tools.py`` builds from the metadata / scalar / value-list passes) and the
 deep-view renderer :func:`render_deep`, which turns a list of profiles into one
-labelled text block per column.
+labelled text block per column, the compact :func:`render_triage` table, the
+:func:`render_summary` dispatcher that chooses between them on the column-count
+threshold, and the zero-row / not-found / unknown-column status messages.
 
 Every count printed is derived from the profile itself: the shown value count is
 ``len(profile.values)`` (the list the SQL layer already capped and returned) and
@@ -23,6 +25,7 @@ from __future__ import annotations
 from dataclasses import dataclass
 from typing import Any, Literal
 
+from mcp_tools_sql.formatting import format_rows
 from mcp_tools_sql.summarize.sql import ColumnMeta
 
 # Display cap for a single rendered value; longer values are truncated with an
@@ -32,6 +35,23 @@ _VALUE_DISPLAY_CAP: int = 60
 # Blank cell rendered when a stat is absent (all-null min/max) or a distinct
 # count was gated out of triage (``ColumnProfile.distinct is None``).
 _BLANK = "—"  # em dash
+
+# Column-count threshold: a call profiling *more* than this many columns renders
+# the compact triage view (one line per column); at or below it renders the deep
+# per-column blocks.
+TRIAGE_THRESHOLD: int = 15
+
+# Hard cap on the number of columns profiled in a single call; the triage view
+# appends a footer directing the caller to ``columns=`` for any beyond the cap.
+COLUMN_CAP: int = 50
+
+# Row-count ceiling above which triage omits ``COUNT(DISTINCT)`` (too costly on a
+# large table); the distinct cells blank and the footer states the reason.
+DISTINCT_GATE_ROWS: int = 1_000_000
+
+# Defensive guard returned by :func:`render_summary` for an unexpectedly empty
+# profile list (never reached in practice -- step 7 short-circuits first).
+NO_COLUMNS_TEXT: str = "No columns to profile."
 
 
 @dataclass(frozen=True)
@@ -317,3 +337,155 @@ def render_deep(profiles: list[ColumnProfile]) -> str:
         The rendered deep view as a single string.
     """
     return "\n\n".join(_render_block(p) for p in profiles)
+
+
+def _pct_cell(part: int, whole: int) -> str:
+    """Render a bare percentage for a triage table cell (no parentheses).
+
+    The deep view wraps percentages in parentheses (``(2.4%)``); a table cell
+    reads cleaner unwrapped (``2.4%``). Guards ``whole == 0`` (unreachable --
+    triage short-circuits on zero rows -- but keeps the helper total).
+
+    Args:
+        part: The numerator count (typically the null tally).
+        whole: The denominator count (typically ``ColumnProfile.rows``).
+
+    Returns:
+        A string like ``2.4%``.
+    """
+    if whole == 0:
+        return "0.0%"
+    return f"{part / whole * 100:.1f}%"
+
+
+def render_triage(
+    profiles: list[ColumnProfile], total_columns: int, distinct_gated: bool
+) -> str:
+    """Render the compact triage view: one tabular line per profiled column.
+
+    Each column contributes a row with its name, declared type, null
+    percentage, distinct count, and value min/max -- no value lists. The
+    ``distinct`` cell blanks to :data:`_BLANK` whenever it is unknown: the whole
+    view is gated (``distinct_gated``), or an individual profile carries
+    ``distinct is None`` (``other`` / LOB columns, which cannot be counted
+    distinctly). ``min`` / ``max`` blank the same way when the scalar pass did
+    not compute them (boolean and other columns). The literal string ``None``
+    never reaches the table -- every optional cell passes through a blanking
+    helper.
+
+    Footers: a column-cap notice when ``total_columns`` exceeds the number of
+    profiles shown, a hint that a narrowed ``columns=`` call yields the deep
+    per-column view, and -- when gated -- the row-count reason distinct was
+    omitted.
+
+    Args:
+        profiles: The profiled columns, in output order (already capped).
+        total_columns: The table's full profilable column count (for the cap
+            footer).
+        distinct_gated: Whether the distinct count was gated out for the whole
+            call (large table).
+
+    Returns:
+        The rendered triage view as a single string.
+    """
+    rows: list[dict[str, Any]] = []
+    for p in profiles:
+        nulls = p.rows - p.non_null
+        rows.append(
+            {
+                "name": p.meta.name,
+                "type": p.meta.declared_type,
+                "null_pct": _pct_cell(nulls, p.rows),
+                "distinct": _BLANK if distinct_gated else _fmt_stat(p.distinct),
+                "min": _fmt_stat(p.stats.get("min")),
+                "max": _fmt_stat(p.stats.get("max")),
+            }
+        )
+    table = format_rows(rows, max_rows=COLUMN_CAP)
+
+    footers: list[str] = []
+    if total_columns > len(profiles):
+        footers.append(column_cap_footer(len(profiles), total_columns))
+    footers.append(
+        f"Narrow with columns= (≤ {TRIAGE_THRESHOLD} columns) for the deep "
+        "per-column view."
+    )
+    if distinct_gated:
+        footers.append(
+            f"distinct omitted: table exceeds {_fmt_int(DISTINCT_GATE_ROWS)} rows."
+        )
+    return table + "\n\n" + "\n".join(footers)
+
+
+def render_summary(
+    profiles: list[ColumnProfile], total_columns: int, distinct_gated: bool
+) -> str:
+    """Dispatch to the triage or deep renderer on the column-count threshold.
+
+    More than :data:`TRIAGE_THRESHOLD` profiles render the compact triage view;
+    at or below it render the deep per-column blocks (a 1-column call renders
+    the same deep block as one of ten -- there is no focus tier). An empty
+    profile list returns the fixed :data:`NO_COLUMNS_TEXT` sentence: a defensive
+    guard, not a reachable path (step 7 rejects an empty ``columns=`` and
+    short-circuits zero rows before any data query).
+
+    Args:
+        profiles: The profiled columns, in output order.
+        total_columns: The table's full profilable column count (triage cap
+            footer).
+        distinct_gated: Whether the distinct count was gated out (triage).
+
+    Returns:
+        The rendered summary as a single string.
+    """
+    if not profiles:
+        return NO_COLUMNS_TEXT
+    if len(profiles) > TRIAGE_THRESHOLD:
+        return render_triage(profiles, total_columns, distinct_gated)
+    return render_deep(profiles)
+
+
+def empty_table_message(schema: str, table: str) -> str:
+    """Message for a table that exists but holds zero rows."""
+    return (
+        f"Table {schema}.{table} is empty (0 rows). "
+        "Use read_columns for its column definitions."
+    )
+
+
+def table_not_found_message(schema: str, table: str) -> str:
+    """Message for a table whose metadata query returned no columns."""
+    return (
+        f"Table {schema}.{table} not found (no such table or no columns). "
+        "Check the schema and table name."
+    )
+
+
+def empty_filter_message(total_rows: int) -> str:
+    """Message when the ``where`` predicate matches no rows."""
+    return f"No rows match the where predicate (table has {_fmt_int(total_rows)} rows)."
+
+
+def unknown_columns_message(bad: list[str], available: list[str]) -> str:
+    """Message listing unrecognised requested columns and the available set.
+
+    Both lists echo the declared casing carried through from the metadata
+    query.
+    """
+    return f"Unknown column(s): {', '.join(bad)}. Available: {', '.join(available)}"
+
+
+def empty_columns_message(available: list[str]) -> str:
+    """Message for an explicitly empty ``columns=[]`` request."""
+    return (
+        "No columns selected: columns= was an empty list. "
+        f"Available: {', '.join(available)}"
+    )
+
+
+def column_cap_footer(shown: int, total: int) -> str:
+    """Footer stating how many of the table's columns the cap left unshown."""
+    return (
+        f"Showing {_fmt_int(shown)} of {_fmt_int(total)} columns. "
+        "Use columns= to select others."
+    )

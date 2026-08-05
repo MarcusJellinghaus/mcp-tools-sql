@@ -9,11 +9,20 @@ and 60-character value truncation with exact counts.
 from __future__ import annotations
 
 from mcp_tools_sql.summarize.render import (
+    NO_COLUMNS_TEXT,
     ColumnProfile,
     _fmt_int,
     _fmt_pct,
     _truncate,
+    column_cap_footer,
+    empty_columns_message,
+    empty_filter_message,
+    empty_table_message,
     render_deep,
+    render_summary,
+    render_triage,
+    table_not_found_message,
+    unknown_columns_message,
 )
 from mcp_tools_sql.summarize.sql import Category, ColumnMeta
 
@@ -312,3 +321,213 @@ def test_fmt_pct_guards_zero_whole() -> None:
 def test_fmt_int_thousands_separator() -> None:
     """Sanity check on the shared integer formatter."""
     assert _fmt_int(1_234_567) == "1,234,567"
+
+
+def _string_profile(name: str, distinct: int = 5) -> ColumnProfile:
+    """A minimal string profile for triage/dispatch tests."""
+    return ColumnProfile(
+        meta=_meta(name, "varchar", "string"),
+        rows=100,
+        non_null=90,
+        distinct=distinct,
+        stats={
+            "min": "aaa",
+            "max": "zzz",
+            "empty": 0,
+            "len_min": 3,
+            "len_max": 3,
+            "len_avg": 3.0,
+        },
+        values=[("aaa", 50)],
+        value_kind="top",
+    )
+
+
+def test_sixteen_profiles_dispatch_to_triage() -> None:
+    """> 15 columns render the compact triage table, not deep blocks."""
+    profiles = [_string_profile(f"c{i}") for i in range(16)]
+
+    out = render_summary(profiles, total_columns=16, distinct_gated=False)
+
+    # Triage header row from format_rows; no per-value list, no deep header.
+    assert "null_pct" in out
+    assert "top values" not in out
+    assert "(varchar, string)" not in out
+    assert out == render_triage(profiles, 16, False)
+
+
+def test_fifteen_profiles_dispatch_to_deep() -> None:
+    """At the threshold (15) the deep per-column blocks render."""
+    profiles = [_string_profile(f"c{i}") for i in range(15)]
+
+    out = render_summary(profiles, total_columns=15, distinct_gated=False)
+
+    assert "(varchar, string)" in out
+    assert "top values" in out
+    assert out == render_deep(profiles)
+
+
+def test_single_column_renders_deep_not_special_tier() -> None:
+    """A 1-column call renders the same deep block, not a focus tier."""
+    profiles = [_string_profile("only")]
+
+    out = render_summary(profiles, total_columns=1, distinct_gated=False)
+
+    assert out == render_deep(profiles)
+    assert "(varchar, string)" in out
+
+
+def test_render_summary_empty_returns_guard_sentence() -> None:
+    """An empty profile list returns the defensive NO_COLUMNS_TEXT sentence."""
+    out = render_summary([], total_columns=0, distinct_gated=False)
+
+    assert out == NO_COLUMNS_TEXT
+    assert out == "No columns to profile."
+    assert out  # a non-empty sentence, not a blank string
+
+
+def test_triage_cap_footer_reports_unshown_columns() -> None:
+    """total_columns > len(profiles) appends the cap footer."""
+    profiles = [_string_profile(f"c{i}") for i in range(50)]
+
+    out = render_triage(profiles, total_columns=412, distinct_gated=False)
+
+    assert "Showing 50 of 412 columns. Use columns= to select others." in out
+
+
+def test_triage_gated_blanks_distinct_and_notes_reason() -> None:
+    """distinct_gated blanks every distinct cell and states the 1M-row reason."""
+    profiles = [_string_profile(f"c{i}", distinct=999) for i in range(16)]
+
+    out = render_triage(profiles, total_columns=16, distinct_gated=True)
+
+    assert "distinct omitted: table exceeds 1,000,000 rows." in out
+    assert "999" not in out  # the gated distinct value never renders
+    assert "—" in out  # distinct cells blank to the em dash
+
+
+def test_triage_shows_value_min_max_per_category() -> None:
+    """Numeric, temporal and string columns each render their value min/max."""
+    numeric = ColumnProfile(
+        meta=_meta("amount", "int", "numeric"),
+        rows=100,
+        non_null=100,
+        distinct=40,
+        stats={
+            "min": 0,
+            "max": 1_000_000,
+            "mean": 5.0,
+            "sum": 500,
+            "zero": 0,
+            "neg": 0,
+        },
+        values=None,
+        value_kind="none",
+    )
+    temporal = ColumnProfile(
+        meta=_meta("created", "date", "temporal"),
+        rows=100,
+        non_null=100,
+        distinct=30,
+        stats={"min": "2020-01-01", "max": "2024-12-31"},
+        values=None,
+        value_kind="none",
+    )
+    string = _string_profile("label")
+
+    out = render_triage(
+        [numeric, temporal, string], total_columns=3, distinct_gated=False
+    )
+
+    assert "1,000,000" in out  # numeric value max, separator applied
+    assert "2020-01-01" in out and "2024-12-31" in out  # temporal bounds verbatim
+    assert "aaa" in out and "zzz" in out  # string value bounds
+
+
+def test_triage_boolean_and_other_blank_absent_min_max() -> None:
+    """Boolean / other columns without min/max stats render em-dash cells."""
+    boolean = ColumnProfile(
+        meta=_meta("is_active", "bit", "boolean"),
+        rows=100,
+        non_null=100,
+        distinct=2,
+        stats={"true": 60, "false": 40},
+        values=None,
+        value_kind="none",
+    )
+    other = ColumnProfile(
+        meta=_meta("photo", "image", "other"),
+        rows=100,
+        non_null=80,
+        distinct=None,
+        stats={},
+        values=None,
+        value_kind="none",
+    )
+
+    out = render_triage([boolean, other], total_columns=2, distinct_gated=False)
+
+    assert "—" in out  # blanked min/max cells
+    assert "None" not in out
+
+
+def test_triage_ungated_none_distinct_blanks_without_literal_none() -> None:
+    """An ungated other column with distinct=None still blanks the cell."""
+    other = ColumnProfile(
+        meta=_meta("blob_col", "varbinary", "other"),
+        rows=100,
+        non_null=100,
+        distinct=None,
+        stats={},
+        values=None,
+        value_kind="none",
+    )
+
+    out = render_triage([other], total_columns=1, distinct_gated=False)
+
+    assert "—" in out
+    assert "None" not in out  # the literal None never reaches tabulate
+
+
+def test_empty_table_message_exact_wording() -> None:
+    assert empty_table_message("dbo", "orders") == (
+        "Table dbo.orders is empty (0 rows). "
+        "Use read_columns for its column definitions."
+    )
+
+
+def test_table_not_found_message_distinct_from_empty() -> None:
+    not_found = table_not_found_message("dbo", "orders")
+    empty = empty_table_message("dbo", "orders")
+
+    assert not_found == (
+        "Table dbo.orders not found (no such table or no columns). "
+        "Check the schema and table name."
+    )
+    assert not_found != empty  # not-found and empty are distinct messages
+
+
+def test_empty_filter_message_exact_wording() -> None:
+    assert empty_filter_message(50_000) == (
+        "No rows match the where predicate (table has 50,000 rows)."
+    )
+
+
+def test_unknown_columns_message_echoes_casing_and_lists_available() -> None:
+    out = unknown_columns_message(["Foo", "BAR"], ["id", "Name", "created_At"])
+
+    assert out == "Unknown column(s): Foo, BAR. Available: id, Name, created_At"
+
+
+def test_empty_columns_message_exact_wording() -> None:
+    out = empty_columns_message(["id", "Name"])
+
+    assert out == (
+        "No columns selected: columns= was an empty list. Available: id, Name"
+    )
+
+
+def test_column_cap_footer_exact_wording() -> None:
+    assert column_cap_footer(50, 412) == (
+        "Showing 50 of 412 columns. Use columns= to select others."
+    )
