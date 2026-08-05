@@ -25,7 +25,7 @@ This tracks **Feature Implementation** consisting of multiple **Tasks**.
 - [x] [Step 2 — where validation, table ref, metadata & count SQL](./steps/step_2.md)
 - [x] [Step 3 — Scalar-aggregate pass SQL + ColumnMeta](./steps/step_3.md)
 - [x] [Step 4 — Value-list SQL (top + sample)](./steps/step_4.md)
-- [ ] [Step 5 — Deep-view renderer + ColumnProfile](./steps/step_5.md)
+- [x] [Step 5 — Deep-view renderer + ColumnProfile](./steps/step_5.md)
 - [ ] [Step 6 — Triage renderer + messages + dispatch](./steps/step_6.md)
 - [ ] [Step 7 — SummarizeTools orchestration + registration + wiring](./steps/step_7.md)
 
