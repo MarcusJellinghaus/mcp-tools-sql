@@ -24,6 +24,7 @@ import sqlglot
 from pydantic import Field
 from sqlglot import exp
 
+from mcp_tools_sql.backends.base import to_dialect
 from mcp_tools_sql.query_helpers import build_target_params
 from mcp_tools_sql.tool_builder import build_tool_fn
 from mcp_tools_sql.tool_logging import log_tool_call
@@ -31,7 +32,6 @@ from mcp_tools_sql.utils.sql_placeholders import (
     basic_preflight,
     build_count_query,
     read_only_violation,
-    to_dialect,
 )
 
 try:

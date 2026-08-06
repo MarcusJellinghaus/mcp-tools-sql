@@ -8,6 +8,7 @@ from typing import TYPE_CHECKING, Annotated, Any, Optional
 
 from pydantic import Field
 
+from mcp_tools_sql.backends.base import to_dialect
 from mcp_tools_sql.query_helpers import build_target_params
 from mcp_tools_sql.tool_builder import build_tool_fn
 from mcp_tools_sql.tool_logging import log_tool_call
@@ -15,7 +16,6 @@ from mcp_tools_sql.utils.sql_placeholders import (
     basic_preflight,
     first_statement_kind,
     substitute_named_with_literals,
-    to_dialect,
 )
 
 try:

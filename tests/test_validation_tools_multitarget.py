@@ -144,7 +144,7 @@ async def test_multi_per_call_dialect_resolved_from_target(sqlite_db: Path) -> N
     assert (
         tsql_verdict == "Invalid SQL. ValidationError: DECLARE statements not supported"
     )
-    assert sqlite_verdict.startswith("Invalid SQL. ParseError: ")
+    assert sqlite_verdict.startswith("Invalid SQL. ParseError (SQL parsed as sqlite): ")
     assert registry.calls[0].connection == "sql"
     assert registry.calls[0].database == "hr"
 

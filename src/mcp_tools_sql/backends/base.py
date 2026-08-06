@@ -9,6 +9,37 @@ from typing import Any, Self
 
 from mcp_tools_sql.config.models import ConnectionConfig
 
+# keep in sync with the create_backend dispatch chain below
+_DIALECTS: dict[str, str] = {
+    "sqlite": "sqlite",
+    "mssql": "tsql",
+    "pyodbc": "tsql",
+}
+
+
+def to_dialect(backend_name: str) -> str:
+    """Map a backend name to the sqlglot dialect used for parsing/rendering.
+
+    Args:
+        backend_name: The configured backend identifier
+            (``"sqlite"``, ``"mssql"``, or ``"pyodbc"``).
+
+    Returns:
+        The sqlglot dialect name (``"sqlite"`` or ``"tsql"``).
+
+    Raises:
+        ValueError: If ``backend_name`` is not a supported backend.
+            Unreachable via the tool call sites (each runs ``create_backend``
+            first); kept as defence-in-depth against a future caller.
+    """
+    dialect = _DIALECTS.get(backend_name)
+    if dialect is None:
+        raise ValueError(
+            f"Unsupported backend: {backend_name}. "
+            f"Supported: {', '.join(sorted(_DIALECTS))}."
+        )
+    return dialect
+
 
 class DatabaseBackend(ABC):
     """Interface that all database backends must implement."""
@@ -115,5 +146,8 @@ def create_backend(config: ConnectionConfig) -> DatabaseBackend:
         from mcp_tools_sql.backends.mssql import MSSQLBackend
 
         return MSSQLBackend(config)
-    msg = f"Unsupported backend: {config.backend}"
+    msg = (
+        f"Unsupported backend: {config.backend}. "
+        f"Supported: {', '.join(sorted(_DIALECTS))}."
+    )
     raise ValueError(msg)

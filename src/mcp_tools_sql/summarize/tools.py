@@ -23,6 +23,7 @@ from typing import TYPE_CHECKING, Annotated, Any, Literal, Optional
 
 from pydantic import Field
 
+from mcp_tools_sql.backends.base import to_dialect
 from mcp_tools_sql.query_helpers import build_target_params
 from mcp_tools_sql.summarize.render import (
     COLUMN_CAP,
@@ -49,7 +50,6 @@ from mcp_tools_sql.summarize.sql import (
 )
 from mcp_tools_sql.tool_builder import build_tool_fn
 from mcp_tools_sql.tool_logging import log_tool_call
-from mcp_tools_sql.utils.sql_placeholders import to_dialect
 
 try:
     import pyodbc  # pylint: disable=import-error

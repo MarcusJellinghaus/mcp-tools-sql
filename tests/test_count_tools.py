@@ -212,7 +212,7 @@ async def test_preflight_unparseable_fail_closed(sqlite_db: Path) -> None:
         mcp, raise_exceptions=True
     ) as client:
         text = await _call_count(client, "SELECT FROM WHERE")
-    assert text.startswith("Invalid SQL. ParseError: ")
+    assert text.startswith("Invalid SQL. ParseError (SQL parsed as ")
 
 
 # ---------------------------------------------------------------------------
