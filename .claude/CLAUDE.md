@@ -68,6 +68,8 @@ When debugging test failures, add `"-v", "-s", "--tb=short"` to extra_args.
 
 ```
 git commit / add / rebase / push
+gh issue edit (labels only via set-status)
+gh issue view (cross-repo only — otherwise use the MCP tool)
 mcp-coder gh-tool set-status <label>
 ```
 
