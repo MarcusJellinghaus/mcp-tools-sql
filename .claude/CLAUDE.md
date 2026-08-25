@@ -42,6 +42,8 @@ Use MCP tools for **all** operations. Never use `Read`, `Write`, `Edit`, or `Bas
 | `gh pr view` | `mcp__mcp-workspace__github_pr_view` |
 | `gh search` | `mcp__mcp-workspace__github_search` |
 
+Sibling repos are readable in full via the reference tools and `git` with `reference_name` (`get_reference_projects` lists them). Check there before asking about another repo.
+
 ## Code quality checks
 
 After making code changes, run:
@@ -66,10 +68,13 @@ When debugging test failures, add `"-v", "-s", "--tb=short"` to extra_args.
 
 ```
 git commit / add / rebase / push
+gh issue view (cross-repo only — otherwise use the MCP tool)
 mcp-coder gh-tool set-status <label>
 ```
 
 **Status labels:** use `mcp-coder gh-tool set-status` to change issue workflow status — never use raw `gh issue edit` with label flags.
+
+**Slash-prefixed `gh` arguments:** prefix with `MSYS_NO_PATHCONV=1` — Git Bash rewrites a leading `/` into a Windows path.
 
 **Compact diff:** use `mcp__mcp-workspace__git` for code review. Has compact diff built-in with exclude pattern support.
 
@@ -77,7 +82,7 @@ mcp-coder gh-tool set-status <label>
 
 **Bash discipline:** no `cd` prefix, no `git -C` — commands already run in the project directory. Don't chain approved with unapproved commands. Run them separately.
 
-**Commit messages:** standard format, clear and descriptive. No attribution footers.
+**Commit messages:** standard format. See Writing style for length. No attribution footers.
 
 ## Shared Libraries
 
@@ -85,7 +90,11 @@ mcp-coder gh-tool set-status <label>
 
 ## Writing style
 
-Be concise. If one line works, don't use three.
+Be concise. Shorter is better — chat, commits, PRs, docs, comments alike.
+
+Say it once. Never restate what the reader can already see: the diff, the code, the issue, or my own earlier message. Cut it; don't rephrase it.
+
+If a sentence isn't load-bearing, delete it.
 
 ## Asking questions
 
@@ -93,11 +102,19 @@ Never use the AskUserQuestion tool. Ask questions as plain text in the chat.
 
 ## Obsidian knowledge base
 
-An Obsidian vault (`obsidian-dev-wiki`) is available via the `obsidian-wiki` MCP server.
+Shared knowledge base across my repos (`obsidian-dev-wiki`), via the `obsidian-wiki` MCP server.
 
-- **Read first:** At the start of non-trivial tasks, search the vault for relevant context — repo notes, processes, known issues, prior decisions.
-- **Follow processes:** When a task matches a documented process in `Processes/`, follow those steps.
-- **Write back:** Update the vault when you learn something worth preserving for future sessions.
+**Read at the start of non-trivial work:** `Home.md` (index), the `Repos/<current repo>.md` note, and any `Processes/` note matching the task. If a process note covers the task, follow it rather than improvising.
+
+**Write only what passes all three tests:**
+
+- *durable* — still true in 6 months (not status, versions, or task state)
+- *general* — applies beyond the one issue that produced it
+- *homeless* — no better place already exists
+
+Existing homes, check before writing: code and docstrings; the repo's `docs/`; CLAUDE.md for how-I-work rules; the GitHub issue for a single defect's root cause; git history for what changed when.
+
+**Always write to `Field Notes/`**, for Marcus to promote. Only edit `Repos/`, `Processes/`, or `Plans/` when Marcus explicitly asks for it. If an existing note already covers the topic, name it in the Field Note (`Promote into [[Note Name]]`) instead of editing that note. Follow `Conventions.md` for frontmatter and naming.
 
 ## Testing MCP servers
 
