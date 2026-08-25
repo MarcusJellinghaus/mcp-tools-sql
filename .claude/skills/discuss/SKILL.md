@@ -15,6 +15,6 @@ Please offer, whenever possible, simple options like
 - C
 Always just ask ONE question
 
-Keep each round concise and readable — complete sentences, no arrow chains or invented abbreviations. Lead with the outcome.
+Keep each round concise and readable.
 
 Mark the option you prefer and say in one sentence why.
