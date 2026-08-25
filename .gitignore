@@ -33,6 +33,7 @@ build/
 
 # MCP coder session files
 .mcp-coder/
+.mcp_coder_verify.md
 
 uv.lock
 
