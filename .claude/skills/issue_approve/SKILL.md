@@ -1,21 +1,20 @@
 ---
-description: Approve issue to transition to next workflow status, then assign it
+description: Approve issue to transition to next workflow status
 disable-model-invocation: true
 argument-hint: "<issue-number> [--repo owner/repo]"
 allowed-tools:
   - mcp__mcp-workspace__github_issue_view
   - "Bash(gh issue view *)"
   - "Bash(MSYS_NO_PATHCONV=1 gh issue comment *)"
-  - "Bash(gh issue edit *)"
-  - mcp__mcp-tools-py__sleep
   - mcp__mcp-workspace__read_file
 ---
 
 # Approve Issue
 
-Approve the current issue to transition it to the next status in the workflow, then assign it
-to yourself. The GitHub Action only moves the status label — it does not assign, so step 5 is
-part of the procedure, not an optional extra.
+Approve the current issue to transition it to the next status in the workflow.
+
+Assignment is deliberately **not** part of this skill — assigning an issue is done outside the
+process, by hand, to trigger it.
 
 ## Resolve Issue Number
 
@@ -51,15 +50,6 @@ MSYS_NO_PATHCONV=1 gh issue comment <issue_number> --body "/approve"
 
 This triggers the GitHub Action to promote the issue status (e.g., `status-01:created` → `status-02:awaiting-planning`).
 
-4. **Wait 5 seconds** — call `mcp__mcp-tools-py__sleep` with `sleep_seconds: 5` — to let the
-   GitHub Action finish applying the label transition before the next edit.
-
-5. **Assign the issue** to yourself:
-
-```bash
-gh issue edit <issue_number> --add-assignee "@me"
-```
-
-6. Report the issue number, the approval result, and the assignee.
+4. Report the issue number and the approval result.
 
 **Note:** This skill has `disable-model-invocation` — it can only be run by the user typing `/issue_approve`. If you need this skill as a follow-up, tell the user: "Please run `/issue_approve` to proceed."
