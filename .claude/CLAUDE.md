@@ -6,6 +6,15 @@
 
 Use MCP tools for **all** operations. Never use `Read`, `Write`, `Edit`, or `Bash` for tasks that have an MCP equivalent. If no MCP equivalent exists, use Bash. Check the tool mapping table below first.
 
+**Justify Bash.** Before a Bash command or script, say in chat, on two lines:
+
+- *What it does* — one sentence.
+- *Why MCP doesn't* — which tool you'd have used, and what stops it.
+
+If you can't name the gap, use the MCP tool. Exempt: the approved git/gh commands under Git operations.
+
+**No session scratchpad.** MCP tools can't write outside the project. Temporary files go in `.scratch/`.
+
 ### Tool mapping
 
 | Task | MCP tool |
@@ -34,6 +43,7 @@ Use MCP tools for **all** operations. Never use `Read`, `Write`, `Edit`, or `Bas
 | Run ruff fix | `mcp__mcp-tools-py__run_ruff_fix` |
 | Run bandit | `mcp__mcp-tools-py__run_bandit_check` |
 | Format code (black+isort) | `mcp__mcp-tools-py__run_format_code` |
+| Check a Python semantic before claiming it | scratch probe — see [Scratch probes](#scratch-probes) |
 | Get library source | `mcp__mcp-tools-py__get_library_source` |
 | Refactoring | `mcp__mcp-tools-py__move_symbol`, `move_module`, `rename_symbol`, `list_symbols`, `find_references` |
 | Git read-only (fetch, ls-tree, show, ls-files, ls-remote, rev-parse, branch list) | `mcp__mcp-workspace__git` |
@@ -61,6 +71,19 @@ All checks must pass before proceeding.
 **Pytest:** always use `extra_args: ["-n", "auto"]` for parallel execution.
 
 When debugging test failures, add `"-v", "-s", "--tb=short"` to extra_args.
+
+## Scratch probes
+
+Don't assert Python behaviour you haven't run. Probe it:
+
+```python
+mcp__mcp-workspace__save_file(".scratch/test_probe.py", ...)
+mcp__mcp-tools-py__run_pytest_check(extra_args=["-p", "no:cacheprovider", ".scratch/test_probe.py"])
+```
+
+A path argument scopes the run, so a probe costs seconds. Delete when done — `delete_directory(".scratch", recursive=True)`; CI blocks any PR carrying one. `.scratch/` is not gitignored: the MCP file tools refuse ignored paths.
+
+Never use `python -c` via Bash. If you reason instead of running, label the conclusion analytical.
 
 ## Git operations
 
@@ -95,6 +118,8 @@ Be concise. Shorter is better — chat, commits, PRs, docs, comments alike.
 Say it once. Never restate what the reader can already see: the diff, the code, the issue, or my own earlier message. Cut it; don't rephrase it.
 
 If a sentence isn't load-bearing, delete it.
+
+Readable beats short. Cut what I don't need; don't compress what stays — complete sentences, no arrow chains or invented abbreviations. Lead with the outcome.
 
 ## Asking questions
 

@@ -42,6 +42,7 @@ jobs:
         ERROR=0
 
         check_forbidden_folder "pr_info" "Temporary development folder (planning, tracking, review logs)" || ERROR=1
+        check_forbidden_folder ".scratch" "Agent scratch probes (throwaway tests) - delete after the experiment" || ERROR=1
 
         if [ $ERROR -eq 1 ]; then
           echo ""
