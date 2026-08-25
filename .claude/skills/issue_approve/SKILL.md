@@ -13,9 +13,6 @@ allowed-tools:
 
 Approve the current issue to transition it to the next status in the workflow.
 
-Assignment is deliberately **not** part of this skill — assigning an issue is done outside the
-process, by hand, to trigger it.
-
 ## Resolve Issue Number
 
 The user may provide an issue number as the argument (available as `$ARGUMENTS`).
