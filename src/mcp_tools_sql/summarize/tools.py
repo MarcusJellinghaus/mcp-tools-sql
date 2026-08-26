@@ -9,12 +9,20 @@ through :meth:`DatabaseBackend.execute_readonly_query`, and returns a plain
 string.
 
 The per-call ``core`` resolves the profiling source (``summarize/source.py``)
-and then runs the pipeline: column narrow/cap -> filtered ``COUNT(*)``
-short-circuit -> single scalar-aggregate pass -> per-column value lists (deep
-view only) -> :func:`render_summary`. Source resolution runs a backend query of
-its own, so it sits *inside* the same exception tail as the rest. The
-user's ``where`` predicate is validated fail-closed and its ``params`` are
-threaded into *every* predicate-bearing query so ``:name`` placeholders bind.
+-- a persisted table from ``schema``+``table``, or an arbitrary read-only
+SELECT from ``sql``, never both -- and then runs the pipeline: column
+narrow/cap -> filtered ``COUNT(*)`` short-circuit -> single scalar-aggregate
+pass -> per-column value lists (deep view only) -> :func:`render_summary`.
+Source resolution runs a backend query of its own (the catalog lookup on the
+table path, the value probe on the ``sql`` path), so it sits *inside* the same
+exception tail as the rest: a source that parses but cannot be resolved by the
+database comes back as an ``Invalid SQL.`` string, which is the only report the
+caller gets -- there is no ``sql``-path analogue of ``table_not_found_message``.
+
+The ``where`` predicate is validated fail-closed and its ``params`` are threaded
+into *every* predicate-bearing query so ``:name`` placeholders bind. On the
+``sql`` path the predicate filters the derived table from *outside*, so it can
+reference computed and aggregated output columns (``HAVING``-like filtering).
 """
 
 from __future__ import annotations
@@ -38,7 +46,11 @@ from mcp_tools_sql.summarize.render import (
     render_summary,
     unknown_columns_message,
 )
-from mcp_tools_sql.summarize.source import Source, build_table_source
+from mcp_tools_sql.summarize.source import (
+    Source,
+    build_query_source,
+    build_table_source,
+)
 from mcp_tools_sql.summarize.sql import (
     ColumnMeta,
     build_count_sql,
@@ -68,17 +80,36 @@ if TYPE_CHECKING:
 
 
 _DESCRIPTION = (
-    "Profile the data in a table's columns: row/null/distinct counts, "
+    "Profile a table (schema+table) or an arbitrary read-only SELECT (sql) "
+    "— supply one, not both. Per profiled column: row/null/distinct counts, "
     "category-appropriate statistics (min/max/mean/sum for numeric, date "
     "bounds for temporal, length stats for string, true/false counts for "
     "boolean, byte sizes for binary), and duplication-driven value lists "
     "(top values with frequencies when values repeat, a sample when every "
     "value is unique). Read-only. Narrow with columns= and filter with a "
     "read-only where predicate; the predicate must use :name placeholders "
-    "for values, bound via params (never inline literals). Returns a "
-    "formatted text block; tables wider than 15 profiled columns render a "
+    "for values, bound via params (never inline literals). With sql, the "
+    "where predicate is applied OUTSIDE the query, so it can filter computed "
+    "and aggregated columns. The source is executed once per profiled column "
+    "plus three times, so narrow with columns= on expensive queries. Returns "
+    "a formatted text block; sources wider than 15 profiled columns render a "
     "compact one-line-per-column triage instead. n sets the value-list "
     "length (default 20, clamped to 1..50)."
+)
+
+# One message for every way the source choice can be wrong -- both supplied,
+# neither supplied, or a half-supplied schema without its table. One string
+# means one-turn recovery whichever mistake was made.
+SOURCE_CHOICE_MESSAGE: str = "Supply either schema+table or sql, not both."
+
+# Appended to an ``Invalid SQL.`` report on a probed T-SQL source. The probe
+# sees only Python types, so a text/ntext/image column is indistinguishable
+# from an ordinary nvarchar one -- both arrive as ``str`` -- and the scalar
+# pass then emits aggregates SQL Server rejects on a LOB column.
+LOB_HINT: str = (
+    " This can happen when a text/ntext/image column is profiled from a "
+    "sampled type. Exclude it with columns=, or CAST(... AS nvarchar(max)) "
+    "inside the source query."
 )
 
 
@@ -88,24 +119,51 @@ def _base_summarize_params() -> list[inspect.Parameter]:
     The runtime ``connection``/``database`` selector params (added only for
     multi-target installs) are appended separately via
     :func:`build_target_params`, so a single-target signature is exactly these
-    six parameters, all ``POSITIONAL_OR_KEYWORD``.
+    seven parameters, all ``POSITIONAL_OR_KEYWORD``.
+
+    Every source parameter is optional at the signature level: the
+    ``schema``+``table`` / ``sql`` choice is mutually exclusive, so neither
+    pair can be declared required. The choice is enforced in the tool body,
+    which returns :data:`SOURCE_CHOICE_MESSAGE` for any wrong combination.
+    Positional order is cosmetic -- :func:`build_tool_fn` calls the body with
+    keyword arguments only.
 
     Returns:
-        The ``schema`` / ``table`` / ``columns`` / ``where`` / ``params`` / ``n``
-        parameters in order.
+        The ``schema`` / ``table`` / ``sql`` / ``columns`` / ``where`` /
+        ``params`` / ``n`` parameters in order.
     """
     return [
         inspect.Parameter(
             "schema",
             kind=inspect.Parameter.POSITIONAL_OR_KEYWORD,
+            default=None,
             annotation=Annotated[
-                str, Field(description="Owning schema (ignored on SQLite).")
+                Optional[str],  # noqa: UP007
+                Field(description="Owning schema (ignored on SQLite)."),
             ],
         ),
         inspect.Parameter(
             "table",
             kind=inspect.Parameter.POSITIONAL_OR_KEYWORD,
-            annotation=Annotated[str, Field(description="Table to profile.")],
+            default=None,
+            annotation=Annotated[
+                Optional[str],  # noqa: UP007
+                Field(description="Table to profile; requires schema."),
+            ],
+        ),
+        inspect.Parameter(
+            "sql",
+            kind=inspect.Parameter.POSITIONAL_OR_KEYWORD,
+            default=None,
+            annotation=Annotated[
+                Optional[str],  # noqa: UP007
+                Field(
+                    description=(
+                        "Read-only SELECT to profile instead of a table; "
+                        "mutually exclusive with schema+table."
+                    )
+                ),
+            ],
         ),
         inspect.Parameter(
             "columns",
@@ -235,8 +293,9 @@ class SummarizeTools:
         targets = self._targets
 
         async def core(
-            schema: str,
-            table: str,
+            schema: str | None = None,
+            table: str | None = None,
+            sql: str | None = None,
             columns: list[str] | None = None,
             where: str | None = None,
             params: dict[str, Any] | None = None,
@@ -245,17 +304,34 @@ class SummarizeTools:
             connection: str | None = None,
             database: str | None = None,
         ) -> str:
+            # Exactly one source: ``sql`` alone, or ``schema`` *and* ``table``.
+            # Both / neither / a half-supplied table pair share one message.
+            if bool(sql) == bool(schema or table):
+                return SOURCE_CHOICE_MESSAGE
+            if not sql and not (schema and table):
+                return SOURCE_CHOICE_MESSAGE
             try:
                 target = targets.resolve_pinned(connection, database)
             except ValueError as exc:
                 return str(exc)
             backend = registry.backend_for(target)
             dialect = to_dialect(target.backend_name)
+            # On the ``sql`` path the source is the field worth logging, not
+            # the predicate applied outside it.
             async with log_tool_call(
-                "summarize_columns", params or {}, sql=where or ""
+                "summarize_columns", params or {}, sql=sql or where or ""
             ) as rec:
+                # Set before the try so the handler below can read it even
+                # when the source build itself was what raised.
+                built: Source | str | None = None
                 try:
-                    built = build_table_source(backend, schema, table, dialect)
+                    built = (
+                        build_query_source(backend, sql, params, dialect)
+                        if sql
+                        else build_table_source(
+                            backend, schema or "", table or "", dialect
+                        )
+                    )
                     if isinstance(built, str):
                         return built
                     predicate, where_error = validate_where(
@@ -267,7 +343,17 @@ class SummarizeTools:
                         backend, rec, built, predicate, params, columns, n, dialect
                     )
                 except _INVALID_SQL_EXC as exc:
-                    return f"Invalid SQL. {type(exc).__name__}: {exc}"
+                    # A probe failure is not a LOB failure (the probe is a bare
+                    # ``SELECT *``), so ``built`` must already be a resolved
+                    # ``Source``. The dialect term matters too: on SQLite every
+                    # ``sql`` source is probed, and the hint is T-SQL-only.
+                    probed = (
+                        dialect == "tsql"
+                        and isinstance(built, Source)
+                        and built.types_probed
+                    )
+                    message = f"Invalid SQL. {type(exc).__name__}: {exc}"
+                    return (message + LOB_HINT) if probed else message
                 except (KeyError, TypeError, ValueError) as exc:
                     return f"Invalid parameters. {type(exc).__name__}: {exc}"
                 except RuntimeError as exc:
@@ -298,6 +384,11 @@ def _run(
     predicate-bearing query is passed ``params`` so the validated ``where``
     predicate's ``:name`` placeholders bind; the unfiltered zero-match count
     carries no predicate.
+
+    Column resolution deliberately happens *before* the row count, so a
+    zero-row source still pays for it: resolution is what rejects a bad
+    source, and skipping it would report "0 rows" for a query that cannot be
+    resolved at all.
 
     Args:
         backend: The resolved backend to execute read-only queries on.

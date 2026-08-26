@@ -2,7 +2,7 @@
 
 This module owns everything that turns a profiling *source* -- a persisted
 table or a user-supplied SELECT -- into the single :class:`Source` value object
-the rest of the pipeline profiles. Three concerns live here:
+the rest of the pipeline profiles. Four concerns live here:
 
 :func:`build_table_source`
     Resolves the ``schema=``/``table=`` path from the catalog: the metadata
@@ -10,6 +10,11 @@ the rest of the pipeline profiles. Three concerns live here:
     not-found message when the table has no columns. Nothing about this path
     changed when it moved here; it simply produces a :class:`Source` like the
     query path does.
+
+:func:`build_query_source`
+    Resolves the ``sql=`` path by composing the two functions below into the
+    same :class:`Source` shape, and attaches the call-level notes that qualify
+    a probed source.
 
 :func:`validate_source`
     Applies the shared security gates (``basic_preflight`` ->
@@ -198,6 +203,54 @@ def build_table_source(
         metas=metas,
         notes=[],
         types_probed=False,
+    )
+
+
+def build_query_source(
+    backend: DatabaseBackend, sql: str, params: dict[str, Any] | None, dialect: str
+) -> Source | str:
+    """Resolve a user-supplied SELECT into a :class:`Source` via a value probe.
+
+    Composes :func:`validate_source` (security gates, ``ORDER BY`` handling,
+    derived-table reference) and :func:`probe_columns` (output names and
+    inferred declared types), returning the first rejection either produces.
+    The source is *executed* here -- the probe is a real query -- so a source
+    that parses but cannot be resolved by the database (missing table,
+    ambiguous column) raises out of this call and must be handled by the
+    caller's exception tail.
+
+    The resolved source always carries :data:`TYPES_PROBED_NOTE`, and on SQLite
+    additionally :data:`SQLITE_PROBE_TYPE_LIMITS_NOTE`. That second note is
+    gated on the *dialect*, not on ``types_probed``: only SQLite's driver
+    flattens DATE/DATETIME and BOOLEAN values into ``str`` / ``int``, so on
+    T-SQL -- where the probe reads real ``date`` / ``bool`` objects through
+    pyodbc -- the note would be wrong.
+
+    Args:
+        backend: The resolved backend to run the read-only probe on.
+        sql: The user's read-only SELECT, with optional ``:name`` placeholders.
+        params: Bound values for the source's ``:name`` placeholders.
+        dialect: Backend dialect, ``"sqlite"`` or ``"tsql"``.
+
+    Returns:
+        The resolved :class:`Source`, or a rejection message string to return
+        to the caller.
+    """
+    ref, source_notes, error = validate_source(sql, params, dialect)
+    if ref is None:
+        # ``validate_source`` sets exactly one of ``ref`` / ``error``; the
+        # fallback only keeps this branch total.
+        return error or ROOT_REJECTION
+    metas, rejection = probe_columns(backend, ref, params, dialect)
+    if rejection is not None:
+        return rejection
+    sqlite_limits = [SQLITE_PROBE_TYPE_LIMITS_NOTE] if dialect == "sqlite" else []
+    return Source(
+        ref=ref,
+        label=None,
+        metas=metas or [],
+        notes=[*source_notes, TYPES_PROBED_NOTE, *sqlite_limits],
+        types_probed=True,
     )
 
 

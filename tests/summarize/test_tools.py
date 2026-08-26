@@ -1,16 +1,16 @@
-"""Tests for :class:`SummarizeTools` and the ``summarize_columns`` tool.
+"""Tests for :class:`SummarizeTools` and the ``summarize_columns`` table path.
 
 The SQLite cases drive the whole pipeline end-to-end through
 ``create_connected_server_and_client_session``; the MagicMock cases pin
 dialect-specific SQL generation and the distinct-gate decision without a live
-server.
+server. The ``sql=`` source path has its own module,
+``test_tools_query_source.py``; the shared client/call helpers live in
+``tool_helpers.py``.
 """
 
 from __future__ import annotations
 
 import sqlite3
-from collections.abc import AsyncIterator
-from contextlib import asynccontextmanager
 from pathlib import Path
 from typing import Any
 from unittest.mock import MagicMock
@@ -19,61 +19,12 @@ import pytest
 from mcp.server.fastmcp import FastMCP
 from mcp.shared.memory import create_connected_server_and_client_session
 
-from mcp_tools_sql.backends.sqlite import SQLiteBackend
-from mcp_tools_sql.config.models import ConnectionConfig, ResolvedTargets
+from mcp_tools_sql.config.models import ResolvedTargets
 from mcp_tools_sql.summarize import SummarizeTools
+from tests.summarize.tool_helpers import call_summarize as _call_summarize
+from tests.summarize.tool_helpers import client_for as _client_for
+from tests.summarize.tool_helpers import sqlite_backend as _sqlite_backend
 from tests.target_helpers import RecordingRegistry, make_target, single_target
-
-
-def _sqlite_backend(db_path: Path) -> SQLiteBackend:
-    """Return a connected SQLite backend for the given database path."""
-    backend = SQLiteBackend(ConnectionConfig(backend="sqlite", path=str(db_path)))
-    backend.connect()
-    return backend
-
-
-@asynccontextmanager
-async def _client_for(
-    backend: Any, *, backend_name: str = "sqlite"
-) -> AsyncIterator[Any]:
-    """Yield an MCP client with ``summarize_columns`` bound to *backend*."""
-    mcp = FastMCP("test-summarize")
-    SummarizeTools(*single_target(backend, backend_name=backend_name)).register(mcp)
-    async with create_connected_server_and_client_session(
-        mcp, raise_exceptions=True
-    ) as client:
-        yield client
-
-
-async def _call_summarize(
-    client: Any,
-    schema: str,
-    table: str,
-    *,
-    columns: list[str] | None = None,
-    where: str | None = None,
-    params: dict[str, Any] | None = None,
-    n: int | None = None,
-    connection: str | None = None,
-    database: str | None = None,
-) -> str:
-    """Call ``summarize_columns`` via the MCP client and return the text."""
-    args: dict[str, Any] = {"schema": schema, "table": table}
-    if columns is not None:
-        args["columns"] = columns
-    if where is not None:
-        args["where"] = where
-    if params is not None:
-        args["params"] = params
-    if n is not None:
-        args["n"] = n
-    if connection is not None:
-        args["connection"] = connection
-    if database is not None:
-        args["database"] = database
-    result = await client.call_tool("summarize_columns", args)
-    return result.content[0].text  # type: ignore[no-any-return]
-
 
 # ---------------------------------------------------------------------------
 # SQLite end-to-end — deep view per category
