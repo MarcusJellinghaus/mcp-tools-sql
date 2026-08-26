@@ -715,10 +715,11 @@ Without `--log-file`, the server still logs to a file: a new
 MCP clients typically discard a server's stderr, so a file is the only durable
 record of what a launch did — the same reasoning, and the same
 `<name>_<timestamp>.log` filename scheme, as `mcp-workspace` and
-`mcp-tools-py`. `--console-only` opts out of the file entirely; it cannot be
-combined with `--log-file`, which is why the example above uses only one of
-them. An explicit `--log-file` should be absolute: a relative path resolves
-against the client's working directory, which is unpredictable.
+`mcp-tools-py`. `--console-only` opts out of the file entirely and takes
+precedence over `--log-file`, so passing both silently discards the path —
+which is why the example above uses only one of them. An explicit `--log-file`
+should be absolute: a relative path resolves against the client's working
+directory, which is unpredictable.
 
 Or reading from `pyproject.toml`:
 

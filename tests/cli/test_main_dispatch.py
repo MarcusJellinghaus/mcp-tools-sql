@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import argparse
+import inspect
 import sqlite3
 from pathlib import Path
 from typing import Any
@@ -17,7 +18,7 @@ from mcp_tools_sql.main import (
     _resolve_log_level,
     main,
 )
-from mcp_tools_sql.utils.log_utils import OUTPUT
+from mcp_tools_sql.utils.log_utils import OUTPUT, setup_logging
 
 
 def test_dispatch_init_calls_init_run(monkeypatch: pytest.MonkeyPatch) -> None:
@@ -286,6 +287,19 @@ def test_setup_logging_arguments(
     assert (recorded["log_file"] is not None) is expect_file
     assert recorded["console_level"] == expected_console_level
     assert recorded["log_level"] == expected_log_level
+
+
+def test_upstream_setup_logging_accepts_console_level() -> None:
+    """The installed mcp-coder-utils must support the dual-sink parameter.
+
+    Every other test in this package runs against a monkeypatched
+    `setup_logging` (see the autouse fixture in `conftest.py`), so nothing else
+    would notice an mcp-coder-utils older than the `>=0.1.6.dev0` floor —
+    the suite would stay green while every real launch died with
+    `TypeError: unexpected keyword argument 'console_level'`.
+    """
+    parameters = inspect.signature(setup_logging).parameters
+    assert "console_level" in parameters
 
 
 def test_init_subparser_requires_backend() -> None:

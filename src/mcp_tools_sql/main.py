@@ -5,7 +5,6 @@ from __future__ import annotations
 import argparse
 import logging
 import sys
-import traceback
 from datetime import datetime
 from pathlib import Path
 
@@ -151,10 +150,8 @@ def main(argv: list[str] | None = None) -> int:
         except KeyboardInterrupt:
             return 130
         except (ValueError, OSError) as exc:
-            logger.error("%s", exc)
+            logger.error("%s", exc, exc_info=log_level == "DEBUG")
             logger.log(OUTPUT, "Try 'mcp-tools-sql verify' for diagnostics.")
-            if log_level == "DEBUG":
-                traceback.print_exc()
             return 2
     if command == "init":
         return init.run(args)
