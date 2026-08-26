@@ -1,135 +1,183 @@
-# Step 5 — Server startup failures must reach the log file
+# Step 5 — Documentation
 
-**Reference:** [summary.md](./summary.md) §4 "Startup failures now reach the log
-file".
+**Reference:** [summary.md](./summary.md) — all sections.
 
 ## Why
 
-`main.py`'s friendly-error branch `print()`s to stderr, which MCP clients
-discard. After Step 4 a failed launch would produce a log file containing
-nothing about the failure. Routing those messages through
-`logger.log(OUTPUT, ...)` sends them to the file **and**, via the
-`console_level=OUTPUT` handler from Step 4, to stderr as before.
+The logging model is now command-dependent and dual-sink, and the single
+`Default` column in `docs/cli.md` cannot express that. `README.md` currently has
+**zero** mentions of logging. `mcp-tools-sql.md` shows a self-contradictory
+example. The architecture doc's Logging bullets predate both sinks.
+
+Documentation only — no test changes.
 
 ## WHERE
 
-**Modified**
-
-- `src/mcp_tools_sql/main.py` (server error branch, ~lines 115-118)
-- `tests/cli/test_main_dispatch.py`
-  (`test_server_friendly_error_for_bad_config_returns_2`)
+- `docs/cli.md`
+- `README.md`
+- `mcp-tools-sql.md`
+- `docs/architecture/architecture.md`
 
 ## WHAT
 
-### `main.py` — replace the two prints
+### 1. `docs/cli.md` — preamble qualifier (~line 20-23)
 
-Before:
+The preamble says these flags "apply to every subcommand". Add a qualifier
+noting that `--log-level` and `--log-file` **resolve differently per
+subcommand**, with a pointer to the new `### Logging` section.
 
-```python
-        except (ValueError, OSError) as exc:
-            print(f"Error: {exc}", file=sys.stderr)
-            print("Try 'mcp-tools-sql verify' for diagnostics.", file=sys.stderr)
-            if log_level == "DEBUG":
-                traceback.print_exc()
-            return 2
+### 2. `docs/cli.md` — replace the three logging table rows (~lines 31-33)
+
+```markdown
+| `--log-level LEVEL` | per command (see below) | One of `DEBUG`, `INFO`, `OUTPUT`, `WARNING`, `ERROR`. |
+| `--log-file PATH` | per command (see below) | Write structured JSON logs to this file instead of the default path. Ignored when `--console-only` is set. |
+| `--console-only` | off | Suppress the log file; send everything to stderr instead. |
 ```
 
-After:
+Note the deliberate wording change: drop the current "Append logs to this
+file" — appending only matters for an explicit `--log-file`, since the default
+filename is unique per launch.
 
-```python
-        except (ValueError, OSError) as exc:
-            logger.log(OUTPUT, "Error: %s", exc)
-            logger.log(OUTPUT, "Try 'mcp-tools-sql verify' for diagnostics.")
-            if log_level == "DEBUG":
-                traceback.print_exc()
-            return 2
+### 3. `docs/cli.md` — new `### Logging` section
+
+Place it directly below the global-flags table, above `## Commands`:
+
+```markdown
+### Logging
+
+`mcp-tools-sql` writes to two sinks with independent thresholds:
+
+| Sink | Format | Threshold |
+|------|--------|-----------|
+| Log file | structured JSON | the resolved `--log-level` |
+| Console (stderr) | plain text | `OUTPUT` and above — user-facing messages, warnings, errors |
+
+Defaults depend on the command:
+
+| Command | `--log-level` | Log file |
+|---------|---------------|----------|
+| `server` | `INFO` | `~/.mcp-tools-sql/logs/mcp_tools_sql_<timestamp>.log` — a new file per launch |
+| `init`, `verify` | `OUTPUT` | none — console only |
+
+`server` defaults to a file because MCP clients typically discard the server's
+stderr, making the file the only durable record. A failed launch is logged at
+`ERROR`, so the reason it failed is in the file at every `--log-level`. Log
+files are never rotated or deleted, and the server will fail to start if
+`~/.mcp-tools-sql/logs/` cannot be created.
+
+`--log-level` sets the **file** threshold. The console stays at `OUTPUT`
+whenever a log file is in use. To get detailed output inline, use
+`--console-only`: it suppresses the file and sends everything at the resolved
+`--log-level` to stderr. `--console-only` takes precedence over `--log-file`.
 ```
 
-Use `%s` lazy formatting (pylint `W1203` is disabled project-wide, but lazy
-formatting is the surrounding idiom). `logger` already exists at `main.py:17`;
-`OUTPUT` was imported in Step 4.
+Use this draft as-is. It deliberately covers the "fail to start" behaviour so
+it is not later "fixed" as an oversight, and the last paragraph is the single
+rule that also explains why `--log-level ERROR` can make the console *more*
+verbose than the file (console at 25, file at 40).
 
-`traceback.print_exc()` stays as-is — it is a debug-only escape hatch and
-already goes to stderr.
+The `ERROR` sentence is load-bearing given Step 4's split: the exception text
+goes through `logger.error` and so survives every threshold, while the
+"Try 'mcp-tools-sql verify'" hint sits at `OUTPUT` and drops out of the file at
+`--log-level WARNING` and above. Do not promise the hint here.
 
-### Imports
+### 4. `README.md` — new logging subsection
 
-`sys` remains in use (`sys.argv[1:]` in `main()`), so do **not** remove it.
-`traceback` remains in use.
+Insert between `## Quick Start` (ends ~line 60) and `## Configuration`
+(line 62). Keep it **short** — cover the default location, `--console-only` and
+`--log-file`, then link to `docs/cli.md` rather than restating the tables:
 
-## ALGORITHM
+```markdown
+## Logging
 
-None — a two-line substitution.
+The MCP server writes structured JSON logs to a new
+`~/.mcp-tools-sql/logs/mcp_tools_sql_<timestamp>.log` file on every launch —
+MCP clients usually discard a server's stderr, so the file is the only durable
+record. User-facing messages, warnings and errors still appear on the console.
 
-## DATA
-
-Return value unchanged: exit code `2`.
-
-## Tests (TDD — write first)
-
-### Migrate `test_server_friendly_error_for_bad_config_returns_2`
-
-It currently asserts `"Error:" in captured.err`. Once the prints become log
-records, stderr no longer carries them under the no-op `setup_logging` fixture
-from Step 3, so the message assertions move to `caplog`.
-
-**`caplog` does not capture `OUTPUT` records by default** — pytest leaves the
-root logger at `WARNING` and `OUTPUT` is 25, so records are filtered before the
-capture handler and `caplog.records` is silently empty. `caplog.set_level(OUTPUT)`
-is mandatory.
-
-Keep `capsys` for the traceback assertion — `traceback.print_exc()` still writes
-to stderr, so that assertion remains valid unchanged. Using both fixtures is
-simpler than reworking it into `exc_info` introspection.
-
-```python
-@pytest.mark.parametrize(
-    "scenario",
-    ["missing_config", "missing_connection_name", "unknown_backend"],
-)
-def test_server_friendly_error_for_bad_config_returns_2(
-    tmp_path: Path,
-    capsys: pytest.CaptureFixture[str],
-    caplog: pytest.LogCaptureFixture,
-    scenario: str,
-) -> None:
-    """Bad configs produce exit 2 with a friendly logged hint and no traceback."""
-    caplog.set_level(OUTPUT)
-    argv = _build_failing_args(tmp_path, scenario)
-    rc = main(argv)
-    captured = capsys.readouterr()
-    messages = [rec.getMessage() for rec in caplog.records]
-    assert rc == 2
-    assert any("Error:" in msg for msg in messages)
-    assert any("verify" in msg for msg in messages)
-    assert "Traceback" not in captured.err
+```bash
+mcp-tools-sql --log-file /var/log/mcp-tools-sql.log   # explicit file
+mcp-tools-sql --console-only --log-level DEBUG        # no file, verbose stderr
 ```
 
-`_build_failing_args` is unchanged. The three scenarios stay.
+`init` and `verify` log to the console only. See [docs/cli.md](docs/cli.md#logging)
+for thresholds and per-command defaults.
+```
+
+### 5. `mcp-tools-sql.md` — fix the contradictory example (~lines 706-712)
+
+The example passes `--log-file` **and** `--console-only`, which cannot both
+apply. Drop `--console-only`, and use an **absolute** path — relative
+`--log-file` paths resolve against the client's working directory, which is
+unpredictable:
+
+```
+mcp-tools-sql \
+    --config mcp-tools-sql.toml \
+    --log-level DEBUG \
+    --log-file /var/log/mcp-tools-sql/server.log
+```
+
+Add a brief note below on **why** file-by-default, linking to issue #37 and
+naming `mcp-workspace` / `mcp-tools-py` as prior art for the filename scheme.
+
+> Leave the stale `--project-dir` references alone — there are **two**, at
+> ~line 718 and again at ~line 852 inside an MCP-client config JSON example.
+> Both are adjacent to what this step touches, both are wrong (this repo has no
+> `--project-dir` flag; #35 rejected adding one), and both are a different
+> problem than logging. Out of scope here — worth a follow-up issue rather than
+> a silent fix inside a logging PR.
+
+### 6. `docs/architecture/architecture.md` — §6 Cross-cutting Concerns → Logging
+
+Replace the two existing bullets with a short block covering the new design:
+
+- stdlib `logging` with structlog JSON backend (via mcp-coder-utils)
+- `@log_function_call` decorator for timing and parameter capture
+- **Two sinks with independent thresholds**: a JSON file at the resolved
+  `--log-level`, plus a plain-text stderr console at `OUTPUT`
+- **Per-command defaults**: `server` → `INFO` + a per-launch file under
+  `~/.mcp-tools-sql/logs/`; `init`/`verify` → `OUTPUT`, console only.
+  Resolved by the pure helpers `_resolve_log_level` / `_resolve_log_file` in
+  `main.py`
+- `--console-only` suppresses the file and takes precedence over `--log-file`
+- Server startup failures go through `logger.error` (always recorded) plus an
+  `OUTPUT`-level hint, following `mcp_coder`'s CLI convention
+- Paths under the user home come from `utils/user_app_data.py`
+
+Also update the `main.py` row in the §4 "Key Modules" table if its wording
+("CLI: argparse, logging, subcommands") no longer reads accurately.
+
+## ALGORITHM / DATA
+
+None — documentation only.
 
 ## Exit criteria
 
-- The migrated test passes for all three scenarios.
-- Every other test passes unmodified.
-- pylint, pytest, mypy, `tach check`, `lint-imports`, `vulture` all pass.
+- All four files updated; markdown tables render (no broken pipes).
+- The `docs/cli.md` anchor `#logging` referenced from `README.md` exists.
+- pylint, pytest, mypy still pass (nothing executable changed).
+- `mcp__mcp-workspace__check_file_size` still passes (default `max_lines=750`).
 
 ## LLM prompt
 
 > Read `pr_info/steps/summary.md` and `pr_info/steps/step_5.md`.
 >
-> Implement Step 5 only, TDD-first:
-> 1. Migrate `test_server_friendly_error_for_bad_config_returns_2` in
->    `tests/cli/test_main_dispatch.py` to assert the "Error:" and "verify"
->    messages via `caplog` (with a mandatory `caplog.set_level(OUTPUT)`), while
->    keeping the existing `capsys`-based `"Traceback" not in captured.err`
->    assertion. Run it — it should fail.
-> 2. In `src/mcp_tools_sql/main.py`, replace the two
->    `print(..., file=sys.stderr)` calls in the server `except (ValueError,
->    OSError)` branch with `logger.log(OUTPUT, ...)` using lazy `%s`
->    formatting. Leave `traceback.print_exc()` alone, and do not remove the
->    `sys` or `traceback` imports — both are still used.
+> Implement Step 5 only — documentation, no code:
+> 1. `docs/cli.md`: qualify the global-flags preamble, replace the three
+>    logging rows in the table, and add the `### Logging` section below the
+>    table using the draft wording in the step file verbatim.
+> 2. `README.md`: add a short `## Logging` section between Quick Start and
+>    Configuration, linking to `docs/cli.md#logging` rather than restating the
+>    tables.
+> 3. `mcp-tools-sql.md`: fix the server example that passes both `--log-file`
+>    and `--console-only` (drop `--console-only`, use an absolute path) and add
+>    a brief note on why file-by-default, referencing issue #37 and the
+>    mcp-workspace / mcp-tools-py prior art. Leave both stale `--project-dir`
+>    lines (~718 and ~852) alone.
+> 4. `docs/architecture/architecture.md`: update the §6 Logging bullets for the
+>    dual-sink model and per-command defaults.
 >
 > Use MCP tools for all file operations. Then run `run_pylint_check`,
-> `run_pytest_check` with `extra_args=["-n","auto"]`, `run_mypy_check`,
-> `run_tach_check`, `run_lint_imports_check` and `run_vulture_check`, and
-> confirm all pass.
+> `run_pytest_check` with `extra_args=["-n","auto"]` and `run_mypy_check` to
+> confirm nothing regressed.

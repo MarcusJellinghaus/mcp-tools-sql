@@ -66,7 +66,26 @@ diff minimal).
 
 `main.py`'s friendly-error branch currently `print()`s to stderr, which MCP
 clients discard — so the new log file would record nothing about a failed
-launch. Those become `logger.log(OUTPUT, ...)`, which reaches **both** sinks.
+launch. It moves onto the logger, split the way `mcp_coder`'s CLI splits it
+(`cli/main.py:203-207` and four sibling sites):
+
+| Line | Call | Reaches the file at |
+|------|------|---------------------|
+| the exception text | `logger.error("%s", exc)` | **every** `--log-level` (40 ≥ all choices) |
+| the "try `verify`" hint | `logger.log(OUTPUT, ...)` | `DEBUG` / `INFO` / `OUTPUT` only |
+
+Both reach the console, which sits at `OUTPUT` whenever a file exists. Logging
+the error at `ERROR` rather than `OUTPUT` is what makes "startup failures must
+reach the file" true unconditionally — an `OUTPUT`-level record would be
+filtered out at `--log-level WARNING` or `ERROR`, i.e. exactly when a user has
+turned verbosity *down* to see only problems. The hint dropping out at those
+levels is fine: it is decoration, and `mcp_coder` treats its hints the same.
+
+The `"Error: "` literal is dropped. `CleanFormatter` prefixes `LEVEL: ` for any
+record above `OUTPUT` (`mcp_coder_utils/log_utils.py:90-91`), so the console
+renders `ERROR: <exc>`; keeping the literal would give `ERROR: Error: <exc>`.
+`mcp_coder` logs bare exceptions for the same reason (`commit.py:85`, `:99`,
+`:119`).
 
 ### 5. New `utils/user_app_data.py` shim
 
@@ -94,6 +113,12 @@ its value is `None`. Hence:
 - All five CI install sites pre-install it from git.
 - `[tool.uv.sources]` / `[tool.mcp-coder.install-from-github]` are uncommented
   for local dev.
+- **Step 1 also upgrades the dev venv** to that same git `main` and verifies
+  both the resolved version and the `console_level` keyword. The venv currently
+  holds `0.1.5.dev4+g67c11cc76`, before `console_level`; without the upgrade
+  Step 4 fails with a `TypeError` that reads like a code bug. Declaring a floor
+  the environment cannot satisfy is the same change, so it belongs in the same
+  step — and Step 1's exit criteria are what prove it resolves.
 
 The `.dev0` suffix is load-bearing: setuptools-scm turns a git-main install
 into `0.1.6.devN+g55f29d8`, which PEP 440 sorts **below** a plain `0.1.6`. A
@@ -116,20 +141,6 @@ to `logger.log(OUTPUT, ...)`; adopting `console_level` in the sister repos; an
 `upstream-mypy-check.yml` workflow; relaxing the dependency floor once 0.1.6
 ships.
 
-## Prerequisite — upgrade the local environment first
-
-The dev venv has `mcp-coder-utils 0.1.5.dev4+g67c11cc76` — **two commits before
-`console_level`** (verified by probing the installed `setup_logging`
-signature). Before Step 3:
-
-```
-uv pip install --force-reinstall --no-deps "mcp-coder-utils @ git+https://github.com/MarcusJellinghaus/mcp-coder-utils.git"
-```
-
-Skip it and every test run fails with
-`TypeError: setup_logging() got an unexpected keyword argument 'console_level'`,
-which reads like a code bug rather than a stale dependency.
-
 ## Files created / modified
 
 ### Created
@@ -147,19 +158,19 @@ which reads like a code bug rather than a stale dependency.
 |------|--------|------|
 | `pyproject.toml` | `mcp-coder-utils>=0.1.6.dev0`; uncomment uv/github sources | 1 |
 | `.github/workflows/ci.yml` | git pre-install of mcp-coder-utils at 5 install sites | 1 |
+| `tools/reinstall_local.sh` / `.bat` | reorder GitHub overrides before the project install — **only if** Step 1's verification shows the floor failing to resolve | 1 |
 | `tach.toml` | add `mcp_tools_sql.utils` to `cli.commands` deps | 2 |
 | `src/mcp_tools_sql/cli/commands/init.py` | `_database_config_path()` uses the shim | 2 |
 | `src/mcp_tools_sql/config/loader.py` | default db-config path uses the shim | 2 |
 | `src/mcp_tools_sql/verification/config_files.py` | default db-config path uses the shim | 2 |
 | `src/mcp_tools_sql/utils/log_utils.py` | re-export `OUTPUT` | 3 |
 | `src/mcp_tools_sql/main.py` | `_resolve_log_level`, `--log-level` choices/default | 3 |
-| `src/mcp_tools_sql/main.py` | `_resolve_log_file`, `console_level` wiring, help text | 4 |
-| `src/mcp_tools_sql/main.py` | error path → `logger.log(OUTPUT, ...)` | 5 |
-| `tests/cli/test_main_dispatch.py` | resolver tests, `setup_logging` arg checks, caplog migration | 3–5 |
-| `docs/cli.md` | rewritten logging rows + new `### Logging` section | 6 |
-| `README.md` | new logging subsection | 6 |
-| `mcp-tools-sql.md` | fix contradictory example; why file-by-default | 6 |
-| `docs/architecture/architecture.md` | §6 Logging: dual sinks, per-command defaults | 6 |
+| `src/mcp_tools_sql/main.py` | `_resolve_log_file`, `console_level` wiring, help text, error path → `logger.error` + `logger.log(OUTPUT, ...)` | 4 |
+| `tests/cli/test_main_dispatch.py` | resolver tests, `setup_logging` arg checks, caplog migration | 3–4 |
+| `docs/cli.md` | rewritten logging rows + new `### Logging` section | 5 |
+| `README.md` | new logging subsection | 5 |
+| `mcp-tools-sql.md` | fix contradictory example; why file-by-default | 5 |
+| `docs/architecture/architecture.md` | §6 Logging: dual sinks, per-command defaults | 5 |
 
 ### Deliberately untouched
 
@@ -176,16 +187,16 @@ which reads like a code bug rather than a stale dependency.
 
 | # | File | Summary |
 |---|------|---------|
-| 1 | [step_1.md](./step_1.md) | Dependency floor + CI git install of mcp-coder-utils |
+| 1 | [step_1.md](./step_1.md) | Dependency floor + CI git install + dev venv upgrade of mcp-coder-utils |
 | 2 | [step_2.md](./step_2.md) | `utils/user_app_data.py` shim; replace 3 path literals; tach |
 | 3 | [step_3.md](./step_3.md) | `OUTPUT` re-export; `_resolve_log_level`; `tests/cli/conftest.py` |
-| 4 | [step_4.md](./step_4.md) | `_resolve_log_file`; default server log file; `console_level` |
-| 5 | [step_5.md](./step_5.md) | Server error path → `logger.log(OUTPUT, ...)` |
-| 6 | [step_6.md](./step_6.md) | Docs: `cli.md`, `README.md`, `mcp-tools-sql.md`, architecture |
+| 4 | [step_4.md](./step_4.md) | `_resolve_log_file`; default server log file; `console_level`; error path onto the logger |
+| 5 | [step_5.md](./step_5.md) | Docs: `cli.md`, `README.md`, `mcp-tools-sql.md`, architecture |
 
 Each step is **one commit**: tests + implementation + all checks green
 (pylint, pytest, mypy, plus `tach check`, `lint-imports`, `vulture`,
-`tools/check_no_url_deps.py`, and `./tools/format_all.sh` before committing).
+`tools/check_no_url_deps.py`, and `mcp__mcp-tools-py__run_format_code` before
+committing).
 
 ## Follow-up not covered here
 

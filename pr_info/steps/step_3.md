@@ -3,12 +3,6 @@
 **Reference:** [summary.md](./summary.md) §2 "Per-command logging defaults" and
 §3 "`OUTPUT` log level adopted".
 
-> **Prerequisite:** upgrade the local venv to mcp-coder-utils `main` before
-> starting this step (summary.md, "Prerequisite"). The installed 0.1.5 predates
-> `console_level`; Step 4 will fail with a confusing `TypeError` without it.
-> `OUTPUT` itself has been exported upstream for far longer, so Step 3 works
-> either way — but do the upgrade now so Step 4 is unblocked.
-
 ## Why
 
 `--log-level` currently hardcodes `default="INFO"`, which cannot express a
@@ -167,10 +161,6 @@ def test_resolve_log_level(argv: list[str], expected: str) -> None:
 
 > Read `pr_info/steps/summary.md` and `pr_info/steps/step_3.md`.
 >
-> First, confirm the local venv has mcp-coder-utils from git `main` (the
-> installed `setup_logging` must accept a `console_level` keyword). If it does
-> not, stop and tell the user the upgrade command from summary.md.
->
 > Implement Step 3 only, TDD-first:
 > 1. Create `tests/cli/conftest.py` with the autouse `no_op_setup_logging`
 >    fixture described in the step file.
@@ -186,8 +176,8 @@ def test_resolve_log_level(argv: list[str], expected: str) -> None:
 >    pass the resolved level; change the traceback branch to test the resolved
 >    `log_level`.
 >
-> Do **not** add `_resolve_log_file` or `console_level` in this step — that is
-> Step 4. Do not touch the `print()` calls in the error branch — that is Step 5.
+> Do **not** add `_resolve_log_file`, `console_level`, or any change to the
+> `print()` calls in the server error branch — all three are Step 4.
 >
 > Use MCP tools for all file operations. Then run `run_pylint_check`,
 > `run_pytest_check` with `extra_args=["-n","auto"]`, `run_mypy_check`,
