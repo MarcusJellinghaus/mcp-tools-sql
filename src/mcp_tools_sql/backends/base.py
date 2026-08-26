@@ -84,6 +84,33 @@ class DatabaseBackend(ABC):
         """
 
     @abstractmethod
+    def execute_readonly_query_with_columns(
+        self, sql: str, params: dict[str, Any] | None = None
+    ) -> tuple[list[str], list[tuple[Any, ...]]]:
+        """Execute a SELECT read-only, returning column names and raw rows.
+
+        Same DB-enforced read-only guarantee as
+        :meth:`execute_readonly_query` (SQLite: a fresh single-use
+        ``PRAGMA query_only = ON`` connection; MSSQL: the documented
+        read-only login), but the result keeps the projection shape:
+        ordered column names plus positional row tuples. Unlike the dict
+        form, this preserves duplicate column names — which is why callers
+        that need per-ordinal values (the ``summarize`` value probe) use it.
+
+        Implies connected: backends MUST connect lazily on first call. After
+        ``close()``, further calls raise ``RuntimeError``.
+
+        Args:
+            sql: The SELECT statement to execute.
+            params: Optional values for ``:name`` placeholders in *sql*.
+
+        Returns:
+            Tuple ``(columns, rows)``: column names in projection order, and
+            one plain tuple per row positionally aligned with *columns*. Both
+            are empty when the statement produces no result set.
+        """
+
+    @abstractmethod
     def execute_update(self, sql: str, params: dict[str, Any] | None = None) -> int:
         """Execute an UPDATE/INSERT and return affected row count.
 

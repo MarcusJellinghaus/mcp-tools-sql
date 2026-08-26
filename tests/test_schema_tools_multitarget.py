@@ -399,6 +399,16 @@ class _FanoutBackend(DatabaseBackend):
         """
         raise NotImplementedError
 
+    def execute_readonly_query_with_columns(
+        self, sql: str, params: dict[str, Any] | None = None
+    ) -> tuple[list[str], list[tuple[Any, ...]]]:
+        """Unused in these tests.
+
+        Raises:
+            NotImplementedError: Always.
+        """
+        raise NotImplementedError
+
     def execute_update(self, sql: str, params: dict[str, Any] | None = None) -> int:
         """Unused in these tests.
 

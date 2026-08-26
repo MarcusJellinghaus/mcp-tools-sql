@@ -207,6 +207,36 @@ class MSSQLBackend(DatabaseBackend):
         """
         return self.execute_query(sql, params)
 
+    def execute_readonly_query_with_columns(
+        self, sql: str, params: dict[str, Any] | None = None
+    ) -> tuple[list[str], list[tuple[Any, ...]]]:
+        """Execute a SELECT, returning column names and raw row tuples.
+
+        MSSQL's read-only guarantee comes from a documented read-only login
+        (``db_datareader`` + ``db_denydatawriter``), not a per-call session
+        setting, so this runs on the persistent connection exactly like
+        :meth:`execute_query`. Only the result shape differs: names are taken
+        from ``cursor.description`` and rows stay positional, so duplicate
+        column names survive instead of collapsing into one dict key.
+
+        Args:
+            sql: The SELECT statement to execute.
+            params: Optional values for ``:name`` placeholders in *sql*.
+
+        Returns:
+            Tuple ``(columns, rows)``: column names in projection order, and
+            one plain tuple per row positionally aligned with *columns*.
+        """
+        conn = self._ensure_connected()
+        sql_q, args = self._params_for_pyodbc(sql, params)
+        cursor = conn.cursor()
+        try:
+            cursor.execute(sql_q, args)
+            columns = [d[0] for d in cursor.description or ()]
+            return columns, [tuple(row) for row in cursor.fetchall()]
+        finally:
+            cursor.close()
+
     def execute_update(self, sql: str, params: dict[str, Any] | None = None) -> int:
         """Execute an UPDATE/INSERT.
 

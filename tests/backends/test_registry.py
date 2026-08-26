@@ -50,6 +50,11 @@ class _FakeBackend(DatabaseBackend):
     ) -> list[dict[str, Any]]:
         return []
 
+    def execute_readonly_query_with_columns(
+        self, sql: str, params: dict[str, Any] | None = None
+    ) -> tuple[list[str], list[tuple[Any, ...]]]:
+        return [], []
+
     def execute_update(self, sql: str, params: dict[str, Any] | None = None) -> int:
         return 0
 

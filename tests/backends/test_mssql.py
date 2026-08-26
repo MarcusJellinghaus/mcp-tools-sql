@@ -388,6 +388,57 @@ class TestQueries:
         cur.execute.assert_called_once_with("SELECT col FROM t WHERE x = ?", [1])
         assert rows == [{"col": "v"}]
 
+    def test_readonly_with_columns_keeps_duplicate_names(
+        self, fake_pyodbc: Any
+    ) -> None:
+        """Repeated names survive; execute_query collapses them into one key."""
+        conn = fake_pyodbc.connect.return_value
+        cur = conn.cursor.return_value
+        cur.description = [("id",), ("name",), ("id",), ("city",)]
+        cur.fetchall.return_value = [(1, "Bank A", 1, "Berlin")]
+        b = MSSQLBackend(_cfg())
+        columns, rows = b.execute_readonly_query_with_columns(
+            "SELECT a.id, a.name, b.id, b.city FROM t a JOIN t b ON a.id = b.id"
+        )
+        assert columns == ["id", "name", "id", "city"]
+        assert rows == [(1, "Bank A", 1, "Berlin")]
+        # The dict form loses the repeated ``id`` column.
+        assert len(b.execute_query("SELECT 1")[0]) == 3
+        cur.close.assert_called()
+
+    def test_readonly_with_columns_translates_named_params(
+        self, fake_pyodbc: Any
+    ) -> None:
+        conn = fake_pyodbc.connect.return_value
+        cur = conn.cursor.return_value
+        cur.description = [("col",)]
+        cur.fetchall.return_value = [("v",)]
+        b = MSSQLBackend(_cfg())
+        columns, rows = b.execute_readonly_query_with_columns(
+            "SELECT col FROM t WHERE x = :x", {"x": 1}
+        )
+        cur.execute.assert_called_once_with("SELECT col FROM t WHERE x = ?", [1])
+        assert (columns, rows) == (["col"], [("v",)])
+
+    def test_readonly_with_columns_no_result_set(self, fake_pyodbc: Any) -> None:
+        """``cursor.description is None`` → empty column list, no crash."""
+        conn = fake_pyodbc.connect.return_value
+        cur = conn.cursor.return_value
+        cur.description = None
+        cur.fetchall.return_value = []
+        b = MSSQLBackend(_cfg())
+        assert b.execute_readonly_query_with_columns("SELECT 1") == ([], [])
+
+    def test_readonly_with_columns_closes_cursor_on_error(
+        self, fake_pyodbc: Any
+    ) -> None:
+        cur = fake_pyodbc.connect.return_value.cursor.return_value
+        cur.execute.side_effect = RuntimeError("boom")
+        b = MSSQLBackend(_cfg())
+        with pytest.raises(RuntimeError, match="boom"):
+            b.execute_readonly_query_with_columns("SELECT 1")
+        cur.close.assert_called_once()
+
     def test_explain_wraps_with_showplan(self, fake_pyodbc: Any) -> None:
         cur = fake_pyodbc.connect.return_value.cursor.return_value
         cur.fetchall.return_value = [("plan-line",)]
@@ -556,6 +607,33 @@ class TestMSSQLIntegration:
             ro_rows = b.execute_readonly_query(sql, {"country": "Germany"})
             rw_rows = b.execute_query(sql, {"country": "Germany"})
         assert ro_rows == rw_rows == [{"name": "Bank A"}]
+
+    def test_readonly_with_columns_matches_dict_form(
+        self, mssql_db: MSSQLTestEnv
+    ) -> None:
+        """Names and values agree with execute_readonly_query's dict rows."""
+        sql = f"SELECT id, name FROM {mssql_db.schema}.customers ORDER BY id"
+        with MSSQLBackend(mssql_db.config) as b:
+            columns, rows = b.execute_readonly_query_with_columns(sql)
+            dict_rows = b.execute_readonly_query(sql)
+        assert columns == ["id", "name"]
+        assert rows == [(1, "Bank A"), (2, "Bank B")]
+        assert [dict(zip(columns, row)) for row in rows] == dict_rows
+
+    def test_readonly_with_columns_keeps_duplicate_names(
+        self, mssql_db: MSSQLTestEnv
+    ) -> None:
+        """A real self-join keeps one entry per projected column."""
+        sql = (
+            "SELECT a.id, a.name, b.id, b.country "
+            f"FROM {mssql_db.schema}.customers a "
+            f"JOIN {mssql_db.schema}.customers b ON a.id = b.id "
+            "ORDER BY a.id"
+        )
+        with MSSQLBackend(mssql_db.config) as b:
+            columns, rows = b.execute_readonly_query_with_columns(sql)
+        assert len(columns) == 4
+        assert rows[0] == (1, "Bank A", 1, "Germany")
 
     def test_explain_returns_text_plan(self, mssql_db: MSSQLTestEnv) -> None:
         with MSSQLBackend(mssql_db.config) as b:
