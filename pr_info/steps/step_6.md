@@ -33,7 +33,8 @@ integration test there proves nothing about the shipping permission model.
 
 | File | Change |
 |---|---|
-| `src/mcp_tools_sql/summarize/source.py` | `describe_columns` (DMF) + dispatch inside `build_query_source` |
+| `src/mcp_tools_sql/summarize/source.py` | `describe_columns` (DMF) + dispatch inside `build_query_source`; **owns `INVALID_SQL_EXC`** (moved from `tools.py`) |
+| `src/mcp_tools_sql/summarize/tools.py` | Imports `INVALID_SQL_EXC` from `summarize.source`; drops its local `_PYODBC_ERROR` / `_INVALID_SQL_EXC` definitions |
 | `tests/summarize/test_source.py` | DMF SQL shape, parsing, fallback |
 | `tests/summarize/test_tools.py` | One T-SQL end-to-end-shaped MagicMock test |
 | `tests/backends/test_mssql.py` | Optional `mssql_integration` test against a live server |
@@ -49,6 +50,9 @@ DMF_SQL: str = (
 )
 DMF_FALLBACK_NOTE: str   # names the reason; printed alongside TYPES_PROBED_NOTE
 
+# Moved here from tools.py — see HOW. Public, because tools.py now imports it.
+INVALID_SQL_EXC: tuple[type[BaseException], ...] = (sqlite3.Error, *_PYODBC_ERROR)
+
 def describe_columns(
     backend: DatabaseBackend, ref: exp.Subquery, params: dict[str, Any] | None
 ) -> tuple[list[ColumnMeta] | None, str | None]: ...
@@ -56,6 +60,16 @@ def describe_columns(
 
 ## HOW
 
+- **Move the exception tuple first.** The fallback dispatch has to catch the same
+  `sqlite3.Error` / `pyodbc.Error` family that `core` catches, but that tuple is
+  `_INVALID_SQL_EXC` in `summarize/tools.py` (line ~61) and `source.py` cannot import it:
+  `tools.py` already imports `source.py` (steps 4–5), so the reverse edge is a cycle. Move
+  the `try: import pyodbc` block, `_PYODBC_ERROR`, and the tuple into `source.py` as the
+  public `INVALID_SQL_EXC`, delete them from `tools.py`, and have `tools.py` import
+  `INVALID_SQL_EXC` from `mcp_tools_sql.summarize.source` alongside `Source`,
+  `build_query_source`, and `build_table_source`. Verbatim move — no logic change — and
+  `core`'s `except` clause just renames. No new layer edges: both modules are in
+  `summarize`.
 - The batch is passed as a **bound** `nvarchar` argument (`:src`), so nothing is
   concatenated into the DMF call. Its *contents* are produced by
   `substitute_named_with_literals(ref.this.sql(dialect="tsql"), params or {}, "tsql")` —
@@ -72,7 +86,7 @@ def describe_columns(
 - The same column-name rejection from step 3 applies to DMF rows (`name` can be `NULL` for
   an unnamed expression); reuse the one helper.
 - `build_query_source` dispatch: `tsql` → `describe_columns`, and on **any** failure
-  (`_INVALID_SQL_EXC`, or an empty result set) fall back to `probe_columns` with
+  (`INVALID_SQL_EXC`, or an empty result set) fall back to `probe_columns` with
   `DMF_FALLBACK_NOTE` added. `sqlite` → `probe_columns` unchanged. `types_probed` is
   `False` only when the DMF succeeded — so the LOB hint and the types-probed note both
   follow the actual resolver used.
@@ -132,7 +146,10 @@ the probe with both notes shown; SQLite is untouched; all three MCP checks green
 > rows.** If it returned a permission error, stop and report — this step is dropped by
 > design, not worked around.
 >
-> Then implement step 6 only, test-first: add `describe_columns` and the
+> Then implement step 6 only, test-first. Start by moving `_INVALID_SQL_EXC` (and its
+> `pyodbc` import guard) from `summarize/tools.py` into `summarize/source.py` as the public
+> `INVALID_SQL_EXC`, re-pointing `tools.py` at it — `source.py` cannot import `tools.py`,
+> which already imports `source.py`. Then add `describe_columns` and the
 > `DMF_SQL` / `DMF_FALLBACK_NOTE` constants to `src/mcp_tools_sql/summarize/source.py`, and
 > make `build_query_source` prefer the DMF on `tsql` with a fallback to `probe_columns`
 > that records both notes. Do not change the SQLite path.

@@ -25,7 +25,7 @@ every existing test must pass **unchanged**, which is exactly what proves it.
 @dataclass(frozen=True)
 class Source:
     ref: SourceRef                # exp.Table for a table, exp.Subquery for a query
-    label: str | None             # "dbo.orders" / "orders" on SQLite; None for a query
+    label: str | None             # "dbo.orders" / "main.orders" — always schema.table; None for a query
     metas: list[ColumnMeta]
     notes: list[str]
     types_probed: bool
@@ -57,14 +57,25 @@ def _run(                          # 10 params -> 8; schema/table/table_ref coll
   it runs `metadata_sql(dialect)` with `{"schema": schema, "table": table}`, returns
   `table_not_found_message(schema, table)` when no rows come back, and otherwise builds a
   `Source` with `notes=[]` and `types_probed=False`.
-- `label` is `f"{schema}.{table}"` on `tsql` and `table` on `sqlite` — matching what
-  `build_table_ref` already does with the schema per decision 20. The messages prepend the
-  word "Table".
+- `label` is `f"{schema}.{table}"` on **both** dialects. It is a *message* descriptor, not a
+  SQL reference: `empty_table_message` and `table_not_found_message` both print
+  `schema.table` today regardless of dialect (`Table main.empty_t is empty (0 rows).` on
+  SQLite), so dropping the schema on `sqlite` — the way `build_table_ref` does per
+  decision 20 — would change the rendered message and split the two messages apart.
+  `build_table_ref` keeps its own dialect rule; `label` does not copy it. The messages
+  prepend the word "Table".
 - Message bodies branch on `label is None`; the table wording stays **byte-identical**:
   - `empty_source_message`: `Table dbo.orders is empty (0 rows). Use read_columns for its column definitions.` / `The source query returned 0 rows.`
   - `empty_filter_message`: `No rows match the where predicate (table has 50,000 rows).` / `… (source has 50,000 rows).`
 - `core` calls `build_table_source` **before** `validate_where`, because `validate_where`
   now needs the ref (`source.ref`); the `str` return short-circuits.
+- **Widen the existing `try` to cover the source build.** `build_table_source` runs the
+  metadata query, which today lives *inside* `_run` and therefore inside `core`'s
+  `except _INVALID_SQL_EXC / (KeyError, TypeError, ValueError) / RuntimeError / Exception`
+  tail. Hoisting it out of `_run` must not hoist it out of the `try`, or a backend failure
+  that today returns `Database connection error. …` / `Invalid SQL. …` would escape `core`
+  uncaught. Move the `try:` up so it opens before `build_table_source` and closes after
+  `_run`; the four handler bodies are unchanged.
 - Notes footer plumbing: collect `source.notes` and the existing `clamp_note` into one list
   and join them into the trailing block. With a table source the list contains at most the
   clamp note, so the rendered output is unchanged today.
@@ -73,11 +84,17 @@ def _run(                          # 10 params -> 8; schema/table/table_ref coll
 
 ```
 core(...):
-    built = build_table_source(backend, schema, table, dialect)
-    if isinstance(built, str): return built
-    predicate, err = validate_where(where, built.ref, params, dialect)
-    if err: return err
-    return _run(backend, rec, built, predicate, params, columns, n, dialect)
+    async with log_tool_call(...) as rec:
+        try:                                          # the EXISTING exception tail,
+            built = build_table_source(backend, schema, table, dialect)
+            if isinstance(built, str): return built
+            predicate, err = validate_where(where, built.ref, params, dialect)
+            if err: return err
+            return _run(backend, rec, built, predicate, params, columns, n, dialect)
+        except _INVALID_SQL_EXC as exc: ...           # widened to cover the source build.
+        except (KeyError, TypeError, ValueError) as exc: ...   # All four handlers stay
+        except RuntimeError as exc: ...                        # exactly as they are today.
+        except Exception as exc: ...
 
 _run(...):
     narrowed = _narrow_columns(source.metas, columns)         # unchanged
@@ -97,8 +114,9 @@ _run(...):
 
 `tests/summarize/test_source.py`
 1. `build_table_source` on a MagicMock backend returns a `Source` whose `metas` match the
-   metadata rows, `label` is `dbo.orders` on tsql and `orders` on sqlite, `notes == []`,
-   `types_probed is False`.
+   metadata rows, `label` is `dbo.orders` on tsql **and `main.orders` on sqlite** (the
+   schema is not dropped — `label` is a message descriptor, not a SQL reference),
+   `notes == []`, `types_probed is False`.
 2. Empty metadata rows → the exact `table_not_found_message` text.
 
 `tests/summarize/test_render.py`
@@ -111,6 +129,15 @@ _run(...):
 `tests/summarize/test_tools.py`
 6. **Unchanged.** Every existing test passing untouched is the acceptance criterion for
    this step. Do not edit them beyond what a renamed import forces.
+7. **New — full empty-table text pinned end to end.** The existing SQLite test asserts only
+   the substring `"is empty (0 rows)"`, so it cannot catch a label regression. Add an
+   assertion on the *whole* message for a zero-row SQLite table:
+   `Table main.empty_t is empty (0 rows). Use read_columns for its column definitions.`
+8. **New — backend failure still returns a message.** With a MagicMock backend whose
+   `execute_readonly_query` raises `sqlite3.OperationalError` on the metadata query, the
+   tool returns a string starting `Invalid SQL.`; with `RuntimeError`, one starting
+   `Database connection error.`. Nothing propagates out of the tool. This pins the widened
+   `try`.
 
 ## ACCEPTANCE
 
@@ -129,7 +156,11 @@ needs it); all three MCP checks green.
 >
 > This is a **pure refactor**: `summarize_columns` still takes only `schema` and `table`,
 > and every assertion in `tests/summarize/test_tools.py` must pass unedited. Keep the table
-> path's message wording byte-identical. Do not add the `sql` parameter yet.
+> path's message wording byte-identical — `label` is `schema.table` on **both** dialects,
+> because the messages print the schema on SQLite today. Widen `core`'s existing `try` so it
+> opens before `build_table_source`: that call runs the metadata query, which is inside the
+> `try` today, and moving it out would let backend errors escape the tool. Do not add the
+> `sql` parameter yet.
 >
 > Use MCP tools for all file and check operations. When done, run
 > `mcp__tools-py__run_pylint_check`, `mcp__tools-py__run_pytest_check`

@@ -140,7 +140,7 @@ threshold and column cap; the `n` clamp; the value-list shapes; `table_not_found
 | `src/mcp_tools_sql/count_tools.py` | Import the moved helper/message | 2 |
 | `src/mcp_tools_sql/summarize/sql.py` | `SourceRef` alias, widened hints, `validate_where(table_ref, …)`, `ColumnMeta.note` | 3 |
 | `src/mcp_tools_sql/summarize/render.py` | Inline type note; `empty_source_message` / `empty_filter_message` take a label | 3, 4 |
-| `src/mcp_tools_sql/summarize/tools.py` | `Source`-based `_run`; `sql` param; notes footer; description | 4, 5 |
+| `src/mcp_tools_sql/summarize/tools.py` | `validate_where` call site (3); `Source`-based `_run` + widened `try` (4); `sql` param, notes footer, description (5); `INVALID_SQL_EXC` import (6) | 3, 4, 5, 6 |
 | `docs/architecture/architecture.md` | Backend-method row; `summarize` package row | 5 |
 | `mcp-tools-sql.md` | Updated `summarize_columns` signature line (line ~216) | 5 |
 | `tests/backends/test_sqlite.py`, `test_mssql.py`, `test_registry.py` | New method tests; `_FakeBackend` double | 1 |
@@ -148,7 +148,7 @@ threshold and column cap; the `n` clamp; the value-list shapes; `table_not_found
 | `tests/test_sql_placeholders.py`, `tests/test_count_tools.py` | Moved-helper tests; message assertion | 2 |
 | `tests/summarize/test_sql.py` | `validate_where` call sites (~12, mechanical) | 3 |
 | `tests/summarize/test_render.py` | Message tests; inline note test | 3, 4 |
-| `tests/summarize/test_tools.py` | End-to-end `sql=` tests | 5, 6 |
+| `tests/summarize/test_tools.py` | Empty-table text pin + backend-failure guards (4); end-to-end `sql=` tests (5, 6) | 4, 5, 6 |
 
 ---
 
@@ -205,6 +205,8 @@ schema-creating login.
 | Source/`schema`+`table` conflict | One constant for both "both" and "neither" | One string, one-turn recovery |
 | LOB failure hint | Appended at the existing `except` tail in `core` | No new try/except, no error-code sniffing |
 | Zero-row source | Resolution stays before the count | Resolution is what rejects a bad source (deliberate, per the issue) |
+| Source build inside `core`'s `try` | Widen the existing tail to open before `build_table_source` / `build_query_source` | Both execute a backend query (metadata / probe / DMF); the metadata query is inside the `try` today, and an unresolvable `sql` source has no `table_not_found` analogue — the backend error *is* the report |
+| `Source.label` on SQLite | `schema.table`, not bare `table` | The status messages print the schema on both dialects today; `build_table_ref`'s decision-20 rule is about SQL, not message text |
 | Test fixtures | Reuse `profiling_db`; self-join `profile_me` | No new fixture for the join / duplicate-name cases |
 
 ---

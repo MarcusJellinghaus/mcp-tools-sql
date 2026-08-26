@@ -15,6 +15,7 @@ value probe. No tool wiring yet; nothing user-visible changes.
 | `src/mcp_tools_sql/summarize/source.py` | **New.** `validate_source`, `probe_columns`, notes constants |
 | `src/mcp_tools_sql/summarize/sql.py` | `SourceRef` alias, widened `table_ref` hints, `validate_where(where, table_ref, params, dialect)`, `ColumnMeta.note` |
 | `src/mcp_tools_sql/summarize/render.py` | Render the inline type note in the column header |
+| `src/mcp_tools_sql/summarize/tools.py` | **Call site only.** `core` builds `table_ref` before `validate_where` and passes it (line ~258); import list at line ~49 unchanged (`build_table_ref` is still used) |
 | `tests/summarize/test_source.py` | **New.** |
 | `tests/summarize/test_sql.py` | ~12 mechanical `validate_where` call-site updates |
 | `tests/summarize/test_render.py` | One inline-note test |
@@ -66,7 +67,21 @@ def probe_columns(
   `categorize_type` from `summarize.sql`. It imports `DatabaseBackend` for typing only
   (`TYPE_CHECKING`), matching `tools.py`. No new `tach.toml` / `.importlinter` edges.
 - `validate_where` no longer calls `build_table_ref` itself — the caller passes the ref it
-  already built, and the probe becomes
+  already built. Its **only** production caller is `summarize/tools.py`'s `core`, which
+  today calls `validate_where(where, schema, table, params, dialect)` at line ~258 and
+  builds `table_ref` at line ~263. Swap those two lines so the ref is built first and
+  passed in:
+
+  ```python
+  table_ref = build_table_ref(schema, table, dialect)
+  predicate, where_error = validate_where(where, table_ref, params, dialect)
+  ```
+
+  That one call site **must** change in this same commit or mypy and pytest fail; it is the
+  only edit `tools.py` receives in step 3 (no `Source`, no `sql` param — those are steps 4
+  and 5). The import block at line ~49 is unchanged: `build_table_ref` and `validate_where`
+  are both still imported.
+- The probe becomes
   `f"SELECT 1 FROM {table_ref.sql(dialect=dialect)} WHERE {where}"`. For a `Subquery` ref
   that renders the **re-rendered parsed** source, never the raw user text.
 - `render.py` column header becomes
@@ -167,6 +182,10 @@ follow that test if the observed form differs). Message names the recovery:
 16. A `ColumnMeta` with `note` renders `(unknown, string — …)`; with `note == ""` the header
     is byte-identical to today.
 
+`tests/summarize/test_tools.py`
+17. **Unchanged.** The `core` call-site swap is behaviour-preserving; every existing
+    `where`-path test must pass unedited.
+
 ## ACCEPTANCE
 
 No user-visible change yet. All existing summarize tests pass (after the mechanical
@@ -184,8 +203,13 @@ No user-visible change yet. All existing summarize tests pass (after the mechani
 >
 > Write `tests/summarize/test_source.py` first. Update the ~12 `validate_where` call sites
 > in `tests/summarize/test_sql.py` mechanically — do not change what they assert. Do not
-> move any existing function between modules, and do not wire anything into
-> `summarize/tools.py` yet.
+> move any existing function between modules.
+>
+> `summarize/tools.py` gets **exactly one** edit in this step: `core` must build
+> `table_ref` before calling `validate_where` and pass it in, because that is
+> `validate_where`'s only production caller and the commit will not typecheck otherwise. Do
+> not add `Source`, the `sql` parameter, or any notes plumbing to `tools.py` yet — those are
+> steps 4 and 5.
 >
 > Use MCP tools for all file and check operations. When done, run
 > `mcp__tools-py__run_pylint_check`, `mcp__tools-py__run_pytest_check`
