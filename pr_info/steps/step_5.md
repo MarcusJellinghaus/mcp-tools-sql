@@ -62,9 +62,18 @@ cosmetic — `build_tool_fn` calls the body with keyword arguments only.
   — `table_not_found_message` has no `sql`-path analogue — so it must come back as a
   returned string, not as an exception escaping the tool.
 - LOB hint: at the existing `except _INVALID_SQL_EXC` tail in `core`, append `LOB_HINT`
-  when `source.types_probed` is set. No new try/except and no error-code sniffing — under
-  the probe a `text`/`ntext`/`image` column types as `str`, so the scalar pass emits
-  `LEN`/`MIN`/`MAX` and SQL Server rejects the whole statement.
+  when `dialect == "tsql"` **and** `source.types_probed` is set. No new try/except and no
+  error-code sniffing.
+  - *Why it is still reachable.* The probe sees only Python types, so a
+    `text`/`ntext`/`image` column is indistinguishable from an ordinary `nvarchar` one —
+    both arrive as `str`, and step 3 types them `"nvarchar"` → category `string`. The
+    scalar pass therefore emits `MIN`/`MAX`/`COUNT(DISTINCT)`/`LEN` on the LOB column and
+    SQL Server rejects the whole statement. This is the deliberate cost of *not* mapping
+    `str` to `"TEXT"`: that would dodge the failure only by degrading every ordinary
+    string column to `other` (see step 3).
+  - *Why the dialect gate.* On SQLite every `sql=` source has `types_probed` set and
+    SQLite has no LOB restriction, so an ungated hint would staple T-SQL-only advice
+    (`text`/`ntext`/`image`, `CAST(... AS nvarchar(max))`) onto unrelated SQLite errors.
 - `_DESCRIPTION` additions, three sentences, kept tight because it ships on every request:
   1. `Profile a table (schema+table) or an arbitrary read-only SELECT (sql) — supply one, not both.`
   2. `With sql, the where predicate is applied OUTSIDE the query, so it can filter computed and aggregated columns.`
@@ -88,7 +97,8 @@ core(...):
             if err: return err
             return _run(backend, rec, built, predicate, params, columns, n, dialect)
         except _INVALID_SQL_EXC as exc:
-            probed = isinstance(built, Source) and built.types_probed
+            probed = (dialect == "tsql"
+                      and isinstance(built, Source) and built.types_probed)
             return f"Invalid SQL. {type(exc).__name__}: {exc}" + (LOB_HINT if probed else "")
         except (KeyError, TypeError, ValueError) as exc: ...   # unchanged
         except RuntimeError as exc: ...                        # unchanged
@@ -100,7 +110,10 @@ it must sit inside this `try` — it is the single most likely place for a SQL e
 new path, and per the issue an unresolvable source has no `table_not_found` analogue: the
 backend error *is* the report. `built` is initialised to `None` first so the handler is
 safe when the source build itself raised; a probe failure is not a LOB failure (the probe
-is a bare `SELECT *`), so no hint is appended in that case.
+is a bare `SELECT *`), so no hint is appended in that case. The `dialect == "tsql"` term
+carries the rest: on SQLite `types_probed` is set for *every* `sql=` source, so without it
+the T-SQL-only hint would ride along on any unrelated SQLite error raised after the source
+built.
 
 ## DATA
 
@@ -144,6 +157,14 @@ End-to-end against `profiling_db` through `create_connected_server_and_client_se
 14. **MagicMock T-SQL** — the rendered count / scalar / value-list SQL uses
     `FROM (…) AS src`; and a `pyodbc`-style error on a probed source returns the message
     with `LOB_HINT` appended.
+14b. **MagicMock T-SQL, probed string column** — a source whose probe returns `str` values
+    profiles as `string` on `tsql`: the rendered scalar SQL carries `COUNT(DISTINCT)` and
+    `LEN` (not the `other` shape's `DATALENGTH`-only aggregates) and a value-list query is
+    issued for that column. This is step 3's mapping fix reached through the tool.
+15. **No LOB hint on SQLite.** MagicMock backend whose probe succeeds and whose *count*
+    query then raises `sqlite3.OperationalError`: the returned string starts `Invalid SQL.`
+    and does **not** contain `LOB_HINT`, even though `types_probed` is set. Guards the
+    `dialect == "tsql"` term.
 
 ## ACCEPTANCE
 
@@ -157,7 +178,8 @@ The issue's motivating example works on SQLite end to end; the table path is unc
 > Implement step 5 only, test-first: add `build_query_source` to
 > `src/mcp_tools_sql/summarize/source.py`, add the `sql` parameter and the
 > mutual-exclusivity check to `summarize/tools.py`, append the call-level notes footer
-> beside the existing clamp note, add the LOB hint at the existing `except` tail, and
+> beside the existing clamp note, add the LOB hint at the existing `except` tail — gated on
+> `dialect == "tsql"` **and** `types_probed`, never on `types_probed` alone — and
 > update `_DESCRIPTION`, `docs/architecture/architecture.md`, and the
 > `summarize_columns` signature line in `mcp-tools-sql.md`.
 >

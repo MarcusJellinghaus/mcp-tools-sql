@@ -111,7 +111,7 @@ probe_columns(backend, ref, params, dialect):
     bad = _name_rejection(names);  if bad: return (None, bad)
     for idx, name in enumerate(names):
         value = first non-None in (row[idx] for row in rows)          # None if all NULL/no rows
-        decl = _declared_type_for(value) if value is not None else "unknown"
+        decl = _declared_type_for(value, dialect) if value is not None else "unknown"
         meta = ColumnMeta(name, decl, categorize_type(decl, dialect), idx, note="")
         if value is None: meta = replace(meta, category="string", note=UNKNOWN_TYPE_NOTE)
     return (metas, None)
@@ -124,6 +124,9 @@ answer.
 
 ### Python value → declared type (probe only)
 
+`_declared_type_for(value, dialect)` takes the dialect: the last row below is
+dialect-dependent, because `categorize_type` is.
+
 | Value type | Declared type | Category via `categorize_type` |
 |---|---|---|
 | `bool` | `"bit"` | boolean (pyodbc only; `sqlite3` yields `int` for booleans — documented, accepted) |
@@ -133,9 +136,18 @@ answer.
 | `datetime` | `"datetime"` | temporal — **not** `"timestamp"`, which T-SQL maps to `other` (rowversion) |
 | `date` | `"date"` | temporal |
 | `bytes` / `bytearray` | `"BLOB"` | other |
-| anything else | `"TEXT"` | string |
+| anything else | `"TEXT"` on `sqlite`, `"nvarchar"` on `tsql` | string on both |
 
 Order matters: `bool` before `int`, `datetime` before `date`.
+
+**The `str` row must not be `"TEXT"` on T-SQL.** `categorize_type` guards
+`text`/`ntext`/`image` as `other` on `tsql` (the LOB guard in `sql.py`), so a probed
+`"TEXT"` would categorise **every** string column as `other` — no distinct, no length
+stats, no value list — on exactly the path where the probe is the only resolver (step 5
+until step 6 lands, and permanently if step 6's prerequisite comes back denied).
+`"nvarchar"` contains the `char` token, so it categorises as `string` on both dialects.
+`"TEXT"` is kept on `sqlite` so the rendered `declared_type` matches what the table path
+already prints there (`(TEXT, string)`).
 
 ### Column-name rejection
 
@@ -166,7 +178,15 @@ follow that test if the observed form differs). Message names the recovery:
 8. `:name` placeholders inside the source survive into the rendered ref.
 
 `probe_columns` (MagicMock backend returning canned `(names, rows)`)
-9. Mixed types map to the table above; ordinals ascend.
+9. Mixed types map to the table above; ordinals ascend. Parameterise over both dialects
+   so the `str` row is asserted on each.
+9b. **T-SQL string regression guard.** A probed `str` value under `dialect="tsql"` yields
+    `declared_type == "nvarchar"` and `category == "string"` — **not** `"other"`. Assert the
+    category directly, then assert the consequence: `build_scalar_sql` for that
+    `ColumnMeta` emits the string aggregates (`COUNT(DISTINCT)`, `LEN`, `MIN`/`MAX`) and
+    **not** the `other` shape (`DATALENGTH`, no distinct), and `build_value_list_sql`
+    builds a list for it. The same value under `dialect="sqlite"` keeps
+    `declared_type == "TEXT"` and `category == "string"`.
 10. All-`NULL` column → `declared_type == "unknown"`, `category == "string"`, `note` set.
 11. Zero rows returned → every column resolves "unknown" without raising.
 12. First value `NULL`, second non-`NULL` → the second decides the type.
@@ -200,6 +220,10 @@ No user-visible change yet. All existing summarize tests pass (after the mechani
 > `ColumnMeta.note` field in `summarize/sql.py`, widen the `table_ref` hints, change
 > `validate_where` to take the already-built `table_ref`, and render the inline note in
 > `summarize/render.py`.
+>
+> The probe's Python-value → declared-type mapping takes the **dialect**: a `str` must type
+> as `"nvarchar"` on `tsql`, never `"TEXT"`, or `categorize_type`'s LOB guard sweeps every
+> string column into `other`. Test 9b is the regression guard for that.
 >
 > Write `tests/summarize/test_source.py` first. Update the ~12 `validate_where` call sites
 > in `tests/summarize/test_sql.py` mechanically — do not change what they assert. Do not
