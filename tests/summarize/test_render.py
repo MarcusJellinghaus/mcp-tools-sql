@@ -144,6 +144,50 @@ def test_all_null_column_has_no_value_list() -> None:
     assert "sample values" not in out
 
 
+def test_column_note_renders_inline_in_the_header() -> None:
+    """A ColumnMeta note is appended to the header's type/category cell."""
+    profile = ColumnProfile(
+        meta=ColumnMeta(
+            name="notes",
+            declared_type="unknown",
+            category="string",
+            ordinal=0,
+            note="type not determined: all sampled values were NULL",
+        ),
+        rows=10,
+        non_null=0,
+        distinct=0,
+        stats={"empty": 0, "len_min": None, "len_max": None, "len_avg": None},
+        values=None,
+        value_kind="none",
+    )
+
+    out = render_deep([profile])
+
+    assert out.splitlines()[0] == (
+        "notes  (unknown, string — type not determined: "
+        "all sampled values were NULL)"
+    )
+
+
+def test_empty_column_note_leaves_the_header_unchanged() -> None:
+    """The default empty note renders byte-identically to today's header."""
+    profile = ColumnProfile(
+        meta=_meta("customer_city", "varchar", "string"),
+        rows=10,
+        non_null=10,
+        distinct=4,
+        stats={"empty": 0, "len_min": 2, "len_max": 8, "len_avg": 5.0},
+        values=None,
+        value_kind="none",
+    )
+
+    out = render_deep([profile])
+
+    assert out.splitlines()[0] == "customer_city  (varchar, string)"
+    assert "—" not in out.splitlines()[0]
+
+
 def test_numeric_block_thousands_separators() -> None:
     """Numeric block: min/max/mean/sum/zero/neg with thousands separators."""
     profile = ColumnProfile(

@@ -255,12 +255,12 @@ class SummarizeTools:
             async with log_tool_call(
                 "summarize_columns", params or {}, sql=where or ""
             ) as rec:
+                table_ref = build_table_ref(schema, table, dialect)
                 predicate, where_error = validate_where(
-                    where, schema, table, params, dialect
+                    where, table_ref, params, dialect
                 )
                 if where_error is not None:
                     return where_error
-                table_ref = build_table_ref(schema, table, dialect)
                 try:
                     return _run(
                         backend,

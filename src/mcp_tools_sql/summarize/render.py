@@ -367,6 +367,10 @@ def _render_values(p: ColumnProfile) -> list[str]:
 def _render_block(p: ColumnProfile) -> str:
     """Render one column's full labelled block: header, stats, value list.
 
+    The header carries the column's inline :attr:`ColumnMeta.note` after the
+    category when one is set (``(unknown, string — type not determined: …)``);
+    with the usual empty note the header is unchanged.
+
     Args:
         p: The profile to render.
 
@@ -375,7 +379,8 @@ def _render_block(p: ColumnProfile) -> str:
     """
     meta = p.meta
     nulls = p.rows - p.non_null
-    lines = [f"{meta.name}  ({meta.declared_type}, {meta.category})"]
+    note = f" — {meta.note}" if meta.note else ""
+    lines = [f"{meta.name}  ({meta.declared_type}, {meta.category}{note})"]
     lines += _STAT_DISPATCH[meta.category](p, p.rows, nulls)
     lines += _render_values(p)
     return "\n".join(lines)
