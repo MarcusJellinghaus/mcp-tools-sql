@@ -1,10 +1,12 @@
 """Tests for the summarize source resolver (``summarize/source.py``).
 
-Two concerns, both exercised without a real database: ``validate_source`` turns
+Three concerns, all exercised without a real database: ``validate_source`` turns
 a user SELECT into a validated, aliased derived-table reference (reusing the
-shared preflight / read-only / leading-CTE gates), and ``probe_columns``
-resolves that reference's output columns from a few-row value probe against a
-``MagicMock`` backend returning canned ``(names, rows)``.
+shared preflight / read-only / leading-CTE gates), ``probe_columns`` resolves
+that reference's output columns from a few-row value probe against a
+``MagicMock`` backend returning canned ``(names, rows)``, and
+``build_table_source`` resolves the persisted-table path from canned catalog
+rows.
 
 The probe's Python-value -> declared-type mapping is dialect-dependent on
 purpose; the T-SQL string row (``nvarchar``, never ``TEXT``) and the SQLite
@@ -29,6 +31,8 @@ from mcp_tools_sql.summarize.source import (
     TYPES_PROBED_NOTE,
     UNKNOWN_TYPE,
     UNKNOWN_TYPE_NOTE,
+    Source,
+    build_table_source,
     probe_columns,
     validate_source,
 )
@@ -418,3 +422,67 @@ def test_probe_sql_is_built_from_the_parsed_source() -> None:
 
     probe_sql = backend.execute_readonly_query_with_columns.call_args[0][0]
     assert probe_sql == f"SELECT * FROM (SELECT a FROM t) AS src LIMIT {PROBE_ROWS}"
+
+
+# --- build_table_source ----------------------------------------------------
+
+
+def _catalog_backend(rows: list[dict[str, Any]]) -> MagicMock:
+    """Build a backend double whose metadata query returns ``rows``.
+
+    Returns:
+        The configured :class:`MagicMock` backend.
+    """
+    backend = MagicMock()
+    backend.execute_readonly_query.return_value = rows
+    return backend
+
+
+@pytest.mark.parametrize(
+    ("dialect", "schema", "label", "string_type"),
+    [
+        ("tsql", "dbo", "dbo.orders", "nvarchar"),
+        ("sqlite", "main", "main.orders", "TEXT"),
+    ],
+)
+def test_build_table_source_from_catalog_rows(
+    dialect: str, schema: str, label: str, string_type: str
+) -> None:
+    """The catalog rows become the metas; the label is ``schema.table`` on both.
+
+    ``label`` is a *message* descriptor, not a SQL reference: the status
+    messages print the schema on SQLite too, so it never drops the schema the
+    way ``build_table_ref`` does.
+    """
+    backend = _catalog_backend(
+        [
+            {"name": "id", "type": "INTEGER", "ordinal": 0},
+            {"name": "Note", "type": string_type, "ordinal": 1},
+        ]
+    )
+
+    built = build_table_source(backend, schema, "orders", dialect)
+
+    assert isinstance(built, Source)
+    assert built.label == label
+    assert [m.name for m in built.metas] == ["id", "Note"]  # declared casing kept
+    assert [m.declared_type for m in built.metas] == ["INTEGER", string_type]
+    assert [m.category for m in built.metas] == ["numeric", "string"]
+    assert [m.ordinal for m in built.metas] == [0, 1]
+    assert built.notes == []
+    assert built.types_probed is False
+    assert isinstance(built.ref, exp.Table)
+
+    meta_sql, meta_params = backend.execute_readonly_query.call_args[0]
+    assert meta_params == {"schema": schema, "table": "orders"}
+    assert "orders" not in meta_sql  # bound, never concatenated
+
+
+def test_build_table_source_empty_metadata_returns_not_found() -> None:
+    """No metadata rows is the not-found message, not an empty profile."""
+    built = build_table_source(_catalog_backend([]), "dbo", "orders", "tsql")
+
+    assert built == (
+        "Table dbo.orders not found (no such table or no columns). "
+        "Check the schema and table name."
+    )

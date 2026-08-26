@@ -1,8 +1,15 @@
 """Source resolution for the ``summarize_columns`` tool.
 
-This module owns everything that turns a *user-supplied* SELECT into something
-the rest of the summarize pipeline can profile, without touching the persisted
-table path. Two concerns live here:
+This module owns everything that turns a profiling *source* -- a persisted
+table or a user-supplied SELECT -- into the single :class:`Source` value object
+the rest of the pipeline profiles. Three concerns live here:
+
+:func:`build_table_source`
+    Resolves the ``schema=``/``table=`` path from the catalog: the metadata
+    query, the ``ColumnMeta`` assembly, and the table reference, or the
+    not-found message when the table has no columns. Nothing about this path
+    changed when it moved here; it simply produces a :class:`Source` like the
+    query path does.
 
 :func:`validate_source`
     Applies the shared security gates (``basic_preflight`` ->
@@ -33,6 +40,7 @@ around.
 
 from __future__ import annotations
 
+from dataclasses import dataclass
 from datetime import date, datetime
 from decimal import Decimal
 from typing import TYPE_CHECKING, Any
@@ -40,7 +48,14 @@ from typing import TYPE_CHECKING, Any
 import sqlglot
 from sqlglot import exp
 
-from mcp_tools_sql.summarize.sql import ColumnMeta, categorize_type
+from mcp_tools_sql.summarize.render import table_not_found_message
+from mcp_tools_sql.summarize.sql import (
+    ColumnMeta,
+    SourceRef,
+    build_table_ref,
+    categorize_type,
+    metadata_sql,
+)
 from mcp_tools_sql.utils.sql_placeholders import (
     LEADING_CTE_REJECTION,
     basic_preflight,
@@ -109,6 +124,81 @@ _NAME_REJECTION: str = (
 
 # Placeholder printed for an empty/missing name in the rejection message.
 _UNNAMED_LABEL: str = "(unnamed)"
+
+
+@dataclass(frozen=True)
+class Source:
+    """A resolved profiling source: what to profile and what to say about it.
+
+    Built once per call -- by :func:`build_table_source` for the
+    ``schema=``/``table=`` path, by the query path for ``sql=`` -- and consumed
+    by the rest of the pipeline, which never branches on which path produced
+    it.
+
+    Attributes:
+        ref: What every query builder does ``.from_()`` on: an ``exp.Table``
+            for a persisted table, an aliased ``exp.Subquery`` for a query.
+        label: The source descriptor used in status messages
+            (``dbo.orders`` / ``main.orders`` -- always ``schema.table``, on
+            both dialects, because the messages print the schema on both), or
+            ``None`` for a query source. It is *not* a SQL reference:
+            :func:`build_table_ref` keeps its own dialect rule.
+        metas: The resolved per-column metadata, in output order.
+        notes: Call-level footer sentences, in print order. Empty for a table
+            source, whose types come from the catalog with nothing to qualify.
+        types_probed: Whether the types in ``metas`` were inferred from sampled
+            values rather than read from a catalog.
+    """
+
+    ref: SourceRef
+    label: str | None
+    metas: list[ColumnMeta]
+    notes: list[str]
+    types_probed: bool
+
+
+def build_table_source(
+    backend: DatabaseBackend, schema: str, table: str, dialect: str
+) -> Source | str:
+    """Resolve a persisted table into a :class:`Source` from the catalog.
+
+    Runs the per-dialect metadata query with bound ``:schema`` / ``:table``
+    values and assembles one :class:`ColumnMeta` per returned row, carrying the
+    catalog's declared casing, type and ordinal through unchanged. A table with
+    no metadata rows does not exist (or has no columns), which is a message to
+    the caller rather than an empty profile.
+
+    Args:
+        backend: The resolved backend to run the read-only metadata query on.
+        schema: Owning schema (bound into the metadata query and the label).
+        table: Table name (bound into the metadata query and the label).
+        dialect: Backend dialect, ``sqlite`` or ``tsql``.
+
+    Returns:
+        The resolved :class:`Source`, or the ``table_not_found`` message string
+        to return to the caller when the metadata query came back empty.
+    """
+    meta_rows = backend.execute_readonly_query(
+        metadata_sql(dialect), {"schema": schema, "table": table}
+    )
+    if not meta_rows:
+        return table_not_found_message(schema, table)
+    metas = [
+        ColumnMeta(
+            name=r["name"],
+            declared_type=r["type"],
+            category=categorize_type(r["type"], dialect),
+            ordinal=r["ordinal"],
+        )
+        for r in meta_rows
+    ]
+    return Source(
+        ref=build_table_ref(schema, table, dialect),
+        label=f"{schema}.{table}",
+        metas=metas,
+        notes=[],
+        types_probed=False,
+    )
 
 
 def validate_source(

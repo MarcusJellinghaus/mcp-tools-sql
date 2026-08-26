@@ -8,9 +8,11 @@ tool that resolves its ``(connection, database)`` target per call via
 through :meth:`DatabaseBackend.execute_readonly_query`, and returns a plain
 string.
 
-The per-call ``core`` runs the profiling pipeline: metadata query -> column
-narrow/cap -> filtered ``COUNT(*)`` short-circuit -> single scalar-aggregate
-pass -> per-column value lists (deep view only) -> :func:`render_summary`. The
+The per-call ``core`` resolves the profiling source (``summarize/source.py``)
+and then runs the pipeline: column narrow/cap -> filtered ``COUNT(*)``
+short-circuit -> single scalar-aggregate pass -> per-column value lists (deep
+view only) -> :func:`render_summary`. Source resolution runs a backend query of
+its own, so it sits *inside* the same exception tail as the rest. The
 user's ``where`` predicate is validated fail-closed and its ``params`` are
 threaded into *every* predicate-bearing query so ``:name`` placeholders bind.
 """
@@ -32,20 +34,17 @@ from mcp_tools_sql.summarize.render import (
     ColumnProfile,
     empty_columns_message,
     empty_filter_message,
-    empty_table_message,
+    empty_source_message,
     render_summary,
-    table_not_found_message,
     unknown_columns_message,
 )
+from mcp_tools_sql.summarize.source import Source, build_table_source
 from mcp_tools_sql.summarize.sql import (
     ColumnMeta,
     build_count_sql,
     build_scalar_sql,
-    build_table_ref,
     build_value_list_sql,
-    categorize_type,
     clamp_n,
-    metadata_sql,
     validate_where,
 )
 from mcp_tools_sql.tool_builder import build_tool_fn
@@ -255,24 +254,17 @@ class SummarizeTools:
             async with log_tool_call(
                 "summarize_columns", params or {}, sql=where or ""
             ) as rec:
-                table_ref = build_table_ref(schema, table, dialect)
-                predicate, where_error = validate_where(
-                    where, table_ref, params, dialect
-                )
-                if where_error is not None:
-                    return where_error
                 try:
+                    built = build_table_source(backend, schema, table, dialect)
+                    if isinstance(built, str):
+                        return built
+                    predicate, where_error = validate_where(
+                        where, built.ref, params, dialect
+                    )
+                    if where_error is not None:
+                        return where_error
                     return _run(
-                        backend,
-                        rec,
-                        schema,
-                        table,
-                        table_ref,
-                        predicate,
-                        params,
-                        columns,
-                        n,
-                        dialect,
+                        backend, rec, built, predicate, params, columns, n, dialect
                     )
                 except _INVALID_SQL_EXC as exc:
                     return f"Invalid SQL. {type(exc).__name__}: {exc}"
@@ -288,32 +280,29 @@ class SummarizeTools:
         mcp.add_tool(fn, name="summarize_columns", description=_DESCRIPTION)
 
 
-def _run(  # noqa: PLR0913
+def _run(
     backend: DatabaseBackend,
     rec: Any,
-    schema: str,
-    table: str,
-    table_ref: Any,
+    source: Source,
     predicate: Any,
     params: dict[str, Any] | None,
     columns: list[str] | None,
     n: int,
     dialect: str,
 ) -> str:
-    """Execute the metadata -> count -> scalar -> value-list profiling pipeline.
+    """Execute the count -> scalar -> value-list profiling pipeline.
 
-    Split out of ``core`` so the ``count_tools`` exception tail wraps a single
-    call. Every predicate-bearing query is passed ``params`` so the validated
-    ``where`` predicate's ``:name`` placeholders bind; the metadata query takes
-    its own ``{schema, table}`` dict and the unfiltered zero-match count carries
-    no predicate.
+    Source-agnostic: everything it needs about *what* is being profiled -- the
+    reference to select from, the column metadata, the message label, and any
+    call-level notes -- arrives in the already-resolved ``source``. Every
+    predicate-bearing query is passed ``params`` so the validated ``where``
+    predicate's ``:name`` placeholders bind; the unfiltered zero-match count
+    carries no predicate.
 
     Args:
         backend: The resolved backend to execute read-only queries on.
         rec: The open :class:`ToolCallRecord` to record the profiled shape on.
-        schema: Owning schema (for the metadata query and messages).
-        table: Table name (for the metadata query and messages).
-        table_ref: The dialect table reference from :func:`build_table_ref`.
+        source: The resolved :class:`Source` to profile.
         predicate: The validated ``where`` predicate AST, or ``None``.
         params: Bound values for the predicate's ``:name`` placeholders.
         columns: Requested column names, ``None`` for all, ``[]`` an error.
@@ -323,21 +312,8 @@ def _run(  # noqa: PLR0913
     Returns:
         The rendered profiling block / triage table / status message.
     """
-    meta_rows = backend.execute_readonly_query(
-        metadata_sql(dialect), {"schema": schema, "table": table}
-    )
-    if not meta_rows:
-        return table_not_found_message(schema, table)
-    metas = [
-        ColumnMeta(
-            name=r["name"],
-            declared_type=r["type"],
-            category=categorize_type(r["type"], dialect),
-            ordinal=r["ordinal"],
-        )
-        for r in meta_rows
-    ]
-    narrowed = _narrow_columns(metas, columns)
+    table_ref = source.ref
+    narrowed = _narrow_columns(source.metas, columns)
     if isinstance(narrowed, str):
         return narrowed
     total_columns, profiled = narrowed
@@ -351,8 +327,8 @@ def _run(  # noqa: PLR0913
             total_rows = backend.execute_readonly_query(
                 build_count_sql(table_ref, None, dialect), params
             )[0]["row_count"]
-            return empty_filter_message(total_rows)
-        return empty_table_message(schema, table)
+            return empty_filter_message(total_rows, source.label)
+        return empty_source_message(source.label)
 
     view = "triage" if len(profiled) > TRIAGE_THRESHOLD else "deep"
     include_distinct = view == "deep" or rows <= DISTINCT_GATE_ROWS
@@ -397,6 +373,12 @@ def _run(  # noqa: PLR0913
     summary = render_summary(
         profiles, total_columns, distinct_gated=not include_distinct
     )
+    # Call-level notes and the clamp note share one trailing block, so the
+    # renderers keep their signatures. A table source contributes no notes, so
+    # this is the clamp note alone -- exactly what it was before.
+    footer = [*source.notes]
     if clamp_note:
-        return f"{summary}\n\n{clamp_note}"
+        footer.append(clamp_note)
+    if footer:
+        return f"{summary}\n\n" + "\n".join(footer)
     return summary

@@ -17,7 +17,7 @@ from mcp_tools_sql.summarize.render import (
     column_cap_footer,
     empty_columns_message,
     empty_filter_message,
-    empty_table_message,
+    empty_source_message,
     render_deep,
     render_summary,
     render_triage,
@@ -661,16 +661,24 @@ def test_triage_ungated_none_distinct_blanks_without_literal_none() -> None:
     assert "None" not in out  # the literal None never reaches tabulate
 
 
-def test_empty_table_message_exact_wording() -> None:
-    assert empty_table_message("dbo", "orders") == (
+def test_empty_source_message_labelled_exact_wording() -> None:
+    # A labelled source is a table: byte-identical to the pre-Source wording.
+    assert empty_source_message("dbo.orders") == (
         "Table dbo.orders is empty (0 rows). "
         "Use read_columns for its column definitions."
     )
 
 
+def test_empty_source_message_unlabelled_says_source_query() -> None:
+    out = empty_source_message(None)
+
+    assert out == "The source query returned 0 rows."
+    assert "read_columns" not in out  # no table to look columns up on
+
+
 def test_table_not_found_message_distinct_from_empty() -> None:
     not_found = table_not_found_message("dbo", "orders")
-    empty = empty_table_message("dbo", "orders")
+    empty = empty_source_message("dbo.orders")
 
     assert not_found == (
         "Table dbo.orders not found (no such table or no columns). "
@@ -679,9 +687,15 @@ def test_table_not_found_message_distinct_from_empty() -> None:
     assert not_found != empty  # not-found and empty are distinct messages
 
 
-def test_empty_filter_message_exact_wording() -> None:
-    assert empty_filter_message(50_000) == (
+def test_empty_filter_message_labelled_exact_wording() -> None:
+    assert empty_filter_message(50_000, "dbo.orders") == (
         "No rows match the where predicate (table has 50,000 rows)."
+    )
+
+
+def test_empty_filter_message_unlabelled_attributes_rows_to_source() -> None:
+    assert empty_filter_message(50_000, None) == (
+        "No rows match the where predicate (source has 50,000 rows)."
     )
 
 

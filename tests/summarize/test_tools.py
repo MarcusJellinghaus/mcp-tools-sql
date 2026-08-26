@@ -8,6 +8,7 @@ server.
 
 from __future__ import annotations
 
+import sqlite3
 from collections.abc import AsyncIterator
 from contextlib import asynccontextmanager
 from pathlib import Path
@@ -169,6 +170,23 @@ async def test_empty_table_message(profiling_db: Path) -> None:
     async with _client_for(backend) as client:
         out = await _call_summarize(client, "main", "empty_t")
     assert "is empty (0 rows)" in out
+
+
+@pytest.mark.asyncio
+async def test_empty_table_message_full_text(profiling_db: Path) -> None:
+    """Pin the whole zero-row message: the label keeps the schema on SQLite.
+
+    The substring assertion above cannot catch a label regression -- the source
+    descriptor is ``schema.table`` on both dialects because this message (and
+    the not-found one) print the schema on both.
+    """
+    backend = _sqlite_backend(profiling_db)
+    async with _client_for(backend) as client:
+        out = await _call_summarize(client, "main", "empty_t")
+    assert out == (
+        "Table main.empty_t is empty (0 rows). "
+        "Use read_columns for its column definitions."
+    )
 
 
 @pytest.mark.asyncio
@@ -443,3 +461,31 @@ async def test_mssql_dialect_metadata_and_scalar_sql() -> None:
     assert not out.startswith("Invalid")
     assert "INFORMATION_SCHEMA.COLUMNS" in captured["metadata_sql"]
     assert "AVG(CAST([amount] AS FLOAT))" in captured["scalar_sql"]
+
+
+# ---------------------------------------------------------------------------
+# Source-build failures stay inside the tool's exception tail
+# ---------------------------------------------------------------------------
+
+
+@pytest.mark.parametrize(
+    ("exc", "prefix"),
+    [
+        (sqlite3.OperationalError("database disk image is malformed"), "Invalid SQL."),
+        (RuntimeError("Not connected to database"), "Database connection error."),
+    ],
+)
+@pytest.mark.asyncio
+async def test_source_build_failure_returns_message(
+    exc: Exception, prefix: str
+) -> None:
+    """A backend failure on the metadata query is reported, never propagated.
+
+    Source resolution runs a backend query, so it must sit inside ``core``'s
+    exception tail; hoisting it out would let these escape the tool.
+    """
+    backend = MagicMock()
+    backend.execute_readonly_query.side_effect = exc
+    async with _client_for(backend) as client:
+        out = await _call_summarize(client, "main", "t")
+    assert out.startswith(prefix)
