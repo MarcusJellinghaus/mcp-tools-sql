@@ -4,8 +4,13 @@ The SQLite cases drive a real database through
 ``create_connected_server_and_client_session``: an arbitrary read-only SELECT
 is validated, probed for its output columns, profiled, and rendered with the
 call-level notes in a trailing footer. The MagicMock cases pin the T-SQL
-rendering (every profiling query selects ``FROM (...) AS src``) and the two
-halves of the LOB hint's gate.
+rendering (every profiling query selects ``FROM (...) AS src``), the describe
+DMF preferred over the probe there, and both halves of the LOB hint's gate.
+
+The T-SQL backend double describes nothing by default: its describe query
+raises a permission-style error, so those cases exercise the probe fallback --
+which is also the shipping behaviour under a login that cannot run the DMF.
+Pass ``describe_rows=`` for the described path.
 
 Two tests here are deliberate regression guards:
 ``test_unresolvable_source_returns_invalid_sql`` proves the source build stays
@@ -24,6 +29,7 @@ from unittest.mock import MagicMock
 import pytest
 
 from mcp_tools_sql.summarize.source import (
+    DMF_FALLBACK_NOTE,
     ORDER_BY_STRIPPED_NOTE,
     ROW_LIMITED_NOTE,
     SQLITE_PROBE_TYPE_LIMITS_NOTE,
@@ -50,6 +56,7 @@ def _probe_backend(
     names: list[str],
     rows: list[tuple[Any, ...]],
     *,
+    describe_rows: list[dict[str, Any]] | None = None,
     fail_queries_with: Exception | None = None,
 ) -> tuple[MagicMock, dict[str, str]]:
     """Build a backend double: canned probe result, captured profiling SQL.
@@ -57,8 +64,12 @@ def _probe_backend(
     Args:
         names: Output column names the probe reports.
         rows: Sampled probe rows.
-        fail_queries_with: When set, every *non-probe* query raises it -- the
-            source resolves, then the profiling pass fails.
+        describe_rows: DMF rows the T-SQL describe query returns. ``None`` --
+            the default, and what the SQLite cases never reach -- makes the
+            describe raise a permission-style error, so the source resolves
+            through the probe fallback.
+        fail_queries_with: When set, every *non-probe*, *non-describe* query
+            raises it -- the source resolves, then the profiling pass fails.
 
     Returns:
         The configured :class:`MagicMock` and a dict capturing the count /
@@ -67,6 +78,11 @@ def _probe_backend(
     captured: dict[str, str] = {}
 
     def fake(sql: str, params: dict[str, Any] | None = None) -> list[dict[str, Any]]:
+        if "DM_EXEC_DESCRIBE_FIRST_RESULT_SET" in sql:
+            if describe_rows is None:
+                raise sqlite3.OperationalError("VIEW SERVER STATE permission denied")
+            captured["describe_sql"] = sql
+            return describe_rows
         if fail_queries_with is not None:
             raise fail_queries_with
         if "row_count" in sql:
@@ -447,6 +463,59 @@ async def test_tsql_probed_string_column_profiles_as_string() -> None:
 
 
 @pytest.mark.asyncio
+async def test_tsql_source_reports_dmf_types_without_a_footer() -> None:
+    """The DMF resolves exact types, so nothing qualifies the output.
+
+    ``system_type_name`` keeps its precision suffix, which the table path's
+    bare ``INFORMATION_SCHEMA.DATA_TYPE`` does not carry -- the categoriser is
+    substring-based, so both render correctly.
+    """
+    backend, captured = _probe_backend(
+        ["s"],
+        [("hello",)],
+        describe_rows=[
+            {"name": "s", "column_ordinal": 1, "system_type_name": "nvarchar(50)"}
+        ],
+    )
+    async with client_for(backend, backend_name="mssql") as client:
+        out = await call_summarize(client, sql="SELECT s FROM t")
+    assert "s  (nvarchar(50), string)" in out
+    assert TYPES_PROBED_NOTE not in out
+    assert DMF_FALLBACK_NOTE not in out
+    assert "describe_sql" in captured
+    backend.execute_readonly_query_with_columns.assert_not_called()
+
+
+@pytest.mark.asyncio
+async def test_tsql_dmf_failure_degrades_to_the_probe_with_both_notes() -> None:
+    """A describe the login cannot run falls back, and says so in the footer."""
+    backend, _captured = _probe_backend(["s"], [("hello",)])
+    async with client_for(backend, backend_name="mssql") as client:
+        out = await call_summarize(client, sql="SELECT s FROM t")
+    assert "s  (nvarchar, string)" in out  # the probe's type, not the DMF's
+    assert DMF_FALLBACK_NOTE in out
+    assert TYPES_PROBED_NOTE in out
+    assert out.index(DMF_FALLBACK_NOTE) < out.index(TYPES_PROBED_NOTE)
+
+
+@pytest.mark.asyncio
+async def test_tsql_described_source_failure_gets_no_lob_hint() -> None:
+    """The hint follows the resolver: a described source cannot mistype a LOB."""
+    backend, _captured = _probe_backend(
+        ["s"],
+        [("hello",)],
+        describe_rows=[
+            {"name": "s", "column_ordinal": 1, "system_type_name": "nvarchar(50)"}
+        ],
+        fail_queries_with=sqlite3.OperationalError("Msg 8134: divide by zero"),
+    )
+    async with client_for(backend, backend_name="mssql") as client:
+        out = await call_summarize(client, sql="SELECT s FROM t")
+    assert out.startswith("Invalid SQL.")
+    assert LOB_HINT not in out
+
+
+@pytest.mark.asyncio
 async def test_tsql_probed_source_failure_appends_lob_hint() -> None:
     """A driver error after a probed source resolved carries the LOB hint.
 
@@ -469,6 +538,11 @@ async def test_tsql_probed_source_failure_appends_lob_hint() -> None:
 async def test_tsql_probe_failure_gets_no_lob_hint() -> None:
     """The probe is a bare ``SELECT *``: its failure is not a LOB failure."""
     backend = MagicMock()
+    # The describe is tried first and fails the same way, so the call reaches
+    # the probe -- which is the failure under test.
+    backend.execute_readonly_query.side_effect = sqlite3.OperationalError(
+        "no such table: t"
+    )
     backend.execute_readonly_query_with_columns.side_effect = sqlite3.OperationalError(
         "no such table: t"
     )

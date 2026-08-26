@@ -1,12 +1,14 @@
 """Tests for the summarize source resolver (``summarize/source.py``).
 
-Three concerns, all exercised without a real database: ``validate_source`` turns
+Four concerns, all exercised without a real database: ``validate_source`` turns
 a user SELECT into a validated, aliased derived-table reference (reusing the
 shared preflight / read-only / leading-CTE gates), ``probe_columns`` resolves
 that reference's output columns from a few-row value probe against a
-``MagicMock`` backend returning canned ``(names, rows)``, and
-``build_table_source`` resolves the persisted-table path from canned catalog
-rows.
+``MagicMock`` backend returning canned ``(names, rows)``, ``describe_columns``
+resolves them on T-SQL from canned ``sys.dm_exec_describe_first_result_set``
+rows (with ``build_query_source`` preferring it and falling back to the probe),
+and ``build_table_source`` resolves the persisted-table path from canned
+catalog rows.
 
 The probe's Python-value -> declared-type mapping is dialect-dependent on
 purpose; the T-SQL string row (``nvarchar``, never ``TEXT``) and the SQLite
@@ -15,6 +17,7 @@ temporal/boolean divergence are each pinned by their own regression test.
 
 from __future__ import annotations
 
+import sqlite3
 from datetime import date, datetime
 from decimal import Decimal
 from typing import Any
@@ -24,6 +27,8 @@ import pytest
 from sqlglot import exp
 
 from mcp_tools_sql.summarize.source import (
+    DMF_FALLBACK_NOTE,
+    DMF_SQL,
     ORDER_BY_STRIPPED_NOTE,
     PROBE_ROWS,
     ROW_LIMITED_NOTE,
@@ -32,11 +37,16 @@ from mcp_tools_sql.summarize.source import (
     UNKNOWN_TYPE,
     UNKNOWN_TYPE_NOTE,
     Source,
+    build_query_source,
     build_table_source,
+    describe_columns,
     probe_columns,
     validate_source,
 )
-from mcp_tools_sql.utils.sql_placeholders import LEADING_CTE_REJECTION
+from mcp_tools_sql.utils.sql_placeholders import (
+    LEADING_CTE_REJECTION,
+    translate_named_to_qmark,
+)
 
 
 def _ref(sql: str, dialect: str, params: dict[str, Any] | None = None) -> exp.Subquery:
@@ -422,6 +432,236 @@ def test_probe_sql_is_built_from_the_parsed_source() -> None:
 
     probe_sql = backend.execute_readonly_query_with_columns.call_args[0][0]
     assert probe_sql == f"SELECT * FROM (SELECT a FROM t) AS src LIMIT {PROBE_ROWS}"
+
+
+# --- describe_columns (T-SQL DMF) ------------------------------------------
+
+
+def _dmf_backend(
+    describe: list[dict[str, Any]] | Exception,
+    probe: tuple[list[str], list[tuple[Any, ...]]] | None = None,
+) -> MagicMock:
+    """Build a backend double: canned describe result, canned probe result.
+
+    Args:
+        describe: DMF rows to return, or an exception the describe query
+            raises.
+        probe: The ``(names, rows)`` the fallback probe returns; defaults to a
+            single ``str`` column.
+
+    Returns:
+        The configured :class:`MagicMock` backend.
+    """
+    backend = MagicMock()
+    if isinstance(describe, Exception):
+        backend.execute_readonly_query.side_effect = describe
+    else:
+        backend.execute_readonly_query.return_value = describe
+    backend.execute_readonly_query_with_columns.return_value = probe or (
+        ["s"],
+        [("hello",)],
+    )
+    return backend
+
+
+def _dmf_row(name: str | None, type_name: str, ordinal: int = 1) -> dict[str, Any]:
+    """Build one ``sys.dm_exec_describe_first_result_set`` result row.
+
+    Returns:
+        The DMF row as the backend's dict form returns it.
+    """
+    return {"name": name, "column_ordinal": ordinal, "system_type_name": type_name}
+
+
+def test_dmf_sql_round_trips_through_the_parameter_binder() -> None:
+    """The binder must leave the table-valued function call intact.
+
+    ``MSSQLBackend`` renders every query through
+    :func:`translate_named_to_qmark` before pyodbc sees it, so if sqlglot
+    mangled the DMF call, the filter or the ordering, the describe query would
+    be wrong on the only backend that runs it. :data:`DMF_SQL` is whatever text
+    survives this round trip byte-for-byte -- including the upper-cased
+    function name sqlglot's generator normalises to.
+    """
+    translated, names = translate_named_to_qmark(DMF_SQL, "tsql")
+
+    assert names == ["src"]
+    assert translated.count("?") == 1
+    assert translated == DMF_SQL.replace(":src", "?")
+    assert "DM_EXEC_DESCRIBE_FIRST_RESULT_SET(?, NULL, 0)" in translated
+    assert "is_hidden = 0" in translated
+    assert "ORDER BY column_ordinal" in translated
+
+
+def test_describe_binds_the_batch_as_a_single_parameter() -> None:
+    """The source batch is bound, never concatenated into the DMF call."""
+    backend = _dmf_backend([_dmf_row("a", "int")])
+
+    metas, reason = describe_columns(backend, _ref("SELECT a FROM t", "tsql"), None)
+
+    assert reason is None
+    assert metas is not None
+    dmf_sql, dmf_params = backend.execute_readonly_query.call_args[0]
+    assert dmf_sql == DMF_SQL
+    assert dmf_params == {"src": "SELECT a FROM t"}
+
+
+def test_describe_batch_carries_escaped_literals_not_placeholders() -> None:
+    """The DMF rejects undeclared parameters, so bound values are literals."""
+    backend = _dmf_backend([_dmf_row("a", "int")])
+    params = {"who": "O'Brien"}
+    ref = _ref("SELECT a FROM t WHERE owner = :who", "tsql", params)
+
+    describe_columns(backend, ref, params)
+
+    batch = backend.execute_readonly_query.call_args[0][1]["src"]
+    assert ":who" not in batch
+    assert "'O''Brien'" in batch
+
+
+@pytest.mark.parametrize(
+    ("type_name", "category"),
+    [
+        ("nvarchar(50)", "string"),
+        ("decimal(10,2)", "numeric"),
+        ("bigint", "numeric"),
+        ("bit", "boolean"),
+        ("text", "other"),
+        ("timestamp", "other"),
+    ],
+)
+def test_describe_carries_system_type_name_verbatim(
+    type_name: str, category: str
+) -> None:
+    """Precision suffixes are kept; the existing categoriser is unchanged.
+
+    ``system_type_name`` is more specific than the table path's bare
+    ``INFORMATION_SCHEMA.DATA_TYPE``. ``categorize_type`` is substring-based, so
+    both forms categorise identically -- but the rendered declared type differs
+    between the two paths, so nothing downstream may compare it exactly.
+    """
+    backend = _dmf_backend([_dmf_row("c", type_name)])
+
+    metas, reason = describe_columns(backend, _ref("SELECT c FROM t", "tsql"), None)
+
+    assert reason is None
+    assert metas is not None
+    assert metas[0].declared_type == type_name
+    assert metas[0].category == category
+    assert metas[0].note == ""
+
+
+def test_described_bigint_still_drives_the_sum_guard() -> None:
+    """``bigint`` must stay integer-like for the T-SQL ``CAST(... AS BIGINT)``."""
+    from mcp_tools_sql.summarize.sql import _is_integer_type
+
+    assert _is_integer_type("bigint") is True
+    assert _is_integer_type("decimal(10,2)") is False
+
+
+def test_describe_keeps_names_and_dmf_ordinals() -> None:
+    """DMF ordinals are 1-based; only their order matters downstream."""
+    backend = _dmf_backend(
+        [_dmf_row("id", "int", 1), _dmf_row("Note", "nvarchar(50)", 2)]
+    )
+
+    metas, reason = describe_columns(backend, _ref("SELECT * FROM t", "tsql"), None)
+
+    assert reason is None
+    assert metas is not None
+    assert [m.name for m in metas] == ["id", "Note"]
+    assert [m.ordinal for m in metas] == [1, 2]
+
+
+def test_describe_rejects_ambiguous_names() -> None:
+    """An unnamed expression column comes back as ``NULL`` from the DMF."""
+    backend = _dmf_backend([_dmf_row("id", "int", 1), _dmf_row(None, "int", 2)])
+
+    metas, reason = describe_columns(backend, _ref("SELECT * FROM t", "tsql"), None)
+
+    assert metas is None
+    assert reason is not None
+    assert "duplicate or unnamed output columns" in reason
+
+
+def test_describe_reports_an_empty_result() -> None:
+    """No described columns is a fallback trigger, not an empty profile."""
+    backend = _dmf_backend([])
+
+    metas, reason = describe_columns(backend, _ref("SELECT a FROM t", "tsql"), None)
+
+    assert metas is None
+    assert reason is not None
+
+
+# --- build_query_source dispatch -------------------------------------------
+
+
+def test_tsql_source_prefers_the_dmf_and_adds_no_notes() -> None:
+    """A described source has catalog-grade types, so nothing qualifies it."""
+    backend = _dmf_backend([_dmf_row("s", "nvarchar(50)")])
+
+    built = build_query_source(backend, "SELECT s FROM t", None, "tsql")
+
+    assert isinstance(built, Source)
+    assert built.types_probed is False
+    assert built.notes == []
+    assert [m.declared_type for m in built.metas] == ["nvarchar(50)"]
+    backend.execute_readonly_query_with_columns.assert_not_called()
+
+
+@pytest.mark.parametrize(
+    "describe",
+    [
+        # A pyodbc-style driver rejection stands in as a ``sqlite3`` error so
+        # the test runs without the optional driver installed; the fallback is
+        # gated on the shared ``INVALID_SQL_EXC`` family, not on pyodbc.
+        pytest.param(
+            sqlite3.OperationalError("The user does not have permission"),
+            id="driver-error",
+        ),
+        pytest.param([], id="empty-result"),
+    ],
+)
+def test_tsql_dmf_failure_falls_back_to_the_probe_with_both_notes(
+    describe: list[dict[str, Any]] | Exception,
+) -> None:
+    """The degradation is never silent: both notes, and probed types."""
+    backend = _dmf_backend(describe, probe=(["s"], [("hello",)]))
+
+    built = build_query_source(backend, "SELECT s FROM t", None, "tsql")
+
+    assert isinstance(built, Source)
+    assert built.types_probed is True
+    assert DMF_FALLBACK_NOTE in built.notes
+    assert TYPES_PROBED_NOTE in built.notes
+    assert built.notes.index(DMF_FALLBACK_NOTE) < built.notes.index(TYPES_PROBED_NOTE)
+    # The T-SQL-only note never appears on the SQLite-only limits.
+    assert SQLITE_PROBE_TYPE_LIMITS_NOTE not in built.notes
+    assert [m.declared_type for m in built.metas] == ["nvarchar"]
+
+
+def test_sqlite_source_never_runs_the_dmf() -> None:
+    """The SQLite path is untouched: probe only, and its own note set."""
+    backend = _dmf_backend([_dmf_row("s", "nvarchar(50)")])
+
+    built = build_query_source(backend, "SELECT s FROM t", None, "sqlite")
+
+    assert isinstance(built, Source)
+    assert built.types_probed is True
+    assert DMF_FALLBACK_NOTE not in built.notes
+    assert built.notes == [TYPES_PROBED_NOTE, SQLITE_PROBE_TYPE_LIMITS_NOTE]
+    backend.execute_readonly_query.assert_not_called()
+
+
+def test_source_notes_precede_the_fallback_note() -> None:
+    """An ``ORDER BY`` strip still leads the footer when the DMF fell back."""
+    backend = _dmf_backend(sqlite3.OperationalError("denied"))
+
+    built = build_query_source(backend, "SELECT s FROM t ORDER BY s DESC", None, "tsql")
+
+    assert isinstance(built, Source)
+    assert built.notes == [ORDER_BY_STRIPPED_NOTE, DMF_FALLBACK_NOTE, TYPES_PROBED_NOTE]
 
 
 # --- build_table_source ----------------------------------------------------

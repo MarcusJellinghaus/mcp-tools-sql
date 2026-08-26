@@ -33,6 +33,13 @@ the rest of the pipeline profiles. Four concerns live here:
     ``categorize_type`` (and the T-SQL ``BIGINT`` SUM guard that reads the same
     string) the single source of truth for categories.
 
+:func:`describe_columns`
+    The T-SQL-only preferred resolver: ``sys.dm_exec_describe_first_result_set``
+    reports one row per output column -- name, ordinal and the *exact*
+    ``system_type_name`` -- without executing the source. It is tried first on
+    ``tsql`` and falls back to the probe, never silently: any failure adds
+    :data:`DMF_FALLBACK_NOTE` beside :data:`TYPES_PROBED_NOTE`.
+
 The value -> type mapping is dialect-dependent: a probed ``str`` types as
 ``nvarchar`` on T-SQL, never ``TEXT``, because ``categorize_type``'s LOB guard
 would otherwise sweep every string column into ``other``. On SQLite the probe
@@ -45,6 +52,7 @@ around.
 
 from __future__ import annotations
 
+import sqlite3
 from dataclasses import dataclass
 from datetime import date, datetime
 from decimal import Decimal
@@ -66,7 +74,21 @@ from mcp_tools_sql.utils.sql_placeholders import (
     basic_preflight,
     has_leading_cte,
     read_only_violation,
+    substitute_named_with_literals,
 )
+
+try:
+    import pyodbc  # pylint: disable=import-error
+
+    _PYODBC_ERROR: tuple[type[Exception], ...] = (pyodbc.Error,)
+except ImportError:
+    _PYODBC_ERROR = ()
+
+# The driver-error family that means "the database rejected this SQL". Lives
+# here rather than in ``summarize/tools.py`` because the DMF -> probe fallback
+# below has to catch exactly the same family: ``tools.py`` imports this module,
+# so the reverse edge would be an import cycle.
+INVALID_SQL_EXC: tuple[type[BaseException], ...] = (sqlite3.Error, *_PYODBC_ERROR)
 
 if TYPE_CHECKING:
     from mcp_tools_sql.backends.base import DatabaseBackend
@@ -108,6 +130,13 @@ TYPES_PROBED_NOTE: str = (
     "unknown type."
 )
 
+DMF_FALLBACK_NOTE: str = (
+    "Column types could not be read from "
+    "sys.dm_exec_describe_first_result_set (the login may lack permission, the "
+    "server may predate SQL Server 2012, or the source may not be describable "
+    "without executing it), so the source was sampled instead."
+)
+
 SQLITE_PROBE_TYPE_LIMITS_NOTE: str = (
     "On SQLite a sampled source cannot see declared types: DATE/DATETIME "
     "columns profile as string (length stats, not date bounds) and BOOLEAN "
@@ -129,6 +158,31 @@ _NAME_REJECTION: str = (
 
 # Placeholder printed for an empty/missing name in the rejection message.
 _UNNAMED_LABEL: str = "(unnamed)"
+
+# The T-SQL describe query. The source batch is a *bound* nvarchar argument
+# (``:src``), so nothing is concatenated into the table-valued function call --
+# only the batch's own placeholder values are literal-substituted, because the
+# DMF errors on a batch with undeclared parameters. ``is_hidden = 0`` drops the
+# columns SQL Server adds for its own use (e.g. an ORDER BY key not projected).
+#
+# The function name is spelled UPPER CASE on purpose: every query reaches
+# pyodbc through ``translate_named_to_qmark``, and sqlglot's generator
+# normalises function names to upper case, so this is the text that is actually
+# sent. A round-trip test pins that -- ``DMF_SQL`` must survive the binder
+# byte-for-byte, or the constant is lying about what runs. The one cost is a
+# database whose collation is case-sensitive, where ``sys`` object names are
+# matched case-sensitively too: there the describe is rejected and the source
+# falls back to the probe with ``DMF_FALLBACK_NOTE``, which is exactly the
+# degradation path any other describe failure takes.
+DMF_SQL: str = (
+    "SELECT name, column_ordinal, system_type_name "
+    "FROM sys.DM_EXEC_DESCRIBE_FIRST_RESULT_SET(:src, NULL, 0) "
+    "WHERE is_hidden = 0 ORDER BY column_ordinal"
+)
+
+# Reason recorded when the DMF answered but described nothing. Not shown to the
+# caller -- the dispatch turns any describe failure into ``DMF_FALLBACK_NOTE``.
+_EMPTY_DESCRIBE: str = "the describe query returned no columns"
 
 
 @dataclass(frozen=True)
@@ -209,25 +263,28 @@ def build_table_source(
 def build_query_source(
     backend: DatabaseBackend, sql: str, params: dict[str, Any] | None, dialect: str
 ) -> Source | str:
-    """Resolve a user-supplied SELECT into a :class:`Source` via a value probe.
+    """Resolve a user-supplied SELECT into a :class:`Source`.
 
     Composes :func:`validate_source` (security gates, ``ORDER BY`` handling,
-    derived-table reference) and :func:`probe_columns` (output names and
-    inferred declared types), returning the first rejection either produces.
-    The source is *executed* here -- the probe is a real query -- so a source
-    that parses but cannot be resolved by the database (missing table,
-    ambiguous column) raises out of this call and must be handled by the
-    caller's exception tail.
+    derived-table reference) with a per-dialect column resolver, returning the
+    first rejection either produces. On ``tsql`` the resolver is
+    :func:`describe_columns`, which reads exact catalog-grade types without
+    executing the source; on ``sqlite`` -- and on ``tsql`` whenever the DMF
+    fails or describes nothing -- it is :func:`probe_columns`. The source is
+    *executed* on the probe path, so a source that parses but cannot be
+    resolved by the database (missing table, ambiguous column) raises out of
+    this call and must be handled by the caller's exception tail.
 
-    The resolved source always carries :data:`TYPES_PROBED_NOTE`, and on SQLite
-    additionally :data:`SQLITE_PROBE_TYPE_LIMITS_NOTE`. That second note is
-    gated on the *dialect*, not on ``types_probed``: only SQLite's driver
-    flattens DATE/DATETIME and BOOLEAN values into ``str`` / ``int``, so on
-    T-SQL -- where the probe reads real ``date`` / ``bool`` objects through
-    pyodbc -- the note would be wrong.
+    A probed source carries :data:`TYPES_PROBED_NOTE`, preceded by
+    :data:`DMF_FALLBACK_NOTE` when the T-SQL describe was tried and failed --
+    the degradation is never silent. On SQLite it additionally carries
+    :data:`SQLITE_PROBE_TYPE_LIMITS_NOTE`; that note is gated on the *dialect*,
+    not on ``types_probed``, because only SQLite's driver flattens
+    DATE/DATETIME and BOOLEAN values into ``str`` / ``int``. A described source
+    carries none of the three: its types came from the server.
 
     Args:
-        backend: The resolved backend to run the read-only probe on.
+        backend: The resolved backend to run the read-only describe/probe on.
         sql: The user's read-only SELECT, with optional ``:name`` placeholders.
         params: Bound values for the source's ``:name`` placeholders.
         dialect: Backend dialect, ``"sqlite"`` or ``"tsql"``.
@@ -241,6 +298,18 @@ def build_query_source(
         # ``validate_source`` sets exactly one of ``ref`` / ``error``; the
         # fallback only keeps this branch total.
         return error or ROOT_REJECTION
+    fallback_notes: list[str] = []
+    if dialect == "tsql":
+        described = _describe_or_none(backend, ref, params)
+        if described is not None:
+            return Source(
+                ref=ref,
+                label=None,
+                metas=described,
+                notes=list(source_notes),
+                types_probed=False,
+            )
+        fallback_notes = [DMF_FALLBACK_NOTE]
     metas, rejection = probe_columns(backend, ref, params, dialect)
     if rejection is not None:
         return rejection
@@ -249,9 +318,36 @@ def build_query_source(
         ref=ref,
         label=None,
         metas=metas or [],
-        notes=[*source_notes, TYPES_PROBED_NOTE, *sqlite_limits],
+        notes=[*source_notes, *fallback_notes, TYPES_PROBED_NOTE, *sqlite_limits],
         types_probed=True,
     )
+
+
+def _describe_or_none(
+    backend: DatabaseBackend, ref: exp.Subquery, params: dict[str, Any] | None
+) -> list[ColumnMeta] | None:
+    """Run :func:`describe_columns`, collapsing every failure to ``None``.
+
+    The DMF is an optimisation over the probe, so *any* way it can fail --
+    a driver rejection (permission, pre-2012 server, an undescribable batch),
+    an empty result, or an unusable projection -- means "fall back", not
+    "fail the call". The probe re-derives the same verdict on a projection the
+    DMF also refused.
+
+    Args:
+        backend: The resolved backend to run the read-only describe query on.
+        ref: The validated source reference from :func:`validate_source`.
+        params: Bound values for the source's ``:name`` placeholders.
+
+    Returns:
+        The described columns, or ``None`` when the describe did not produce a
+        usable column list.
+    """
+    try:
+        metas, _reason = describe_columns(backend, ref, params)
+    except INVALID_SQL_EXC:
+        return None
+    return metas
 
 
 def validate_source(
@@ -452,4 +548,58 @@ def probe_columns(
                 ordinal=idx,
             )
         )
+    return (metas, None)
+
+
+def describe_columns(
+    backend: DatabaseBackend, ref: exp.Subquery, params: dict[str, Any] | None
+) -> tuple[list[ColumnMeta] | None, str | None]:
+    """Resolve a T-SQL source's output columns from the describe DMF.
+
+    Runs :data:`DMF_SQL`, which asks
+    ``sys.dm_exec_describe_first_result_set`` to report one row per output
+    column of the source batch **without executing it**. Names and ordinals
+    come from the DMF rows and the declared type is ``system_type_name``,
+    carried through verbatim -- including its precision suffix
+    (``nvarchar(50)``, ``decimal(10,2)``), which the table path's bare
+    ``INFORMATION_SCHEMA.DATA_TYPE`` does not have. :func:`categorize_type` and
+    the ``BIGINT`` SUM guard are substring-based, so both forms work; nothing
+    downstream may compare a declared type exactly.
+
+    The batch itself is a bound ``nvarchar`` argument, so the source SQL is
+    never concatenated into the DMF call. Its *contents* are rendered from the
+    re-parsed source with the bound values substituted as literals -- the DMF
+    errors on a batch carrying undeclared parameters -- which is the same
+    helper and the same deliberate trust decision as ``MSSQLBackend.explain``,
+    and safe because the source has already passed the read-only gate.
+
+    Args:
+        backend: The resolved backend to run the read-only describe query on.
+        ref: The validated source reference from :func:`validate_source`.
+        params: Bound values for the source's ``:name`` placeholders.
+
+    Returns:
+        ``(metas, None)`` with one :class:`ColumnMeta` per described column in
+        ``column_ordinal`` order, or ``(None, reason)`` when the DMF described
+        nothing or described a projection the pipeline cannot address per
+        column. The reason is a fallback trigger, not caller-facing text.
+    """
+    batch = substitute_named_with_literals(
+        ref.this.sql(dialect="tsql"), params or {}, "tsql"
+    )
+    rows = backend.execute_readonly_query(DMF_SQL, {"src": batch})
+    if not rows:
+        return (None, _EMPTY_DESCRIBE)
+    rejection = _name_rejection([r["name"] for r in rows])
+    if rejection is not None:
+        return (None, rejection)
+    metas = [
+        ColumnMeta(
+            name=r["name"],
+            declared_type=r["system_type_name"],
+            category=categorize_type(r["system_type_name"], "tsql"),
+            ordinal=r["column_ordinal"],
+        )
+        for r in rows
+    ]
     return (metas, None)

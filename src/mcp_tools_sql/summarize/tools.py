@@ -28,7 +28,6 @@ reference computed and aggregated output columns (``HAVING``-like filtering).
 from __future__ import annotations
 
 import inspect
-import sqlite3
 from typing import TYPE_CHECKING, Annotated, Any, Literal, Optional
 
 from pydantic import Field
@@ -47,6 +46,7 @@ from mcp_tools_sql.summarize.render import (
     unknown_columns_message,
 )
 from mcp_tools_sql.summarize.source import (
+    INVALID_SQL_EXC,
     Source,
     build_query_source,
     build_table_source,
@@ -61,15 +61,6 @@ from mcp_tools_sql.summarize.sql import (
 )
 from mcp_tools_sql.tool_builder import build_tool_fn
 from mcp_tools_sql.tool_logging import log_tool_call
-
-try:
-    import pyodbc  # pylint: disable=import-error
-
-    _PYODBC_ERROR: tuple[type[Exception], ...] = (pyodbc.Error,)
-except ImportError:
-    _PYODBC_ERROR = ()
-
-_INVALID_SQL_EXC: tuple[type[BaseException], ...] = (sqlite3.Error, *_PYODBC_ERROR)
 
 if TYPE_CHECKING:
     from mcp.server.fastmcp import FastMCP
@@ -342,7 +333,7 @@ class SummarizeTools:
                     return _run(
                         backend, rec, built, predicate, params, columns, n, dialect
                     )
-                except _INVALID_SQL_EXC as exc:
+                except INVALID_SQL_EXC as exc:
                     # A probe failure is not a LOB failure (the probe is a bare
                     # ``SELECT *``), so ``built`` must already be a resolved
                     # ``Source``. The dialect term matters too: on SQLite every

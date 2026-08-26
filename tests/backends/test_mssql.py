@@ -635,6 +635,37 @@ class TestMSSQLIntegration:
         assert len(columns) == 4
         assert rows[0] == (1, "Bank A", 1, "Germany")
 
+    def test_describe_columns_resolves_a_join(self, mssql_db: MSSQLTestEnv) -> None:
+        """``sys.dm_exec_describe_first_result_set`` types a real join.
+
+        The one check the ``MagicMock`` unit tests cannot make: that
+        ``DMF_SQL`` executes as written on a live server and reports the
+        seeded columns' exact ``system_type_name`` -- without executing the
+        join. The fixture uses a schema-creating login, so this does **not**
+        establish that the shipping read-only login may run the DMF; that is
+        the separately verified prerequisite behind the probe fallback.
+        """
+        from mcp_tools_sql.summarize.source import describe_columns, validate_source
+
+        ref, _notes, error = validate_source(
+            f"SELECT c.name AS customer, o.total AS order_total "
+            f"FROM {mssql_db.schema}.customers c "
+            f"JOIN {mssql_db.schema}.orders o ON c.id = o.customer_id",
+            None,
+            "tsql",
+        )
+        assert error is None
+        assert ref is not None
+
+        with MSSQLBackend(mssql_db.config) as b:
+            metas, reason = describe_columns(b, ref, None)
+
+        assert reason is None
+        assert metas is not None
+        assert [m.name for m in metas] == ["customer", "order_total"]
+        assert [m.declared_type for m in metas] == ["nvarchar(50)", "float"]
+        assert [m.category for m in metas] == ["string", "numeric"]
+
     def test_explain_returns_text_plan(self, mssql_db: MSSQLTestEnv) -> None:
         with MSSQLBackend(mssql_db.config) as b:
             plan = b.explain(
