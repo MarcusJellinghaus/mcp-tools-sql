@@ -151,3 +151,42 @@ All 6 findings resolved: 5 applied as mechanical plan edits, 1 (finding 6)
 accepted and recorded as a manual post-merge action rather than a step. Plan
 remains five steps. One non-plan file was touched — `vulture_whitelist.py`, the
 fix for finding 1; no other source or test file was changed. Not committed.
+
+## Final Status
+
+Three review rounds run. Round 1: 11 findings. Round 2: 6 findings. Round 3:
+zero findings — the loop terminated on a clean round.
+
+Commits produced: `75bcc99` (round 1), `a7cc346` (round 2).
+
+### Plan shape
+
+Started at six steps, now five. The old `step_5.md` (server error path) was
+merged into `step_4.md`; the old `step_6.md` (docs) was renumbered to
+`step_5.md`.
+
+### Escalated design decisions
+
+- **Step 1 kept.** The `mcp-coder-utils>=0.1.6.dev0` floor, the five CI
+  git-install sites and the two `pyproject.toml` uncomments all stay.
+  mcp-coder-utils 0.1.6 is being released upstream independently, so no caveat
+  about PyPI resolvability appears in the plan.
+- **Friendly-error branch uses `mcp_coder`'s split pattern.**
+  `logger.error("%s", exc)` for the exception text, `logger.log(OUTPUT, ...)`
+  for the hint, and the `"Error: "` literal dropped — `CleanFormatter` supplies
+  the `ERROR: ` prefix.
+
+### Requirement-level change landed ahead of implementation
+
+`vulture_whitelist.py` gained `_.no_op_setup_logging`, with a comment
+explaining why it is needed. Step 3 must keep it.
+
+### Outstanding manual action for Marcus
+
+No step owns it, and no implementing agent should do it: post a comment on
+issue #35 that `docs/mcp-clients.md` should mention the server log location
+(`~/.mcp-tools-sql/logs/mcp_tools_sql_<timestamp>.log`, one per launch).
+
+### Verdict
+
+Plan is implementable as written. Ready for approval.
