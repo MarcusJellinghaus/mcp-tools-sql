@@ -49,9 +49,9 @@ Details: [step_3.md](./steps/step_3.md)
 
 Details: [step_4.md](./steps/step_4.md)
 
-- [ ] Implementation: TDD four tests in `test_main_dispatch.py` (`test_resolve_log_file`, server-default path, `test_setup_logging_arguments`, migrate friendly-error test to `caplog`); add `_resolve_log_file` to `main.py` with `datetime` / `get_user_app_data_dir` imports; `--log-file` help text; wire `setup_logging(log_level, log_file, console_level=OUTPUT if log_file else None)` (conditional, unguarded); server error branch → `logger.error("%s", exc)` + `logger.log(OUTPUT, hint)`
-- [ ] Quality checks: pylint, pytest, mypy — fix all issues
-- [ ] Commit message prepared
+- [x] Implementation: TDD four tests in `test_main_dispatch.py` (`test_resolve_log_file`, server-default path, `test_setup_logging_arguments`, migrate friendly-error test to `caplog`); add `_resolve_log_file` to `main.py` with `datetime` / `get_user_app_data_dir` imports; `--log-file` help text; wire `setup_logging(log_level, log_file, console_level=OUTPUT if log_file else None)` (conditional, unguarded); server error branch → `logger.error("%s", exc)` + `logger.log(OUTPUT, hint)`
+- [x] Quality checks: pylint, pytest, mypy — fix all issues
+- [x] Commit message prepared
 
 ### Step 5: Documentation
 
