@@ -39,3 +39,29 @@ I'll gather context systematically. Starting with the knowledge base, the issue,
 Verdict(decision='tasks', tasks=['In pr_info/steps/step_3.md:136, fix the probe type mapping so `str` does not categorize as `other` on tsql: map `str` to a non-LOB declared type (e.g. `nvarchar`) or make the mapping dialect-aware, and add/adjust a test asserting a probed string column profiles as `string` (distinct, length stats, value list) on the tsql dialect.', 'In pr_info/steps/step_5.md:66, update the LOB-hint rationale to match the corrected step 3 mapping so the described decision-12 rejection path is actually reachable; remove or restate the rationale if the corrected mapping makes it moot.', 'In pr_info/steps/step_5.md:64, gate the LOB_HINT append on `dialect == "tsql"` in addition to `built.types_probed`, so SQLite `sql=` sources never emit the T-SQL-only text/ntext/image + CAST(... AS nvarchar(max)) hint on unrelated errors.'], escalate_reason=None)
 **Changes**:
 applied
+
+## Round 3 — 2026-08-26
+**Findings**:
+I'll gather context systematically, starting with the knowledge base and plan files.`pr_info/steps/step_3.md:136` — high — the probe mapping's `datetime`/`date` rows are unreachable on SQLite: `backends/sqlite.py:87` connects without `detect_types`, so a `DATE` column arrives as `str` and falls to the "anything else" row (`TEXT` → `string`), giving length stats instead of date bounds; the same `profile_me.created` column renders `created  (DATE, temporal)` / `min 2020-01-01 | max 2024-02-29` on the table path (pinned in `tests/summarize/test_tools.py:132-137`), so one tool reports contradictory statistics for one column depending on the source. Only the `bool → int` case is flagged as accepted; the temporal gap is neither documented, marked (`UNKNOWN_TYPE_NOTE` fires only for all-NULL columns), nor covered by any test in step 3 or step 5.
+
+`pr_info/steps/step_5.md:91` — medium — the algorithm as written does not typecheck under `mypy --strict`, so the step cannot land green as one commit without restructuring: `built` is annotated `Source | None` but line 93 assigns `Source | str` to it, and line 94 passes `schema`/`table` (now `str | None` per line 47) to `build_table_source(schema: str, table: str, …)` — the two guards on lines 88-89 do not narrow either binding.
+**Decisions**:
+Verdict(decision='tasks', tasks=['In pr_info/steps/step_3.md:136, close the temporal-probe gap on SQLite: since backends/sqlite.py:87 connects without detect_types, DATE/DATETIME values arrive as `str` and probe to TEXT/string, so `profile_me.created` would report length stats via `sql=` while the table path reports `(DATE, temporal)` with min/max (pinned in tests/summarize/test_tools.py:132-137). Pick one resolution and write it into the step — recover the declared type on SQLite (e.g. enable detect_types or read the declaration from the cursor/PRAGMA), or explicitly document the divergence and surface it to the user with a note — and add a test asserting the chosen behaviour for a temporal column resolved through a `sql=` source on SQLite.'], escalate_reason=None)
+**Changes**:
+applied
+
+## Round 4 — 2026-08-26
+**Findings**:
+I'll gather context systematically, starting with the knowledge base and plan files.Now let me verify the plan's claims against the actual codebase.`pr_info/steps/step_5.md:98` — medium — the `core` algorithm cannot typecheck under `mypy --strict`, so the step cannot land as one green commit as written: `built` is annotated `Source | None` but line 100 assigns the `Source | str` return of `build_query_source` / `build_table_source` to it (repeat of round 3, never tasked).
+
+`pr_info/steps/step_5.md:101` — medium — `build_table_source(backend, schema, table, dialect)` is passed `schema`/`table` typed `str | None` (line 47 relaxes them), and neither guard on lines 95–96 narrows them for mypy, so `--strict` reports `arg-type`; the step needs an explicit narrowing (assert/local rebind) or a restructured dispatch.
+
+`pr_info/steps/step_3.md:102` — low — `ROOT_REJECTION` is used by `validate_source` but is not declared among `source.py`'s constants in the WHAT block (lines 49–53), so the rejection wording for a non-`Select`/`Union` root is unspecified.
+
+`pr_info/steps/step_3.md:117` — low — `UNKNOWN_TYPE_NOTE` is used by `probe_columns` but is likewise absent from the WHAT constants block; the issue pins its rendered form (`type not determined: all sampled values were NULL`), so the exact text should be fixed in the plan rather than left to the implementer.
+
+`pr_info/steps/step_4.md:19` — low — the WHERE table omits `tests/summarize/test_tools.py`, but TESTS items 7 and 8 add two new tests there (full empty-table text pin, backend-failure guards); the summary's file table lists it for step 4, so the step file is the inconsistent one.
+**Decisions**:
+Verdict(decision='dismiss', tasks=[], escalate_reason=None)
+**Changes**:
+dismiss
