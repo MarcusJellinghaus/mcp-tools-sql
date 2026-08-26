@@ -21,6 +21,13 @@ while an explicit `--log-level` always wins.
 - `src/mcp_tools_sql/utils/log_utils.py`
 - `src/mcp_tools_sql/main.py`
 - `tests/cli/test_main_dispatch.py`
+- `vulture_whitelist.py` — the `_.no_op_setup_logging` entry is **already in
+  place** on this branch; keep it. The autouse fixture below is never named as a
+  parameter by any test, so vulture reports
+  `unused function 'no_op_setup_logging' (60% confidence)` — exactly the
+  threshold the `architecture` CI job uses. (`redirect_home_and_cwd` in
+  `tests/cli/test_init.py` needs no entry because several tests request it by
+  name.) Do not strip the entry as noise.
 
 ## WHAT
 

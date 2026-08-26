@@ -87,7 +87,7 @@ Insert between `## Quick Start` (ends ~line 60) and `## Configuration`
 (line 62). Keep it **short** — cover the default location, `--console-only` and
 `--log-file`, then link to `docs/cli.md` rather than restating the tables:
 
-```markdown
+````markdown
 ## Logging
 
 The MCP server writes structured JSON logs to a new
@@ -102,7 +102,7 @@ mcp-tools-sql --console-only --log-level DEBUG        # no file, verbose stderr
 
 `init` and `verify` log to the console only. See [docs/cli.md](docs/cli.md#logging)
 for thresholds and per-command defaults.
-```
+````
 
 ### 5. `mcp-tools-sql.md` — fix the contradictory example (~lines 706-712)
 

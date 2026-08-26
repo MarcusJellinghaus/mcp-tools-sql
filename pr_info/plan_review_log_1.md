@@ -50,3 +50,104 @@ No `pr_info/steps/Decisions.md` was created — this log carries the round's dec
 ### Status
 
 All 11 findings resolved: 9 applied, 1 rejected by user decision (finding 3), 1 closed as a side effect (finding 9). Plan is now five steps. No source or test files were touched. Not committed.
+
+## Round 2 — 2026-08-26
+
+Plan re-reviewed fresh at five steps (`summary.md`, `step_1.md` … `step_5.md`).
+Round 1's two settled decisions — keeping Step 1 rather than waiting on an
+upstream 0.1.6 release, and `mcp_coder`'s `logger.error` / `logger.log(OUTPUT, …)`
+split for the friendly-error branch — were treated as closed and not re-opened.
+
+### Findings
+
+1. **worth-fixing** — `step_3.md`'s new autouse fixture `no_op_setup_logging` in
+   `tests/cli/conftest.py` is never named as a parameter by any test, so vulture
+   reports `unused function 'no_op_setup_logging' (60% confidence)` — exactly the
+   `--min-confidence 60` the `architecture` CI job uses. Step 3 lists vulture as
+   an exit criterion it must pass, but neither its WHERE section nor
+   `summary.md`'s Modified table mentioned `vulture_whitelist.py`. Confirmed by
+   probe, not analysis: vulture flags it at a realistic `tests/cli/conftest.py`
+   path (exit 3), and an attribute-style whitelist entry suppresses it (exit 0).
+   `redirect_home_and_cwd` in `tests/cli/test_init.py` is not precedent — several
+   tests request it by name, so vulture already counts it as used.
+2. **cosmetic** — `step_5.md` §4: the README draft's ` ```markdown ` fence
+   contains a ` ```bash ` fence, so the outer fence closed early at the inner
+   terminator. Two lines of the draft fell outside it and the closing fence
+   opened a new block that swallowed the `### 5.` heading.
+3. **cosmetic** — `step_4.md` Tests §2 used `fnmatch(resolved.name, …)` without
+   listing `from fnmatch import fnmatch`, while Test §4 separately enumerates the
+   module's imports to justify avoiding `import logging`.
+4. **cosmetic** — `step_4.md` Tests §4: prose said "Assert on the **exception
+   text**" but the sample asserts a level name (`"ERROR" in levels`).
+5. **cosmetic** — `step_1.md` exit criteria: "(unchanged from baseline — this
+   step touches no Python)". The step swaps the installed mcp-coder-utils for git
+   `main`, which changes `setup_logging` at runtime, so the baseline can shift and
+   the parenthetical invites dismissing a real failure.
+6. **cosmetic** — issue #37's Decision 6 includes "add a note to #35 that
+   `docs/mcp-clients.md` should mention the log location". `summary.md` described
+   it as a follow-up but no one owned it.
+
+Verified accurate and left alone: upstream `mcp-coder-utils` `main` matches the
+plan exactly — the `if console_level is not None or not log_file:` gate,
+`console_handler.setLevel(numeric_console_level)`, the formatter chosen from the
+*console* level (`CleanFormatter` at ≥ `OUTPUT`, so the dropped `"Error: "`
+literal is correct), the `min()` root floor, `_HANDLER_MARKER` idempotency,
+unconditional `structlog.configure`, and `logging.addLevelName(25, "OUTPUT")` at
+import. The installed venv really is pre-`console_level`. Every line reference
+holds: `main.py` 103/104/106/117, the three and only three `Path.home()` path
+constructions (`init.py:226`, `loader.py:128`, `config_files.py:68`), the five
+`ci.yml` install sites (88/116/154/204/251) with the tabulated extras,
+`docs/cli.md` 20-23 and 31-33, README Quick Start ending 60 / Configuration 62,
+`mcp-tools-sql.md` 706-712 / 718 / 852, `architecture.md` §4 and §6. `tach.toml`'s
+`cli.commands` really lacks `utils` while `main` already has it. `args.log_level`
+is read only in `main.py`, so `default=None` cannot leak into `run_server`. Every
+`main()` call in the suite lives under `tests/cli/`, so the autouse fixture covers
+them all and Step 4's "no log files in the developer's home" criterion is
+achievable. The four server-path functions / six invocations count is exact.
+`docs/cli.md` has no existing `Logging` heading, so the `#logging` anchor is
+unique. No stale `step_6` references or renumbering leftovers survive round 1's
+merge. The empty `TASK_TRACKER.md` remains correct per `planning_principles.md`.
+
+### Decisions
+
+- 1, 2, 3, 4, 5 — **accept**. All mechanical, applied as described under Changes.
+- 6 — **accept, but deliberately not assigned to a step.** It is a GitHub comment
+  on another issue, not a commit on this branch, so it stays outside the step
+  structure and is recorded as a manual action instead.
+
+### User decisions
+
+None this round. No finding required escalation.
+
+### Changes
+
+- `vulture_whitelist.py` — `_.no_op_setup_logging` added under "FALSE POSITIVES -
+  Pytest Fixtures", with a comment explaining why it is needed and contrasting it
+  with `redirect_home_and_cwd`, so it is not later removed as noise. Re-ran
+  vulture: still silent.
+- `step_3.md` — `vulture_whitelist.py` added to WHERE/Modified, noting the entry
+  is already in place on the branch and must be kept, with the reason.
+- `summary.md` — Modified table gained a `vulture_whitelist.py` row at Step 3;
+  "Follow-up not covered here" rewritten as an explicit post-merge manual action
+  for Marcus, stating that no step owns it and an implementing agent must not post
+  the comment.
+- `step_4.md` — Tests §2 switched from `fnmatch` to `startswith` / `endswith`,
+  with a note saying why (keeps the module's import list as Test §4 assumes);
+  Tests §4 prose rewritten to say it asserts the record's **level name**, with the
+  specificity argument (`tool_logging.py:79` is the only other `logger.error` in
+  `src/` and cannot fire on this path). Sample code left unchanged.
+- `step_5.md` — §4's README draft rewrapped in a four-backtick fence so the inner
+  ` ```bash ` block no longer terminates it.
+- `step_1.md` — exit-criteria parenthetical replaced with an explicit warning that
+  the dependency swap changes `setup_logging` at runtime, so a check failure here
+  is a real signal.
+
+No `pr_info/steps/Decisions.md` was created — consistent with round 1, this log
+carries the round's decisions and issue #37's Decisions table remains canonical.
+
+### Status
+
+All 6 findings resolved: 5 applied as mechanical plan edits, 1 (finding 6)
+accepted and recorded as a manual post-merge action rather than a step. Plan
+remains five steps. One non-plan file was touched — `vulture_whitelist.py`, the
+fix for finding 1; no other source or test file was changed. Not committed.

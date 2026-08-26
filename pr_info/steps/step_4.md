@@ -210,12 +210,16 @@ def test_resolve_log_file_server_default(
     assert result is not None
     resolved = Path(result)
     assert resolved.parent == tmp_path / ".mcp-tools-sql" / "logs"
-    assert fnmatch(resolved.name, "mcp_tools_sql_*.log")
+    assert resolved.name.startswith("mcp_tools_sql_")
+    assert resolved.name.endswith(".log")
     assert not resolved.exists()  # helper is pure: it creates nothing
 ```
 
-Kept separate from the table because it needs a home monkeypatch and glob
-matching rather than an equality check.
+Kept separate from the table because it needs a home monkeypatch and prefix /
+suffix matching rather than an equality check (the timestamp is not
+predictable). Deliberately **not** `fnmatch` — that would add a
+`from fnmatch import fnmatch` import to a module whose import list Test 4 below
+relies on staying as it is.
 
 ### 3. Parametrized — `setup_logging` receives the right arguments
 
@@ -271,10 +275,16 @@ the autouse fixture from Step 3 and therefore wins.
 
 It currently asserts `"Error:" in captured.err`. Once the prints become log
 records, stderr no longer carries them under the no-op `setup_logging` fixture
-from Step 3, so the message assertions move to `caplog`. Assert on the
-**exception text**, not on a `"Error:"` literal — that literal is gone, and the
-`ERROR: ` prefix is a console-formatter artefact that never appears in
-`caplog.records`.
+from Step 3, so the message assertions move to `caplog`.
+
+Do **not** carry the `"Error:"` literal across: it is gone from the source, and
+the `ERROR: ` prefix that replaces it on the console is a `CleanFormatter`
+artefact that never appears in `caplog.records`. Assert instead on the
+**record's level name** (`"ERROR"`) for the exception line and on the message
+text for the hint. Checking the level name is specific enough here:
+`tool_logging.py:79` is the only other `logger.error` call in `src/`, and it
+cannot fire on this path — so an `ERROR` record present at all means
+`logger.error("%s", exc)` ran.
 
 **`caplog` does not capture `OUTPUT` records by default** — pytest leaves the
 root logger at `WARNING` and `OUTPUT` is 25, so those records are filtered

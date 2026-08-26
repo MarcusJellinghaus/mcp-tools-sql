@@ -165,6 +165,7 @@ ships.
 | `src/mcp_tools_sql/verification/config_files.py` | default db-config path uses the shim | 2 |
 | `src/mcp_tools_sql/utils/log_utils.py` | re-export `OUTPUT` | 3 |
 | `src/mcp_tools_sql/main.py` | `_resolve_log_level`, `--log-level` choices/default | 3 |
+| `vulture_whitelist.py` | `_.no_op_setup_logging` — the autouse fixture is never named as a parameter, so vulture flags it at 60% | 3 |
 | `src/mcp_tools_sql/main.py` | `_resolve_log_file`, `console_level` wiring, help text, error path → `logger.error` + `logger.log(OUTPUT, ...)` | 4 |
 | `tests/cli/test_main_dispatch.py` | resolver tests, `setup_logging` arg checks, caplog migration | 3–4 |
 | `docs/cli.md` | rewritten logging rows + new `### Logging` section | 5 |
@@ -200,5 +201,11 @@ committing).
 
 ## Follow-up not covered here
 
-Issue #35 creates `docs/mcp-clients.md`; it should mention where to find server
-logs for troubleshooting. That is a comment on #35, not a change in this PR.
+**Manual action for Marcus, after this PR merges — no step owns it, and no step
+should.** Post a comment on issue #35 noting that `docs/mcp-clients.md` (created
+by #35) should mention where to find the server log files for troubleshooting:
+`~/.mcp-tools-sql/logs/mcp_tools_sql_<timestamp>.log`, one per launch.
+
+This is issue #37's Decision 6. It is a GitHub comment on another issue, not a
+commit on this branch, so it is deliberately outside the step structure — an
+implementing agent must not post it.

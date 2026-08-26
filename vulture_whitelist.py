@@ -20,6 +20,12 @@ _.side_effect
 _.linux_platform
 _.stub_create_backend
 
+# `tests/cli/conftest.py`'s autouse fixture is never named as a parameter by any
+# test, so vulture reports it as an unused function at 60% confidence. Unlike
+# `redirect_home_and_cwd` in tests/cli/test_init.py, which several tests request
+# by name, nothing references this one. Keep this entry.
+_.no_op_setup_logging
+
 # =============================================================================
 # DatabaseBackend ABC - abstract methods (implemented by subclasses)
 # =============================================================================

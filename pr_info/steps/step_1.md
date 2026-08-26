@@ -154,8 +154,13 @@ No runtime data structures change.
 - The installed `mcp_coder_utils.log_utils.setup_logging` accepts a
   `console_level` keyword.
 - `mcp__mcp-tools-py__run_pylint_check`, `mcp__mcp-tools-py__run_pytest_check`,
-  `mcp__mcp-tools-py__run_mypy_check` all pass (unchanged from baseline — this
-  step touches no Python).
+  `mcp__mcp-tools-py__run_mypy_check` all pass. Do not assume the results are
+  identical to the pre-step baseline just because no Python file changed: this
+  step swaps the installed mcp-coder-utils for git `main`, which changes
+  `setup_logging` at runtime — `_is_testing_environment()` is gone (handler
+  teardown is now marker-based) and `structlog.configure` runs unconditionally
+  where it used to be skipped under pytest. A failure here is a real signal, not
+  noise.
 - `mcp__mcp-tools-py__run_format_code` run before committing.
 
 ## LLM prompt
