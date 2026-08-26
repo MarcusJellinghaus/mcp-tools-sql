@@ -126,7 +126,7 @@ and `query_helpers.extract_sql_params`.
 
 | Module | Responsibility |
 |--------|---------------|
-| `main.py` | CLI: argparse, logging, subcommands (server/init/verify) |
+| `main.py` | CLI: argparse, per-command logging setup (level + file resolution), subcommands (server/init/verify) |
 | `server.py` | Creates FastMCP, registers tools, starts STDIO transport |
 | `schema_tools.py` | Built-in introspection: schemas, tables, columns, relations |
 | `query_tools.py` | Dynamic registration of configured SELECT tools |
@@ -198,6 +198,16 @@ server — not by editing `databases`.
 ### Logging
 - stdlib `logging` with structlog JSON backend (via mcp-coder-utils)
 - `@log_function_call` decorator for timing and parameter capture
+- **Two sinks with independent thresholds**: a JSON file at the resolved
+  `--log-level`, plus a plain-text stderr console at `OUTPUT`
+- **Per-command defaults**: `server` → `INFO` + a per-launch file under
+  `~/.mcp-tools-sql/logs/`; `init`/`verify` → `OUTPUT`, console only.
+  Resolved by the pure helpers `_resolve_log_level` / `_resolve_log_file` in
+  `main.py`
+- `--console-only` suppresses the file and takes precedence over `--log-file`
+- Server startup failures go through `logger.error` (always recorded) plus an
+  `OUTPUT`-level hint, following `mcp_coder`'s CLI convention
+- Paths under the user home come from `utils/user_app_data.py`
 
 ### Architecture Enforcement
 - `tach.toml` — module boundary enforcement

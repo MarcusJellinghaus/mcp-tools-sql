@@ -59,6 +59,21 @@ mcp-tools-sql --config mcp-tools-sql.toml
 See [docs/cli.md](docs/cli.md) for the full CLI reference (all flags,
 example output, exit codes).
 
+## Logging
+
+The MCP server writes structured JSON logs to a new
+`~/.mcp-tools-sql/logs/mcp_tools_sql_<timestamp>.log` file on every launch —
+MCP clients usually discard a server's stderr, so the file is the only durable
+record. User-facing messages, warnings and errors still appear on the console.
+
+```bash
+mcp-tools-sql --log-file /var/log/mcp-tools-sql.log   # explicit file
+mcp-tools-sql --console-only --log-level DEBUG        # no file, verbose stderr
+```
+
+`init` and `verify` log to the console only. See [docs/cli.md](docs/cli.md#logging)
+for thresholds and per-command defaults.
+
 ## Configuration
 
 Two config files:

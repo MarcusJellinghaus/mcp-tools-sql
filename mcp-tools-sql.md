@@ -706,10 +706,19 @@ This eliminates trial-and-error: run `verify` once after install and know exactl
 ```
 mcp-tools-sql \
     --config mcp-tools-sql.toml \
-    --log-level INFO \
-    --log-file logs/mcp_tools_sql.log \
-    --console-only
+    --log-level DEBUG \
+    --log-file /var/log/mcp-tools-sql/server.log
 ```
+
+Without `--log-file`, the server still logs to a file: a new
+`~/.mcp-tools-sql/logs/mcp_tools_sql_<timestamp>.log` per launch (issue #37).
+MCP clients typically discard a server's stderr, so a file is the only durable
+record of what a launch did — the same reasoning, and the same
+`<name>_<timestamp>.log` filename scheme, as `mcp-workspace` and
+`mcp-tools-py`. `--console-only` opts out of the file entirely; it cannot be
+combined with `--log-file`, which is why the example above uses only one of
+them. An explicit `--log-file` should be absolute: a relative path resolves
+against the client's working directory, which is unpredictable.
 
 Or reading from `pyproject.toml`:
 

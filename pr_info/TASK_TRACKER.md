@@ -57,9 +57,9 @@ Details: [step_4.md](./steps/step_4.md)
 
 Details: [step_5.md](./steps/step_5.md)
 
-- [ ] Implementation: `docs/cli.md` preamble qualifier + three logging table rows + new `### Logging` section; `README.md` `## Logging` subsection; `mcp-tools-sql.md` fix contradictory example + why file-by-default note (leave `--project-dir` lines); `docs/architecture/architecture.md` §6 Logging bullets + §4 `main.py` row
-- [ ] Quality checks: pylint, pytest, mypy — fix all issues
-- [ ] Commit message prepared
+- [x] Implementation: `docs/cli.md` preamble qualifier + three logging table rows + new `### Logging` section; `README.md` `## Logging` subsection; `mcp-tools-sql.md` fix contradictory example + why file-by-default note (leave `--project-dir` lines); `docs/architecture/architecture.md` §6 Logging bullets + §4 `main.py` row
+- [x] Quality checks: pylint, pytest, mypy — fix all issues
+- [x] Commit message prepared
 
 ## Pull Request
 
