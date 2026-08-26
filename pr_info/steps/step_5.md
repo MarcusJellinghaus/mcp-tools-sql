@@ -51,7 +51,14 @@ cosmetic — `build_tool_fn` calls the body with keyword arguments only.
 ## HOW
 
 - `build_query_source` composes step 3: `validate_source` → `probe_columns` → `Source(ref,
-  label=None, metas, notes=[*source_notes, TYPES_PROBED_NOTE], types_probed=True)`.
+  label=None, metas, notes=[*source_notes, TYPES_PROBED_NOTE, *sqlite_limits],
+  types_probed=True)`, where `sqlite_limits` is `[SQLITE_PROBE_TYPE_LIMITS_NOTE]` when
+  `dialect == "sqlite"` and `[]` otherwise. That note is step 3's documented divergence:
+  `sqlite3` connects without `detect_types`, so a DATE/DATETIME column profiles as
+  string (length stats, not date bounds) and a BOOLEAN column as numeric — the same
+  column the `schema=`/`table=` path renders `(DATE, temporal)`. The gate is the
+  **dialect**, not `types_probed`: the T-SQL probe reads real `date` / `bool` objects
+  through pyodbc, and gating on dialect keeps the note correct once step 6 lands.
 - Mutual exclusivity: one constant for both "both given" and "neither given" (and for a
   half-supplied `schema` without `table`) — one string, one-turn recovery.
 - `log_tool_call(..., sql=sql or where or "")`: on the `sql` path the source is the field
@@ -119,7 +126,8 @@ built.
 
 Return value is still a single formatted string. A `sql`-source call renders the normal
 deep/triage body plus a trailing footer block holding, in order: `ORDER BY` stripped,
-row-limited, types-probed, then the `n` clamp note if any.
+row-limited, types-probed, the SQLite type-limits note (`sqlite` only), then the `n` clamp
+note if any.
 
 ## TESTS (write first)
 
@@ -148,6 +156,15 @@ End-to-end against `profiling_db` through `create_connected_server_and_client_se
     return a string starting `Invalid SQL.` and naming the underlying error; assert no
     exception escapes the tool call. This is the regression guard for keeping
     `build_query_source` inside `core`'s `try`.
+10c. **Temporal column through `sql=` on SQLite — the documented divergence, pinned end to
+    end.** `sql="SELECT created FROM profile_me"` renders `created  (TEXT, string)` with
+    the string `length` line and **no** `min 2020-01-01 | max 2024-02-29` date bounds,
+    while the existing `schema="main", table="profile_me", columns=["created"]` call still
+    renders `created  (DATE, temporal)` with those bounds. Assert both in one test so the
+    contrast is explicit, and assert the footer carries
+    `SQLITE_PROBE_TYPE_LIMITS_NOTE` — the divergence must never be silent. (Same shape for
+    `is_active`: `(INTEGER, numeric)` via `sql=`, `(BOOLEAN, boolean)` via the table path.)
+    If a later change makes SQLite resolve declared types, this test is the one to update.
 11. **`columns=` narrowing** works against probed metadata (case-insensitively), and
     `columns=[]` / unknown names give the existing messages.
 12. **Triage** — a >15-column source renders the triage table with the notes appended after
@@ -187,9 +204,14 @@ The issue's motivating example works on SQLite end to end; the table path is unc
 > SELECT as a probe, and a source that parses but fails at execution must come back as an
 > `Invalid SQL.` string, not as an exception escaping the tool.
 >
-> Write the end-to-end tests listed under TESTS first. Test 10b guards the `try` placement
-> and test 13 is a regression guard: the `schema`/`table` path must produce byte-identical
-> output.
+> Emit `SQLITE_PROBE_TYPE_LIMITS_NOTE` from `build_query_source` on `dialect == "sqlite"`
+> only. It is the user-facing half of step 3's documented divergence: on SQLite a sampled
+> source cannot see declared types, so DATE/DATETIME columns profile as string and BOOLEAN
+> columns as numeric. Do not attempt to recover the declared type — see step 3's HOW.
+>
+> Write the end-to-end tests listed under TESTS first. Test 10b guards the `try` placement,
+> test 10c pins the SQLite type divergence against the table path, and test 13 is a
+> regression guard: the `schema`/`table` path must produce byte-identical output.
 >
 > Use MCP tools for all file and check operations. When done, run
 > `mcp__tools-py__run_pylint_check`, `mcp__tools-py__run_pytest_check`

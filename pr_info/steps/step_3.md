@@ -50,6 +50,7 @@ PROBE_ROWS: int = 5
 ORDER_BY_STRIPPED_NOTE: str
 ROW_LIMITED_NOTE: str
 TYPES_PROBED_NOTE: str
+SQLITE_PROBE_TYPE_LIMITS_NOTE: str   # SQLite-only type divergence; see HOW
 
 def validate_source(
     sql: str, params: dict[str, Any] | None, dialect: str
@@ -127,18 +128,21 @@ answer.
 `_declared_type_for(value, dialect)` takes the dialect: the last row below is
 dialect-dependent, because `categorize_type` is.
 
-| Value type | Declared type | Category via `categorize_type` |
-|---|---|---|
-| `bool` | `"bit"` | boolean (pyodbc only; `sqlite3` yields `int` for booleans — documented, accepted) |
-| `int` | `"INTEGER"` | numeric (and `_is_integer_type` → `True`, keeping the T-SQL BIGINT SUM guard) |
-| `float` | `"REAL"` | numeric |
-| `Decimal` | `"decimal"` | numeric |
-| `datetime` | `"datetime"` | temporal — **not** `"timestamp"`, which T-SQL maps to `other` (rowversion) |
-| `date` | `"date"` | temporal |
-| `bytes` / `bytearray` | `"BLOB"` | other |
-| anything else | `"TEXT"` on `sqlite`, `"nvarchar"` on `tsql` | string on both |
+| Value type | Declared type | Category via `categorize_type` | Reachable on |
+|---|---|---|---|
+| `bool` | `"bit"` | boolean | **tsql only** — `sqlite3` yields `int` for booleans |
+| `int` | `"INTEGER"` | numeric (and `_is_integer_type` → `True`, keeping the T-SQL BIGINT SUM guard) | both |
+| `float` | `"REAL"` | numeric | both |
+| `Decimal` | `"decimal"` | numeric | **tsql only** |
+| `datetime` | `"datetime"` | temporal — **not** `"timestamp"`, which T-SQL maps to `other` (rowversion) | **tsql only** |
+| `date` | `"date"` | temporal | **tsql only** |
+| `bytes` / `bytearray` | `"BLOB"` | other | both |
+| anything else | `"TEXT"` on `sqlite`, `"nvarchar"` on `tsql` | string on both | both |
 
-Order matters: `bool` before `int`, `datetime` before `date`.
+Order matters: `bool` before `int`, `datetime` before `date`. Write the whole table
+anyway — the `tsql only` rows are live on the T-SQL probe path (step 5 until step 6 lands,
+and the DMF fallback afterwards), where pyodbc *does* return `bool` / `Decimal` /
+`datetime` / `date`.
 
 **The `str` row must not be `"TEXT"` on T-SQL.** `categorize_type` guards
 `text`/`ntext`/`image` as `other` on `tsql` (the LOB guard in `sql.py`), so a probed
@@ -148,6 +152,51 @@ until step 6 lands, and permanently if step 6's prerequisite comes back denied).
 `"nvarchar"` contains the `char` token, so it categorises as `string` on both dialects.
 `"TEXT"` is kept on `sqlite` so the rendered `declared_type` matches what the table path
 already prints there (`(TEXT, string)`).
+
+### SQLite temporal / boolean divergence — documented and surfaced, not fixed
+
+`backends/sqlite.py` connects without `detect_types`, so `sqlite3` returns exactly four
+Python types: `int`, `float`, `bytes`, `str`. A `DATE` / `DATETIME` column therefore
+arrives as `str` and probes to `TEXT` → `string`, and a `BOOLEAN` column arrives as `int`
+and probes to `INTEGER` → `numeric`. The **same column** profiled two ways disagrees:
+
+```
+schema="main", table="profile_me"           ->  created  (DATE, temporal)   min 2020-01-01 | max 2024-02-29
+sql="SELECT created FROM profile_me"        ->  created  (TEXT, string)     length  min 10 | max 10 | avg 10.0
+```
+
+(the table-path line is pinned by `tests/summarize/test_tools.py::test_temporal_column_bounds`).
+
+**Decision: document it and tell the caller, do not chase the declared type.** The three
+recovery routes all cost more than the gap is worth here:
+
+- `detect_types=PARSE_DECLTYPES` on the probe connection converts only `date` and
+  `timestamp` (the two converters `sqlite3` registers), leaves `DATETIME` / `BOOLEAN`
+  untouched, and **raises** on a malformed stored value — an unacceptable failure mode for
+  a data-*quality* tool whose whole job is surfacing bad data.
+- `cursor.description` carries no type code on `sqlite3` (already rejected in the issue).
+- `pragma_table_info` cannot describe an ad-hoc SELECT (already rejected in the issue).
+
+This is the same class of gap the issue already accepts for SQLite views
+(`pragma_table_info` reporting an empty declared type for computed view columns) and lists
+as a follow-up, not as this issue's work.
+
+What this step adds is the honesty half, so the divergence is never silent — a second
+call-level note, emitted alongside `TYPES_PROBED_NOTE` whenever the probe ran on
+`sqlite`:
+
+```python
+SQLITE_PROBE_TYPE_LIMITS_NOTE: str = (
+    "On SQLite a sampled source cannot see declared types: DATE/DATETIME columns "
+    "profile as string (length stats, not date bounds) and BOOLEAN columns as numeric. "
+    "Profile the underlying table with schema=/table= for catalog types."
+)
+```
+
+`build_query_source` (step 5) appends it on `dialect == "sqlite"` only; the T-SQL probe
+sees real `date` / `datetime` / `bool` values through pyodbc and needs no such warning.
+The gate is `dialect == "sqlite"`, not `types_probed`, so it stays correct once step 6
+adds the DMF (SQLite keeps probing; T-SQL does not).
 
 ### Column-name rejection
 
@@ -187,6 +236,13 @@ follow that test if the observed form differs). Message names the recovery:
     **not** the `other` shape (`DATALENGTH`, no distinct), and `build_value_list_sql`
     builds a list for it. The same value under `dialect="sqlite"` keeps
     `declared_type == "TEXT"` and `category == "string"`.
+9c. **SQLite temporal pin.** An ISO date string (`"2020-01-01"`) under `dialect="sqlite"`
+    resolves `declared_type == "TEXT"` and `category == "string"` — **not** temporal — and
+    a `0`/`1` boolean value resolves `INTEGER` / `numeric`. This pins the documented
+    divergence so it cannot drift silently; the same values under `dialect="tsql"` are
+    real `date` / `bool` objects from pyodbc and keep their temporal / boolean rows.
+    `SQLITE_PROBE_TYPE_LIMITS_NOTE` is a non-empty string naming DATE/DATETIME, BOOLEAN,
+    and the `schema=`/`table=` recovery.
 10. All-`NULL` column → `declared_type == "unknown"`, `category == "string"`, `note` set.
 11. Zero rows returned → every column resolves "unknown" without raising.
 12. First value `NULL`, second non-`NULL` → the second decides the type.
@@ -224,6 +280,12 @@ No user-visible change yet. All existing summarize tests pass (after the mechani
 > The probe's Python-value → declared-type mapping takes the **dialect**: a `str` must type
 > as `"nvarchar"` on `tsql`, never `"TEXT"`, or `categorize_type`'s LOB guard sweeps every
 > string column into `other`. Test 9b is the regression guard for that.
+>
+> On `sqlite` the probe cannot see declared types at all (`backends/sqlite.py` connects
+> without `detect_types`), so DATE/DATETIME columns resolve `TEXT`/string and BOOLEAN
+> columns `INTEGER`/numeric. Do **not** try to recover the declared type — add
+> `SQLITE_PROBE_TYPE_LIMITS_NOTE` (step 5 emits it on `sqlite`) and pin the behaviour with
+> test 9c. The reasoning, including why `detect_types` is the wrong fix, is under HOW.
 >
 > Write `tests/summarize/test_source.py` first. Update the ~12 `validate_where` call sites
 > in `tests/summarize/test_sql.py` mechanically — do not change what they assert. Do not

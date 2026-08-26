@@ -91,6 +91,12 @@ working untouched, and avoids a second source of truth for categories.
 | `sql`, T-SQL | `sys.dm_exec_describe_first_result_set` rows | `system_type_name` |
 | `sql`, SQLite / T-SQL fallback | `cursor.description` via the new backend method | `type()` of the first non-`NULL` sampled value |
 
+On SQLite the sample sees only `int` / `float` / `bytes` / `str` (the backend connects
+without `detect_types`), so a DATE/DATETIME column resolves string and a BOOLEAN column
+numeric — narrower than the table path's catalog types for the same column. That gap is
+documented in step 3 and surfaced to the caller as `SQLITE_PROBE_TYPE_LIMITS_NOTE`, not
+worked around.
+
 ### 6. Output marking without changing any renderer signature
 
 `tools.py` already appends the `clamp_n` note *after* `render_summary` returns. Call-level
@@ -206,6 +212,7 @@ schema-creating login.
 | LOB failure hint | Appended at the existing `except` tail in `core` | No new try/except, no error-code sniffing |
 | Zero-row source | Resolution stays before the count | Resolution is what rejects a bad source (deliberate, per the issue) |
 | Source build inside `core`'s `try` | Widen the existing tail to open before `build_table_source` / `build_query_source` | Both execute a backend query (metadata / probe / DMF); the metadata query is inside the `try` today, and an unresolvable `sql` source has no `table_not_found` analogue — the backend error *is* the report |
+| SQLite temporal / boolean probe gap | Document and emit `SQLITE_PROBE_TYPE_LIMITS_NOTE` on `sqlite`; do not recover the declared type | `sqlite3` connects without `detect_types`, so DATE/BOOLEAN arrive as `str`/`int`; `PARSE_DECLTYPES` covers only two types and *raises* on malformed data. Same class of gap the issue already defers for SQLite views — but marked, not silent |
 | `Source.label` on SQLite | `schema.table`, not bare `table` | The status messages print the schema on both dialects today; `build_table_ref`'s decision-20 rule is about SQL, not message text |
 | Test fixtures | Reuse `profiling_db`; self-join `profile_me` | No new fixture for the join / duplicate-name cases |
 
