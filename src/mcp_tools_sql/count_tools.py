@@ -20,17 +20,17 @@ import inspect
 import sqlite3
 from typing import TYPE_CHECKING, Annotated, Any, Optional
 
-import sqlglot
 from pydantic import Field
-from sqlglot import exp
 
 from mcp_tools_sql.backends.base import to_dialect
 from mcp_tools_sql.query_helpers import build_target_params
 from mcp_tools_sql.tool_builder import build_tool_fn
 from mcp_tools_sql.tool_logging import log_tool_call
 from mcp_tools_sql.utils.sql_placeholders import (
+    LEADING_CTE_REJECTION,
     basic_preflight,
     build_count_query,
+    has_leading_cte,
     read_only_violation,
 )
 
@@ -57,34 +57,6 @@ _DESCRIPTION = (
     "Returns the count as a plain number. Supports :name placeholders via "
     "params. Unlike validate_sql, this tool executes the wrapped count query."
 )
-
-_LEADING_CTE_REJECTION = (
-    "CTE (WITH) queries can't be counted on SQL Server — "
-    "the count wrapper doesn't support them."
-)
-
-
-def _has_leading_cte(sql: str, dialect: str) -> bool:
-    """Return ``True`` when ``sql``'s root statement carries a CTE (``WITH``).
-
-    The check is keyed precisely on the *statement-level* ``with`` arg
-    (an :class:`exp.With` node), so a T-SQL table hint such as
-    ``WITH (NOLOCK)`` -- which sqlglot models on the *table* node, not the
-    statement -- does not false-positive.
-
-    Args:
-        sql: The single SQL statement to inspect.
-        dialect: The sqlglot dialect to parse under.
-
-    Returns:
-        ``True`` if the root statement is a leading CTE query, else ``False``.
-    """
-    parsed = sqlglot.parse_one(sql, read=dialect)
-    # sqlglot keys the statement-level CTE arg as ``with_`` in current
-    # versions (trailing underscore for the reserved word); older versions
-    # used ``with``. Check both so the precise gate is version-robust.
-    with_arg = parsed.args.get("with_") or parsed.args.get("with")
-    return isinstance(with_arg, exp.With)
 
 
 def _base_count_params() -> list[inspect.Parameter]:
@@ -158,8 +130,8 @@ class CountTools:
                 violation = read_only_violation(sql, dialect)
                 if violation is not None:
                     return violation
-                if dialect == "tsql" and _has_leading_cte(sql, dialect):
-                    return _LEADING_CTE_REJECTION
+                if dialect == "tsql" and has_leading_cte(sql, dialect):
+                    return LEADING_CTE_REJECTION
                 wrapped = build_count_query(sql, dialect)
                 try:
                     rows = backend.execute_readonly_query(wrapped, params)

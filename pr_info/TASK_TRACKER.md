@@ -22,7 +22,7 @@ This tracks **Feature Implementation** consisting of multiple **Tasks**.
 ## Tasks
 
 - [x] [Step 1 — Backend read-only describe method](./steps/step_1.md)
-- [ ] [Step 2 — Move the leading-CTE gate to `utils`](./steps/step_2.md)
+- [x] [Step 2 — Move the leading-CTE gate to `utils`](./steps/step_2.md)
 - [ ] [Step 3 — `summarize/source.py`: validate + probe](./steps/step_3.md)
 - [ ] [Step 4 — Refactor the table path onto `Source`](./steps/step_4.md)
 - [ ] [Step 5 — Wire the `sql=` parameter end to end](./steps/step_5.md)
