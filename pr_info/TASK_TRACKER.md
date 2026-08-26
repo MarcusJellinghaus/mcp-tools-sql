@@ -41,9 +41,9 @@ Details: [step_2.md](./steps/step_2.md)
 
 Details: [step_3.md](./steps/step_3.md)
 
-- [ ] Implementation: TDD `tests/cli/conftest.py` autouse `no_op_setup_logging` fixture + parametrized `test_resolve_log_level`; re-export `OUTPUT` from `utils/log_utils.py`; add `_resolve_log_level` to `main.py`, `--log-level` choices + `default=None` + help text, move `command = args.command or "server"` above `setup_logging`, traceback branch uses resolved level
-- [ ] Quality checks: pylint, pytest, mypy — fix all issues
-- [ ] Commit message prepared
+- [x] Implementation: TDD `tests/cli/conftest.py` autouse `no_op_setup_logging` fixture + parametrized `test_resolve_log_level`; re-export `OUTPUT` from `utils/log_utils.py`; add `_resolve_log_level` to `main.py`, `--log-level` choices + `default=None` + help text, move `command = args.command or "server"` above `setup_logging`, traceback branch uses resolved level
+- [x] Quality checks: pylint, pytest, mypy — fix all issues
+- [x] Commit message prepared
 
 ### Step 4: Default log file for `server`, console output, and logged startup failures
 

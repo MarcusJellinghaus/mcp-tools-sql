@@ -11,7 +11,7 @@ import pytest
 
 from mcp_tools_sql.cli.commands import init as init_cmd
 from mcp_tools_sql.cli.commands import verify as verify_cmd
-from mcp_tools_sql.main import _build_parser, main
+from mcp_tools_sql.main import _build_parser, _resolve_log_level, main
 
 
 def test_dispatch_init_calls_init_run(monkeypatch: pytest.MonkeyPatch) -> None:
@@ -189,6 +189,24 @@ def test_setup_logging_runs_before_run_server(
     rc = main(["server"])
     assert rc == 0
     assert order == ["setup_logging", "run_server"]
+
+
+@pytest.mark.parametrize(
+    ("argv", "expected"),
+    [
+        ([], "INFO"),  # bare -> server
+        (["server"], "INFO"),
+        (["init", "--backend", "sqlite"], "OUTPUT"),
+        (["verify"], "OUTPUT"),
+        (["--log-level", "DEBUG", "server"], "DEBUG"),  # explicit wins
+        (["--log-level", "DEBUG", "verify"], "DEBUG"),
+        (["--log-level", "OUTPUT", "server"], "OUTPUT"),  # new choice accepted
+    ],
+)
+def test_resolve_log_level(argv: list[str], expected: str) -> None:
+    """The resolved level honours an explicit flag, else the per-command default."""
+    args = _build_parser().parse_args(argv)
+    assert _resolve_log_level(args, args.command or "server") == expected
 
 
 def test_init_subparser_requires_backend() -> None:

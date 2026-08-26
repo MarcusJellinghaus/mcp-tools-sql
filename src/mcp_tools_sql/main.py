@@ -61,9 +61,9 @@ def _build_parser() -> argparse.ArgumentParser:
     )
     parser.add_argument(
         "--log-level",
-        choices=["DEBUG", "INFO", "WARNING", "ERROR"],
-        default="INFO",
-        help="Set the logging level (default: INFO)",
+        choices=["DEBUG", "INFO", "OUTPUT", "WARNING", "ERROR"],
+        default=None,
+        help="Set the logging level (default: INFO for server, OUTPUT for init/verify)",
     )
     parser.add_argument(
         "--log-file",
@@ -87,6 +87,20 @@ def _build_parser() -> argparse.ArgumentParser:
     return parser
 
 
+def _resolve_log_level(args: argparse.Namespace, command: str) -> str:
+    """Resolve the effective log level for `command`.
+
+    An explicit --log-level always wins. Otherwise `server` defaults to INFO
+    (a full file trail) and the other commands to OUTPUT (clean console).
+
+    Returns:
+        The log level name to pass to setup_logging.
+    """
+    if args.log_level is not None:
+        return str(args.log_level)
+    return "INFO" if command == "server" else "OUTPUT"
+
+
 def main(argv: list[str] | None = None) -> int:
     """Parse arguments and dispatch to the appropriate command.
 
@@ -100,10 +114,10 @@ def main(argv: list[str] | None = None) -> int:
         parser.print_help()
         return 0
 
-    log_file = None if args.console_only else args.log_file
-    setup_logging(args.log_level, log_file)
-
     command = args.command or "server"
+    log_level = _resolve_log_level(args, command)
+    log_file = None if args.console_only else args.log_file
+    setup_logging(log_level, log_file)
 
     if command == "server":
         try:
@@ -114,7 +128,7 @@ def main(argv: list[str] | None = None) -> int:
         except (ValueError, OSError) as exc:
             print(f"Error: {exc}", file=sys.stderr)
             print("Try 'mcp-tools-sql verify' for diagnostics.", file=sys.stderr)
-            if args.log_level == "DEBUG":
+            if log_level == "DEBUG":
                 traceback.print_exc()
             return 2
     if command == "init":
