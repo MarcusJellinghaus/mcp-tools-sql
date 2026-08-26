@@ -198,6 +198,7 @@ layer = "entry_point"
 depends_on = [
     { path = "mcp_tools_sql.cli" },
     { path = "mcp_tools_sql.config" },
+    { path = "mcp_tools_sql.utils" },
     { path = "mcp_tools_sql.verification" },
 ]
 

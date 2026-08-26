@@ -33,9 +33,9 @@ Details: [step_1.md](./steps/step_1.md)
 
 Details: [step_2.md](./steps/step_2.md)
 
-- [ ] Implementation: TDD `tests/utils/__init__.py` + `tests/utils/test_user_app_data.py`; create `src/mcp_tools_sql/utils/user_app_data.py` shim; replace the three `Path.home() / ".mcp-tools-sql"` constructions in `init.py`, `config/loader.py`, `verification/config_files.py`; add `mcp_tools_sql.utils` to `cli.commands` deps in `tach.toml`
-- [ ] Quality checks: pylint, pytest, mypy — fix all issues
-- [ ] Commit message prepared
+- [x] Implementation: TDD `tests/utils/__init__.py` + `tests/utils/test_user_app_data.py`; create `src/mcp_tools_sql/utils/user_app_data.py` shim; replace the three `Path.home() / ".mcp-tools-sql"` constructions in `init.py`, `config/loader.py`, `verification/config_files.py`; add `mcp_tools_sql.utils` to `cli.commands` deps in `tach.toml`
+- [x] Quality checks: pylint, pytest, mypy — fix all issues
+- [x] Commit message prepared
 
 ### Step 3: `OUTPUT` level and per-command `--log-level` defaults
 
