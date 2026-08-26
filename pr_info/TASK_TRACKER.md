@@ -25,9 +25,9 @@ This tracks **Feature Implementation** consisting of multiple **Tasks**.
 
 Details: [step_1.md](./steps/step_1.md)
 
-- [ ] Implementation: `pyproject.toml` floor `mcp-coder-utils>=0.1.6.dev0` + uncomment `[tool.uv.sources]` / `[tool.mcp-coder.install-from-github]` entries; git pre-install at all five `.github/workflows/ci.yml` install sites (extras preserved); upgrade local venv to git `main` and verify `setup_logging` accepts `console_level`; run `python tools/check_no_url_deps.py`; reorder `tools/reinstall_local.sh` / `.bat` only if resolution fails
-- [ ] Quality checks: pylint, pytest, mypy — fix all issues
-- [ ] Commit message prepared
+- [x] Implementation: `pyproject.toml` floor `mcp-coder-utils>=0.1.6.dev0` + uncomment `[tool.uv.sources]` / `[tool.mcp-coder.install-from-github]` entries; git pre-install at all five `.github/workflows/ci.yml` install sites (extras preserved); upgrade local venv to git `main` and verify `setup_logging` accepts `console_level`; run `python tools/check_no_url_deps.py`; reorder `tools/reinstall_local.sh` / `.bat` only if resolution fails
+- [x] Quality checks: pylint, pytest, mypy — fix all issues
+- [x] Commit message prepared
 
 ### Step 2: `utils/user_app_data.py` shim and removal of hardcoded home paths
 
