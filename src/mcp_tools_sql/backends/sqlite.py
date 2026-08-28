@@ -93,6 +93,42 @@ class SQLiteBackend(DatabaseBackend):
         finally:
             conn.close()
 
+    def execute_readonly_query_with_columns(
+        self, sql: str, params: dict[str, Any] | None = None
+    ) -> tuple[list[str], list[tuple[Any, ...]]]:
+        """Execute a SELECT on a fresh ``PRAGMA query_only = ON`` connection.
+
+        Same read-only guarantee and lifecycle as
+        :meth:`execute_readonly_query` — a brand-new single-use connection to
+        the same database file, ``query_only`` set so the DB rejects any
+        write, closed in ``finally``, persistent connection never touched.
+        Only the result shape differs: ordered column names plus positional
+        row tuples, so duplicate column names survive.
+
+        Args:
+            sql: The SELECT statement to execute.
+            params: Optional values for ``:name`` placeholders in *sql*.
+
+        Returns:
+            Tuple ``(columns, rows)``: column names in projection order, and
+            one plain tuple per row positionally aligned with *columns*.
+
+        Raises:
+            ValueError: If the connection path is empty.
+        """
+        path = self._config.path
+        if not path:
+            msg = "SQLite path must not be empty."
+            raise ValueError(msg)
+        conn = sqlite3.connect(path, check_same_thread=False)
+        try:
+            conn.execute("PRAGMA query_only = ON")
+            cursor = conn.execute(sql, params or {})
+            columns = [d[0] for d in cursor.description or ()]
+            return columns, [tuple(row) for row in cursor.fetchall()]
+        finally:
+            conn.close()
+
     def execute_update(self, sql: str, params: dict[str, Any] | None = None) -> int:
         """Execute an UPDATE/INSERT.
 

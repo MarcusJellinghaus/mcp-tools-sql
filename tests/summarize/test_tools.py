@@ -1,15 +1,16 @@
-"""Tests for :class:`SummarizeTools` and the ``summarize_columns`` tool.
+"""Tests for :class:`SummarizeTools` and the ``summarize_columns`` table path.
 
 The SQLite cases drive the whole pipeline end-to-end through
 ``create_connected_server_and_client_session``; the MagicMock cases pin
 dialect-specific SQL generation and the distinct-gate decision without a live
-server.
+server. The ``sql=`` source path has its own module,
+``test_tools_query_source.py``; the shared client/call helpers live in
+``tool_helpers.py``.
 """
 
 from __future__ import annotations
 
-from collections.abc import AsyncIterator
-from contextlib import asynccontextmanager
+import sqlite3
 from pathlib import Path
 from typing import Any
 from unittest.mock import MagicMock
@@ -18,61 +19,12 @@ import pytest
 from mcp.server.fastmcp import FastMCP
 from mcp.shared.memory import create_connected_server_and_client_session
 
-from mcp_tools_sql.backends.sqlite import SQLiteBackend
-from mcp_tools_sql.config.models import ConnectionConfig, ResolvedTargets
+from mcp_tools_sql.config.models import ResolvedTargets
 from mcp_tools_sql.summarize import SummarizeTools
+from tests.summarize.tool_helpers import call_summarize as _call_summarize
+from tests.summarize.tool_helpers import client_for as _client_for
+from tests.summarize.tool_helpers import sqlite_backend as _sqlite_backend
 from tests.target_helpers import RecordingRegistry, make_target, single_target
-
-
-def _sqlite_backend(db_path: Path) -> SQLiteBackend:
-    """Return a connected SQLite backend for the given database path."""
-    backend = SQLiteBackend(ConnectionConfig(backend="sqlite", path=str(db_path)))
-    backend.connect()
-    return backend
-
-
-@asynccontextmanager
-async def _client_for(
-    backend: Any, *, backend_name: str = "sqlite"
-) -> AsyncIterator[Any]:
-    """Yield an MCP client with ``summarize_columns`` bound to *backend*."""
-    mcp = FastMCP("test-summarize")
-    SummarizeTools(*single_target(backend, backend_name=backend_name)).register(mcp)
-    async with create_connected_server_and_client_session(
-        mcp, raise_exceptions=True
-    ) as client:
-        yield client
-
-
-async def _call_summarize(
-    client: Any,
-    schema: str,
-    table: str,
-    *,
-    columns: list[str] | None = None,
-    where: str | None = None,
-    params: dict[str, Any] | None = None,
-    n: int | None = None,
-    connection: str | None = None,
-    database: str | None = None,
-) -> str:
-    """Call ``summarize_columns`` via the MCP client and return the text."""
-    args: dict[str, Any] = {"schema": schema, "table": table}
-    if columns is not None:
-        args["columns"] = columns
-    if where is not None:
-        args["where"] = where
-    if params is not None:
-        args["params"] = params
-    if n is not None:
-        args["n"] = n
-    if connection is not None:
-        args["connection"] = connection
-    if database is not None:
-        args["database"] = database
-    result = await client.call_tool("summarize_columns", args)
-    return result.content[0].text  # type: ignore[no-any-return]
-
 
 # ---------------------------------------------------------------------------
 # SQLite end-to-end — deep view per category
@@ -169,6 +121,23 @@ async def test_empty_table_message(profiling_db: Path) -> None:
     async with _client_for(backend) as client:
         out = await _call_summarize(client, "main", "empty_t")
     assert "is empty (0 rows)" in out
+
+
+@pytest.mark.asyncio
+async def test_empty_table_message_full_text(profiling_db: Path) -> None:
+    """Pin the whole zero-row message: the label keeps the schema on SQLite.
+
+    The substring assertion above cannot catch a label regression -- the source
+    descriptor is ``schema.table`` on both dialects because this message (and
+    the not-found one) print the schema on both.
+    """
+    backend = _sqlite_backend(profiling_db)
+    async with _client_for(backend) as client:
+        out = await _call_summarize(client, "main", "empty_t")
+    assert out == (
+        "Table main.empty_t is empty (0 rows). "
+        "Use read_columns for its column definitions."
+    )
 
 
 @pytest.mark.asyncio
@@ -443,3 +412,31 @@ async def test_mssql_dialect_metadata_and_scalar_sql() -> None:
     assert not out.startswith("Invalid")
     assert "INFORMATION_SCHEMA.COLUMNS" in captured["metadata_sql"]
     assert "AVG(CAST([amount] AS FLOAT))" in captured["scalar_sql"]
+
+
+# ---------------------------------------------------------------------------
+# Source-build failures stay inside the tool's exception tail
+# ---------------------------------------------------------------------------
+
+
+@pytest.mark.parametrize(
+    ("exc", "prefix"),
+    [
+        (sqlite3.OperationalError("database disk image is malformed"), "Invalid SQL."),
+        (RuntimeError("Not connected to database"), "Database connection error."),
+    ],
+)
+@pytest.mark.asyncio
+async def test_source_build_failure_returns_message(
+    exc: Exception, prefix: str
+) -> None:
+    """A backend failure on the metadata query is reported, never propagated.
+
+    Source resolution runs a backend query, so it must sit inside ``core``'s
+    exception tail; hoisting it out would let these escape the tool.
+    """
+    backend = MagicMock()
+    backend.execute_readonly_query.side_effect = exc
+    async with _client_for(backend) as client:
+        out = await _call_summarize(client, "main", "t")
+    assert out.startswith(prefix)

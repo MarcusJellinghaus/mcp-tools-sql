@@ -17,7 +17,7 @@ from mcp_tools_sql.summarize.render import (
     column_cap_footer,
     empty_columns_message,
     empty_filter_message,
-    empty_table_message,
+    empty_source_message,
     render_deep,
     render_summary,
     render_triage,
@@ -142,6 +142,50 @@ def test_all_null_column_has_no_value_list() -> None:
     assert "nulls 1,000 (100.0%)" in out
     assert "top values" not in out
     assert "sample values" not in out
+
+
+def test_column_note_renders_inline_in_the_header() -> None:
+    """A ColumnMeta note is appended to the header's type/category cell."""
+    profile = ColumnProfile(
+        meta=ColumnMeta(
+            name="notes",
+            declared_type="unknown",
+            category="string",
+            ordinal=0,
+            note="type not determined: all sampled values were NULL",
+        ),
+        rows=10,
+        non_null=0,
+        distinct=0,
+        stats={"empty": 0, "len_min": None, "len_max": None, "len_avg": None},
+        values=None,
+        value_kind="none",
+    )
+
+    out = render_deep([profile])
+
+    assert out.splitlines()[0] == (
+        "notes  (unknown, string — type not determined: "
+        "all sampled values were NULL)"
+    )
+
+
+def test_empty_column_note_leaves_the_header_unchanged() -> None:
+    """The default empty note renders byte-identically to today's header."""
+    profile = ColumnProfile(
+        meta=_meta("customer_city", "varchar", "string"),
+        rows=10,
+        non_null=10,
+        distinct=4,
+        stats={"empty": 0, "len_min": 2, "len_max": 8, "len_avg": 5.0},
+        values=None,
+        value_kind="none",
+    )
+
+    out = render_deep([profile])
+
+    assert out.splitlines()[0] == "customer_city  (varchar, string)"
+    assert "—" not in out.splitlines()[0]
 
 
 def test_numeric_block_thousands_separators() -> None:
@@ -617,16 +661,24 @@ def test_triage_ungated_none_distinct_blanks_without_literal_none() -> None:
     assert "None" not in out  # the literal None never reaches tabulate
 
 
-def test_empty_table_message_exact_wording() -> None:
-    assert empty_table_message("dbo", "orders") == (
+def test_empty_source_message_labelled_exact_wording() -> None:
+    # A labelled source is a table: byte-identical to the pre-Source wording.
+    assert empty_source_message("dbo.orders") == (
         "Table dbo.orders is empty (0 rows). "
         "Use read_columns for its column definitions."
     )
 
 
+def test_empty_source_message_unlabelled_says_source_query() -> None:
+    out = empty_source_message(None)
+
+    assert out == "The source query returned 0 rows."
+    assert "read_columns" not in out  # no table to look columns up on
+
+
 def test_table_not_found_message_distinct_from_empty() -> None:
     not_found = table_not_found_message("dbo", "orders")
-    empty = empty_table_message("dbo", "orders")
+    empty = empty_source_message("dbo.orders")
 
     assert not_found == (
         "Table dbo.orders not found (no such table or no columns). "
@@ -635,9 +687,15 @@ def test_table_not_found_message_distinct_from_empty() -> None:
     assert not_found != empty  # not-found and empty are distinct messages
 
 
-def test_empty_filter_message_exact_wording() -> None:
-    assert empty_filter_message(50_000) == (
+def test_empty_filter_message_labelled_exact_wording() -> None:
+    assert empty_filter_message(50_000, "dbo.orders") == (
         "No rows match the where predicate (table has 50,000 rows)."
+    )
+
+
+def test_empty_filter_message_unlabelled_attributes_rows_to_source() -> None:
+    assert empty_filter_message(50_000, None) == (
+        "No rows match the where predicate (source has 50,000 rows)."
     )
 
 

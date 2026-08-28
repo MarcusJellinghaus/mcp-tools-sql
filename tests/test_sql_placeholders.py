@@ -18,8 +18,10 @@ import sqlglot
 from sqlglot import exp
 
 from mcp_tools_sql.utils.sql_placeholders import (
+    LEADING_CTE_REJECTION,
     build_count_query,
     extract_param_names,
+    has_leading_cte,
     read_only_violation,
     substitute_named_with_literals,
     translate_named_to_qmark,
@@ -443,3 +445,37 @@ class TestBuildCountQuery:
         result = build_count_query("SELECT * FROM sales.dbo.orders ORDER BY id", "tsql")
         assert "ORDER BY" not in result.upper()
         assert "sales.dbo.orders" in result
+
+
+class TestHasLeadingCte:
+    """Tests for the shared leading-CTE gate ``has_leading_cte``."""
+
+    @pytest.mark.parametrize("dialect", ["sqlite", "tsql"])
+    def test_leading_cte_detected(self, dialect: str) -> None:
+        sql = "WITH c AS (SELECT 1 AS a) SELECT a FROM c"
+        assert has_leading_cte(sql, dialect) is True
+
+    @pytest.mark.parametrize("dialect", ["sqlite", "tsql"])
+    def test_plain_select_is_not_a_cte(self, dialect: str) -> None:
+        assert has_leading_cte("SELECT * FROM t", dialect) is False
+
+    def test_tsql_nolock_hint_not_false_positived(self) -> None:
+        # ``WITH (NOLOCK)`` is a table hint: sqlglot models it on the table
+        # node, not the statement-level CTE arg.
+        assert has_leading_cte("SELECT * FROM t WITH (NOLOCK)", "tsql") is False
+
+    def test_nested_cte_in_subquery_is_not_statement_level(self) -> None:
+        # The gate is statement-level only: a CTE buried inside a derived
+        # table leaves the root statement's ``with`` arg unset.
+        sql = "SELECT * FROM (WITH c AS (SELECT 1 AS a) SELECT a FROM c) AS x"
+        assert has_leading_cte(sql, "sqlite") is False
+
+
+class TestLeadingCteRejection:
+    """Tests for the shared rejection message ``LEADING_CTE_REJECTION``."""
+
+    def test_message_names_the_cause(self) -> None:
+        assert isinstance(LEADING_CTE_REJECTION, str)
+        assert LEADING_CTE_REJECTION.strip() != ""
+        assert "WITH" in LEADING_CTE_REJECTION
+        assert "SQL Server" in LEADING_CTE_REJECTION

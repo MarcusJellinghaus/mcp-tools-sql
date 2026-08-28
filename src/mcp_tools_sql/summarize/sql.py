@@ -36,6 +36,12 @@ from mcp_tools_sql.utils.sql_placeholders import (
 
 Category = Literal["numeric", "temporal", "string", "boolean", "other"]
 
+# What every query builder here does ``.from_()`` on: a persisted table
+# (``schema=``/``table=``) or a derived table wrapping a user SELECT
+# (``sql=``, built by ``summarize/source.py``). Both render identically inside
+# a ``FROM`` clause, so no builder branches on which one it got.
+SourceRef = exp.Table | exp.Subquery
+
 
 @dataclass(frozen=True)
 class ColumnMeta:
@@ -52,12 +58,16 @@ class ColumnMeta:
         category: The coarse profiling category dispatched on.
         ordinal: Zero-based-or-one-based ordinal position from the metadata
             query; used for the 50-column cap and triage ordering.
+        note: Optional inline mark rendered beside the type in the column
+            header (e.g. a probed column whose sampled values were all
+            ``NULL``). ``""`` -- the normal case -- renders nothing.
     """
 
     name: str
     declared_type: str
     category: Category
     ordinal: int
+    note: str = ""
 
 
 # Exact declared types, matched before the generic token scans below.
@@ -156,15 +166,14 @@ def build_table_ref(schema: str, table: str, dialect: str) -> exp.Table:
 
 def validate_where(
     where: str | None,
-    schema: str,
-    table: str,
+    table_ref: SourceRef,
     params: dict[str, Any] | None,
     dialect: str,
 ) -> tuple[exp.Expression | None, str | None]:
     """Validate an optional ``where`` predicate, fail-closed.
 
     Reuses the exact gate ``count_records`` applies: the predicate is wrapped in
-    a synthetic ``SELECT 1 FROM <schema.table> WHERE <where>`` probe, run
+    a synthetic ``SELECT 1 FROM <table_ref> WHERE <where>`` probe, run
     through :func:`basic_preflight` (empty / multi-statement / parse /
     unbound-``:name`` checks) and then :func:`read_only_violation`, and only on
     success re-extracted from the *re-parsed* statement -- the user's text is
@@ -177,8 +186,10 @@ def validate_where(
     Args:
         where: Raw predicate text with optional ``:name`` placeholders, or
             ``None``/blank for no filter.
-        schema: Owning schema name (for the probe's table reference).
-        table: Table name (for the probe's table reference).
+        table_ref: The already-built source reference the predicate filters --
+            a table from :func:`build_table_ref` or a validated derived table.
+            For a derived table the probe embeds the *re-rendered parsed*
+            source, never the raw ``sql=`` text.
         params: Bound values for the predicate's ``:name`` placeholders.
         dialect: Backend dialect, ``"sqlite"`` or ``"tsql"``.
 
@@ -188,7 +199,6 @@ def validate_where(
     """
     if not where or where.strip() == "":
         return (None, None)
-    table_ref = build_table_ref(schema, table, dialect)
     probe = f"SELECT 1 FROM {table_ref.sql(dialect=dialect)} WHERE {where}"
     verdict = basic_preflight(probe, params, dialect)
     if verdict is not None:
@@ -221,7 +231,7 @@ def metadata_sql(dialect: str) -> str:
 
 
 def build_count_sql(
-    table_ref: exp.Table,
+    table_ref: SourceRef,
     predicate: exp.Expression | None,
     dialect: str,
 ) -> str:
@@ -496,7 +506,7 @@ _DISPATCH: dict[Category, _ScalarBuilder] = {
 
 def build_scalar_sql(
     columns: list[ColumnMeta],
-    table_ref: exp.Table,
+    table_ref: SourceRef,
     predicate: exp.Expression | None,
     dialect: str,
     *,
@@ -583,7 +593,7 @@ def clamp_n(n: int) -> tuple[int, str]:
 
 def build_value_list_sql(
     col: ColumnMeta,
-    table_ref: exp.Table,
+    table_ref: SourceRef,
     predicate: exp.Expression | None,
     n: int,
     dialect: str,

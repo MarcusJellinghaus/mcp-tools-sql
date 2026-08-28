@@ -13,7 +13,8 @@ return result rows under ``SET SHOWPLAN_TEXT ON``.
 
 It also hosts the shared, dialect-aware analysis helpers reused across the
 SQL-consuming tools: :func:`count_statements`,
-:func:`first_statement_kind`, and the shared :func:`basic_preflight`.
+:func:`first_statement_kind`, :func:`has_leading_cte` (with its shared
+:data:`LEADING_CTE_REJECTION` message), and the shared :func:`basic_preflight`.
 sqlglot's :class:`~sqlglot.errors.ParseError` is re-exported so callers can
 implement the fail-closed parse contract without importing sqlglot directly.
 
@@ -35,12 +36,14 @@ from sqlglot import exp
 from sqlglot.errors import ParseError
 
 __all__ = [
+    "LEADING_CTE_REJECTION",
     "ParseError",
     "basic_preflight",
     "build_count_query",
     "count_statements",
     "extract_param_names",
     "first_statement_kind",
+    "has_leading_cte",
     "read_only_violation",
     "substitute_named_with_literals",
     "translate_named_to_qmark",
@@ -73,6 +76,15 @@ _WRITE_NODES = (
 #   ``VALUES (...), (...)``   -> exp.Values
 # Any root NOT in this tuple is rejected -- never widen this to a catch-all.
 _READONLY_ROOTS = (exp.Select, exp.Union, exp.Values)
+
+# Shared rejection message for leading-CTE (``WITH``) queries under T-SQL.
+# Both consumers -- ``count_records`` and ``summarize_columns`` -- wrap the
+# source in a derived table (``AS count_sub`` / ``AS src``), which SQL Server
+# does not allow for a CTE query, so the message names that shared cause.
+LEADING_CTE_REJECTION: str = (
+    "CTE (WITH) queries aren't supported on SQL Server — "
+    "the query can't be wrapped in a derived table."
+)
 
 
 def _statements(sql: str, dialect: str | None = None) -> list[exp.Expression]:
@@ -360,6 +372,29 @@ def read_only_violation(sql: str, dialect: str) -> str | None:
     if not isinstance(root, _READONLY_ROOTS):
         return "Not read-only. Only SELECT/WITH/VALUES queries can be counted."
     return None
+
+
+def has_leading_cte(sql: str, dialect: str) -> bool:
+    """Return ``True`` when ``sql``'s root statement carries a CTE (``WITH``).
+
+    The check is keyed precisely on the *statement-level* ``with`` arg
+    (an :class:`exp.With` node), so a T-SQL table hint such as
+    ``WITH (NOLOCK)`` -- which sqlglot models on the *table* node, not the
+    statement -- does not false-positive.
+
+    Args:
+        sql: The single SQL statement to inspect.
+        dialect: The sqlglot dialect to parse under.
+
+    Returns:
+        ``True`` if the root statement is a leading CTE query, else ``False``.
+    """
+    parsed = sqlglot.parse_one(sql, read=dialect)
+    # sqlglot keys the statement-level CTE arg as ``with_`` in current
+    # versions (trailing underscore for the reserved word); older versions
+    # used ``with``. Check both so the precise gate is version-robust.
+    with_arg = parsed.args.get("with_") or parsed.args.get("with")
+    return isinstance(with_arg, exp.With)
 
 
 def build_count_query(sql: str, dialect: str) -> str:

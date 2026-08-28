@@ -195,6 +195,89 @@ class TestReadOnlyQuery:
 
 
 # ---------------------------------------------------------------------------
+# Read-only query execution with column names
+# ---------------------------------------------------------------------------
+
+
+@pytest.mark.sqlite_integration
+class TestReadOnlyQueryWithColumns:
+    """Tests for ``SQLiteBackend.execute_readonly_query_with_columns``."""
+
+    def test_returns_columns_and_row_tuples(self, sqlite_db: Path) -> None:
+        """Names come back in projection order; rows are plain tuples."""
+        with _make_backend(str(sqlite_db)) as backend:
+            columns, rows = backend.execute_readonly_query_with_columns(
+                "SELECT name, id FROM customers ORDER BY id"
+            )
+            assert columns == ["name", "id"]
+            assert rows == [("Bank A", 1), ("Bank B", 2)]
+            assert all(isinstance(row, tuple) for row in rows)
+
+    def test_accepts_params(self, sqlite_db: Path) -> None:
+        with _make_backend(str(sqlite_db)) as backend:
+            columns, rows = backend.execute_readonly_query_with_columns(
+                "SELECT name FROM customers WHERE country = :country",
+                {"country": "France"},
+            )
+            assert columns == ["name"]
+            assert rows == [("Bank B",)]
+
+    def test_write_is_rejected(self, sqlite_db: Path) -> None:
+        """PRAGMA query_only = ON makes writes fail on the fresh connection."""
+        with _make_backend(str(sqlite_db)) as backend:
+            with pytest.raises(sqlite3.OperationalError):
+                backend.execute_readonly_query_with_columns(
+                    "INSERT INTO customers VALUES (4, 'Bank D', 'Italy')"
+                )
+            rows = backend.execute_query(
+                "SELECT COUNT(*) AS n FROM customers WHERE id = 4"
+            )
+            assert rows == [{"n": 0}]
+
+    def test_persistent_connection_unaffected(self, sqlite_db: Path) -> None:
+        """The fresh connection is closed; the backend stays usable."""
+        backend = _make_backend(str(sqlite_db))
+        backend.connect()
+        persistent = backend._connection
+        backend.execute_readonly_query_with_columns("SELECT 1 AS one")
+        assert backend._connection is persistent
+        rows = backend.execute_query("SELECT 1 AS one")
+        assert rows == [{"one": 1}]
+        backend.close()
+
+    def test_duplicate_column_names_survive(self, sqlite_db: Path) -> None:
+        """Pin SQLite's real naming for a self-join with repeated names.
+
+        The dict-returning methods collapse repeated names; this method must
+        keep one entry per projected column. The names asserted here are what
+        SQLite actually produces — observed, not assumed: it repeats ``id``
+        verbatim and applies *no* disambiguation suffix (there is no ``id:1``).
+        Later steps key their rules on this test, not on any assumed form.
+        """
+        with _make_backend(str(sqlite_db)) as backend:
+            columns, rows = backend.execute_readonly_query_with_columns(
+                "SELECT a.id, a.name, b.id, b.country "
+                "FROM customers a JOIN customers b ON a.id = b.id "
+                "ORDER BY a.id"
+            )
+            assert len(columns) == 4
+            assert columns == ["id", "name", "id", "country"]
+            assert rows[0] == (1, "Bank A", 1, "Germany")
+            # Contrast: the dict form silently collapses the repeated name.
+            dict_rows = backend.execute_readonly_query(
+                "SELECT a.id, a.name, b.id, b.country "
+                "FROM customers a JOIN customers b ON a.id = b.id "
+                "ORDER BY a.id"
+            )
+            assert len(dict_rows[0]) < len(columns)
+
+    def test_empty_path_raises(self) -> None:
+        backend = SQLiteBackend(ConnectionConfig(backend="sqlite", path=""))
+        with pytest.raises(ValueError, match="must not be empty"):
+            backend.execute_readonly_query_with_columns("SELECT 1")
+
+
+# ---------------------------------------------------------------------------
 # Error handling
 # ---------------------------------------------------------------------------
 

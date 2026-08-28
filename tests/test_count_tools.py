@@ -231,8 +231,8 @@ async def test_mssql_leading_cte_rejected_without_execution() -> None:
     ) as client:
         text = await _call_count(client, "WITH x AS (SELECT 1) SELECT * FROM x")
     assert text == (
-        "CTE (WITH) queries can't be counted on SQL Server — "
-        "the count wrapper doesn't support them."
+        "CTE (WITH) queries aren't supported on SQL Server — "
+        "the query can't be wrapped in a derived table."
     )
     backend.execute_readonly_query.assert_not_called()
 
@@ -254,8 +254,8 @@ async def test_mssql_with_nolock_hint_not_false_positived() -> None:
     ) as client:
         text = await _call_count(client, "SELECT * FROM t WITH (NOLOCK)")
     assert text != (
-        "CTE (WITH) queries can't be counted on SQL Server — "
-        "the count wrapper doesn't support them."
+        "CTE (WITH) queries aren't supported on SQL Server — "
+        "the query can't be wrapped in a derived table."
     )
     assert text == "7"
     backend.execute_readonly_query.assert_called_once()
@@ -370,8 +370,8 @@ async def test_multi_per_call_dialect_resolved_from_target(sqlite_db: Path) -> N
         sqlite_count = await _call_count(client, cte_sql, connection="lite")
 
     assert tsql_verdict == (
-        "CTE (WITH) queries can't be counted on SQL Server — "
-        "the count wrapper doesn't support them."
+        "CTE (WITH) queries aren't supported on SQL Server — "
+        "the query can't be wrapped in a derived table."
     )
     assert sqlite_count == "1"
     assert registry.calls[0].connection == "sql"

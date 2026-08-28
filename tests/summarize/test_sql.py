@@ -143,9 +143,9 @@ def test_build_count_sql_includes_predicate() -> None:
         validate_where,
     )
 
-    predicate, error = validate_where("status = :s", "dbo", "t", {"s": "x"}, "sqlite")
-    assert error is None
     ref = build_table_ref("dbo", "t", "sqlite")
+    predicate, error = validate_where("status = :s", ref, {"s": "x"}, "sqlite")
+    assert error is None
     sql = build_count_sql(ref, predicate, "sqlite")
     assert sql == 'SELECT COUNT(*) AS row_count FROM "t" WHERE status = :s'
 
@@ -156,18 +156,18 @@ def test_build_count_sql_includes_predicate() -> None:
 @pytest.mark.parametrize("where", [None, "", "   "])
 def test_validate_where_blank_returns_no_predicate(where: str | None) -> None:
     """None/blank where yields (None, None) -- no filter, no error."""
-    from mcp_tools_sql.summarize.sql import validate_where
+    from mcp_tools_sql.summarize.sql import build_table_ref, validate_where
 
-    assert validate_where(where, "dbo", "t", None, "sqlite") == (None, None)
+    ref = build_table_ref("dbo", "t", "sqlite")
+    assert validate_where(where, ref, None, "sqlite") == (None, None)
 
 
 def test_validate_where_valid_predicate_returns_ast() -> None:
     """A bound predicate returns a re-rendered AST, never the raw text."""
-    from mcp_tools_sql.summarize.sql import validate_where
+    from mcp_tools_sql.summarize.sql import build_table_ref, validate_where
 
-    predicate, error = validate_where(
-        "status = :s", "dbo", "t", {"s": "open"}, "sqlite"
-    )
+    ref = build_table_ref("dbo", "t", "sqlite")
+    predicate, error = validate_where("status = :s", ref, {"s": "open"}, "sqlite")
     assert error is None
     assert predicate is not None
     assert predicate.sql(dialect="sqlite") == "status = :s"
@@ -181,22 +181,20 @@ def test_validate_where_rejects_write_smuggling() -> None:
     ``read_only_violation`` AST gate is the defence-in-depth backstop). Either
     way the predicate is refused and no data query is built.
     """
-    from mcp_tools_sql.summarize.sql import validate_where
+    from mcp_tools_sql.summarize.sql import build_table_ref, validate_where
 
-    predicate, error = validate_where(
-        "id IN (DELETE FROM t)", "dbo", "t", None, "sqlite"
-    )
+    ref = build_table_ref("dbo", "t", "sqlite")
+    predicate, error = validate_where("id IN (DELETE FROM t)", ref, None, "sqlite")
     assert predicate is None
     assert error is not None
 
 
 def test_validate_where_rejects_statement_terminator() -> None:
     """A stacked statement is rejected before any query runs."""
-    from mcp_tools_sql.summarize.sql import validate_where
+    from mcp_tools_sql.summarize.sql import build_table_ref, validate_where
 
-    predicate, error = validate_where(
-        "1=1); DROP TABLE t --", "dbo", "t", None, "sqlite"
-    )
+    ref = build_table_ref("dbo", "t", "sqlite")
+    predicate, error = validate_where("1=1); DROP TABLE t --", ref, None, "sqlite")
     assert predicate is None
     assert error is not None
 
@@ -209,10 +207,11 @@ def test_validate_where_rejects_union_breakout() -> None:
     pass, but its root is a ``UNION`` with no ``where`` arg. The re-extraction
     must return an error string rather than raise.
     """
-    from mcp_tools_sql.summarize.sql import validate_where
+    from mcp_tools_sql.summarize.sql import build_table_ref, validate_where
 
+    ref = build_table_ref("dbo", "t", "sqlite")
     predicate, error = validate_where(
-        "1 = 1 UNION SELECT name FROM sqlite_master", "dbo", "t", None, "sqlite"
+        "1 = 1 UNION SELECT name FROM sqlite_master", ref, None, "sqlite"
     )
     assert predicate is None
     assert error is not None
@@ -221,12 +220,44 @@ def test_validate_where_rejects_union_breakout() -> None:
 
 def test_validate_where_missing_param_verdict() -> None:
     """An unbound :name without params fails via basic_preflight."""
-    from mcp_tools_sql.summarize.sql import validate_where
+    from mcp_tools_sql.summarize.sql import build_table_ref, validate_where
 
-    predicate, error = validate_where("x = :missing", "dbo", "t", None, "sqlite")
+    ref = build_table_ref("dbo", "t", "sqlite")
+    predicate, error = validate_where("x = :missing", ref, None, "sqlite")
     assert predicate is None
     assert error is not None
     assert "missing parameter" in error.lower()
+
+
+def test_validate_where_against_a_derived_table_source() -> None:
+    """A subquery ref builds the probe from the rendered derived table.
+
+    The ``sql=`` path validates its ``where`` against the *source*, not a
+    table: the probe must embed the re-rendered subquery (so the predicate is
+    checked against the columns it will really filter) and still return the
+    predicate AST alone.
+    """
+    from mcp_tools_sql.summarize.source import validate_source
+    from mcp_tools_sql.summarize.sql import validate_where
+
+    ref, _notes, source_error = validate_source("SELECT a, b FROM t", None, "sqlite")
+    assert source_error is None
+    assert ref is not None
+
+    predicate, error = validate_where("a = :v", ref, {"v": 1}, "sqlite")
+    assert error is None
+    assert predicate is not None
+    assert predicate.sql(dialect="sqlite") == "a = :v"
+
+    # The source really is embedded in the probe: its own placeholder must be
+    # bound too, or the probe's preflight reports it missing.
+    bound_ref, _n, _e = validate_source(
+        "SELECT a, b FROM t WHERE b = :src", {"src": 1}, "sqlite"
+    )
+    assert bound_ref is not None
+    _predicate, error = validate_where("a = :v", bound_ref, {"v": 1}, "sqlite")
+    assert error is not None
+    assert "missing parameter: src" in error
 
 
 # --- build_scalar_sql ------------------------------------------------------
@@ -385,9 +416,9 @@ def test_scalar_multi_column_alias_indices_and_predicate() -> None:
         validate_where,
     )
 
-    predicate, error = validate_where("status = :s", "x", "t", {"s": "open"}, "sqlite")
-    assert error is None
     ref = build_table_ref("x", "t", "sqlite")
+    predicate, error = validate_where("status = :s", ref, {"s": "open"}, "sqlite")
+    assert error is None
     cols = [
         _meta("amount", "INTEGER", "numeric", 0),
         _meta("created", "DATE", "temporal", 1),
@@ -515,9 +546,9 @@ def test_value_list_top_predicate_in_where() -> None:
         validate_where,
     )
 
-    predicate, error = validate_where("status = :s", "x", "t", {"s": "open"}, "sqlite")
-    assert error is None
     ref = build_table_ref("x", "t", "sqlite")
+    predicate, error = validate_where("status = :s", ref, {"s": "open"}, "sqlite")
+    assert error is None
     sql = build_value_list_sql(
         _meta("c", "INTEGER", "numeric"), ref, predicate, 20, "sqlite", kind="top"
     )
@@ -532,9 +563,9 @@ def test_value_list_sample_predicate_and_combined() -> None:
         validate_where,
     )
 
-    predicate, error = validate_where("status = :s", "x", "t", {"s": "open"}, "sqlite")
-    assert error is None
     ref = build_table_ref("x", "t", "sqlite")
+    predicate, error = validate_where("status = :s", ref, {"s": "open"}, "sqlite")
+    assert error is None
     sql = build_value_list_sql(
         _meta("c", "INTEGER", "numeric"), ref, predicate, 20, "sqlite", kind="sample"
     )

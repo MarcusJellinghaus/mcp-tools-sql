@@ -132,9 +132,10 @@ and `query_helpers.extract_sql_params`.
 | `query_tools.py` | Dynamic registration of configured SELECT tools |
 | `update_tools.py` | Dynamic registration of configured UPDATE tools |
 | `validation_tools.py` | SQL validation via EXPLAIN |
+| `summarize/` | `summarize_columns` column profiling. `source.py` resolves the profiling **source** into one `Source` value object — either a persisted table (`schema`+`table`, types from the catalog) or an arbitrary read-only SELECT (`sql`, wrapped as a `(...) AS src` derived table; types come from `sys.dm_exec_describe_first_result_set` on T-SQL, falling back — with a footer note — to the few-row value probe that SQLite always uses). `sql.py` builds the count / scalar-aggregate / value-list SQL, `render.py` the deep and triage text views, `tools.py` registers the tool and orchestrates the pipeline. Downstream of `Source` nothing branches on which path produced it. |
 | `config/models.py` | Pydantic models for all config |
 | `config/loader.py` | TOML loading, validation, connection resolution |
-| `backends/base.py` | `DatabaseBackend` ABC + factory |
+| `backends/base.py` | `DatabaseBackend` ABC + factory. Read-only execution comes in two shapes: `execute_readonly_query` (dict rows, the default) and `execute_readonly_query_with_columns` (ordered column names + raw row tuples, under the same read-only guarantee). The second exists because dict rows discard `cursor.description` and silently collapse duplicate column names — which the `summarize_columns` value probe must be able to detect and reject. |
 | `backends/sqlite.py` | SQLite implementation |
 | `backends/mssql.py` | SQL Server implementation (pyodbc) |
 | `formatting.py` | Result → LLM-friendly text (tabular, truncated) |

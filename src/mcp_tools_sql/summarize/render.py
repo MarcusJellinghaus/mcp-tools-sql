@@ -367,6 +367,10 @@ def _render_values(p: ColumnProfile) -> list[str]:
 def _render_block(p: ColumnProfile) -> str:
     """Render one column's full labelled block: header, stats, value list.
 
+    The header carries the column's inline :attr:`ColumnMeta.note` after the
+    category when one is set (``(unknown, string — type not determined: …)``);
+    with the usual empty note the header is unchanged.
+
     Args:
         p: The profile to render.
 
@@ -375,7 +379,8 @@ def _render_block(p: ColumnProfile) -> str:
     """
     meta = p.meta
     nulls = p.rows - p.non_null
-    lines = [f"{meta.name}  ({meta.declared_type}, {meta.category})"]
+    note = f" — {meta.note}" if meta.note else ""
+    lines = [f"{meta.name}  ({meta.declared_type}, {meta.category}{note})"]
     lines += _STAT_DISPATCH[meta.category](p, p.rows, nulls)
     lines += _render_values(p)
     return "\n".join(lines)
@@ -508,14 +513,24 @@ def render_summary(
     return render_deep(profiles)
 
 
-def empty_table_message(schema: str, table: str) -> str:
-    """Message for a table that exists but holds zero rows.
+def empty_source_message(label: str | None) -> str:
+    """Message for a source that resolved but holds zero rows.
+
+    A labelled source is a persisted table, so the wording keeps the table
+    phrasing and the ``read_columns`` pointer; an unlabelled one is a user
+    query, for which neither applies.
+
+    Args:
+        label: The source descriptor (``schema.table``), or ``None`` for a
+            query source.
 
     Returns:
-        The empty-table message string.
+        The empty-source message string.
     """
+    if label is None:
+        return "The source query returned 0 rows."
     return (
-        f"Table {schema}.{table} is empty (0 rows). "
+        f"Table {label} is empty (0 rows). "
         "Use read_columns for its column definitions."
     )
 
@@ -532,13 +547,23 @@ def table_not_found_message(schema: str, table: str) -> str:
     )
 
 
-def empty_filter_message(total_rows: int) -> str:
+def empty_filter_message(total_rows: int, label: str | None) -> str:
     """Message when the ``where`` predicate matches no rows.
+
+    Args:
+        total_rows: The unfiltered row count of the source.
+        label: The source descriptor (``schema.table``), or ``None`` for a
+            query source -- which decides whether the count is attributed to a
+            "table" or to the "source".
 
     Returns:
         The empty-filter message string.
     """
-    return f"No rows match the where predicate (table has {_fmt_int(total_rows)} rows)."
+    subject = "table" if label is not None else "source"
+    return (
+        "No rows match the where predicate "
+        f"({subject} has {_fmt_int(total_rows)} rows)."
+    )
 
 
 def unknown_columns_message(bad: list[str], available: list[str]) -> str:

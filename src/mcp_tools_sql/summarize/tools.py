@@ -8,17 +8,26 @@ tool that resolves its ``(connection, database)`` target per call via
 through :meth:`DatabaseBackend.execute_readonly_query`, and returns a plain
 string.
 
-The per-call ``core`` runs the profiling pipeline: metadata query -> column
+The per-call ``core`` resolves the profiling source (``summarize/source.py``)
+-- a persisted table from ``schema``+``table``, or an arbitrary read-only
+SELECT from ``sql``, never both -- and then runs the pipeline: column
 narrow/cap -> filtered ``COUNT(*)`` short-circuit -> single scalar-aggregate
-pass -> per-column value lists (deep view only) -> :func:`render_summary`. The
-user's ``where`` predicate is validated fail-closed and its ``params`` are
-threaded into *every* predicate-bearing query so ``:name`` placeholders bind.
+pass -> per-column value lists (deep view only) -> :func:`render_summary`.
+Source resolution runs a backend query of its own (the catalog lookup on the
+table path, the value probe on the ``sql`` path), so it sits *inside* the same
+exception tail as the rest: a source that parses but cannot be resolved by the
+database comes back as an ``Invalid SQL.`` string, which is the only report the
+caller gets -- there is no ``sql``-path analogue of ``table_not_found_message``.
+
+The ``where`` predicate is validated fail-closed and its ``params`` are threaded
+into *every* predicate-bearing query so ``:name`` placeholders bind. On the
+``sql`` path the predicate filters the derived table from *outside*, so it can
+reference computed and aggregated output columns (``HAVING``-like filtering).
 """
 
 from __future__ import annotations
 
 import inspect
-import sqlite3
 from typing import TYPE_CHECKING, Annotated, Any, Literal, Optional
 
 from pydantic import Field
@@ -32,33 +41,26 @@ from mcp_tools_sql.summarize.render import (
     ColumnProfile,
     empty_columns_message,
     empty_filter_message,
-    empty_table_message,
+    empty_source_message,
     render_summary,
-    table_not_found_message,
     unknown_columns_message,
+)
+from mcp_tools_sql.summarize.source import (
+    INVALID_SQL_EXC,
+    Source,
+    build_query_source,
+    build_table_source,
 )
 from mcp_tools_sql.summarize.sql import (
     ColumnMeta,
     build_count_sql,
     build_scalar_sql,
-    build_table_ref,
     build_value_list_sql,
-    categorize_type,
     clamp_n,
-    metadata_sql,
     validate_where,
 )
 from mcp_tools_sql.tool_builder import build_tool_fn
 from mcp_tools_sql.tool_logging import log_tool_call
-
-try:
-    import pyodbc  # pylint: disable=import-error
-
-    _PYODBC_ERROR: tuple[type[Exception], ...] = (pyodbc.Error,)
-except ImportError:
-    _PYODBC_ERROR = ()
-
-_INVALID_SQL_EXC: tuple[type[BaseException], ...] = (sqlite3.Error, *_PYODBC_ERROR)
 
 if TYPE_CHECKING:
     from mcp.server.fastmcp import FastMCP
@@ -69,17 +71,36 @@ if TYPE_CHECKING:
 
 
 _DESCRIPTION = (
-    "Profile the data in a table's columns: row/null/distinct counts, "
+    "Profile a table (schema+table) or an arbitrary read-only SELECT (sql) "
+    "— supply one, not both. Per profiled column: row/null/distinct counts, "
     "category-appropriate statistics (min/max/mean/sum for numeric, date "
     "bounds for temporal, length stats for string, true/false counts for "
     "boolean, byte sizes for binary), and duplication-driven value lists "
     "(top values with frequencies when values repeat, a sample when every "
     "value is unique). Read-only. Narrow with columns= and filter with a "
     "read-only where predicate; the predicate must use :name placeholders "
-    "for values, bound via params (never inline literals). Returns a "
-    "formatted text block; tables wider than 15 profiled columns render a "
+    "for values, bound via params (never inline literals). With sql, the "
+    "where predicate is applied OUTSIDE the query, so it can filter computed "
+    "and aggregated columns. The source is executed once per profiled column "
+    "plus three times, so narrow with columns= on expensive queries. Returns "
+    "a formatted text block; sources wider than 15 profiled columns render a "
     "compact one-line-per-column triage instead. n sets the value-list "
     "length (default 20, clamped to 1..50)."
+)
+
+# One message for every way the source choice can be wrong -- both supplied,
+# neither supplied, or a half-supplied schema without its table. One string
+# means one-turn recovery whichever mistake was made.
+SOURCE_CHOICE_MESSAGE: str = "Supply either schema+table or sql, not both."
+
+# Appended to an ``Invalid SQL.`` report on a probed T-SQL source. The probe
+# sees only Python types, so a text/ntext/image column is indistinguishable
+# from an ordinary nvarchar one -- both arrive as ``str`` -- and the scalar
+# pass then emits aggregates SQL Server rejects on a LOB column.
+LOB_HINT: str = (
+    " This can happen when a text/ntext/image column is profiled from a "
+    "sampled type. Exclude it with columns=, or CAST(... AS nvarchar(max)) "
+    "inside the source query."
 )
 
 
@@ -89,24 +110,51 @@ def _base_summarize_params() -> list[inspect.Parameter]:
     The runtime ``connection``/``database`` selector params (added only for
     multi-target installs) are appended separately via
     :func:`build_target_params`, so a single-target signature is exactly these
-    six parameters, all ``POSITIONAL_OR_KEYWORD``.
+    seven parameters, all ``POSITIONAL_OR_KEYWORD``.
+
+    Every source parameter is optional at the signature level: the
+    ``schema``+``table`` / ``sql`` choice is mutually exclusive, so neither
+    pair can be declared required. The choice is enforced in the tool body,
+    which returns :data:`SOURCE_CHOICE_MESSAGE` for any wrong combination.
+    Positional order is cosmetic -- :func:`build_tool_fn` calls the body with
+    keyword arguments only.
 
     Returns:
-        The ``schema`` / ``table`` / ``columns`` / ``where`` / ``params`` / ``n``
-        parameters in order.
+        The ``schema`` / ``table`` / ``sql`` / ``columns`` / ``where`` /
+        ``params`` / ``n`` parameters in order.
     """
     return [
         inspect.Parameter(
             "schema",
             kind=inspect.Parameter.POSITIONAL_OR_KEYWORD,
+            default=None,
             annotation=Annotated[
-                str, Field(description="Owning schema (ignored on SQLite).")
+                Optional[str],  # noqa: UP007
+                Field(description="Owning schema (ignored on SQLite)."),
             ],
         ),
         inspect.Parameter(
             "table",
             kind=inspect.Parameter.POSITIONAL_OR_KEYWORD,
-            annotation=Annotated[str, Field(description="Table to profile.")],
+            default=None,
+            annotation=Annotated[
+                Optional[str],  # noqa: UP007
+                Field(description="Table to profile; requires schema."),
+            ],
+        ),
+        inspect.Parameter(
+            "sql",
+            kind=inspect.Parameter.POSITIONAL_OR_KEYWORD,
+            default=None,
+            annotation=Annotated[
+                Optional[str],  # noqa: UP007
+                Field(
+                    description=(
+                        "Read-only SELECT to profile instead of a table; "
+                        "mutually exclusive with schema+table."
+                    )
+                ),
+            ],
         ),
         inspect.Parameter(
             "columns",
@@ -236,8 +284,9 @@ class SummarizeTools:
         targets = self._targets
 
         async def core(
-            schema: str,
-            table: str,
+            schema: str | None = None,
+            table: str | None = None,
+            sql: str | None = None,
             columns: list[str] | None = None,
             where: str | None = None,
             params: dict[str, Any] | None = None,
@@ -246,36 +295,56 @@ class SummarizeTools:
             connection: str | None = None,
             database: str | None = None,
         ) -> str:
+            # Exactly one source: ``sql`` alone, or ``schema`` *and* ``table``.
+            # Both / neither / a half-supplied table pair share one message.
+            if bool(sql) == bool(schema or table):
+                return SOURCE_CHOICE_MESSAGE
+            if not sql and not (schema and table):
+                return SOURCE_CHOICE_MESSAGE
             try:
                 target = targets.resolve_pinned(connection, database)
             except ValueError as exc:
                 return str(exc)
             backend = registry.backend_for(target)
             dialect = to_dialect(target.backend_name)
+            # On the ``sql`` path the source is the field worth logging, not
+            # the predicate applied outside it.
             async with log_tool_call(
-                "summarize_columns", params or {}, sql=where or ""
+                "summarize_columns", params or {}, sql=sql or where or ""
             ) as rec:
-                predicate, where_error = validate_where(
-                    where, schema, table, params, dialect
-                )
-                if where_error is not None:
-                    return where_error
-                table_ref = build_table_ref(schema, table, dialect)
+                # Set before the try so the handler below can read it even
+                # when the source build itself was what raised.
+                built: Source | str | None = None
                 try:
-                    return _run(
-                        backend,
-                        rec,
-                        schema,
-                        table,
-                        table_ref,
-                        predicate,
-                        params,
-                        columns,
-                        n,
-                        dialect,
+                    built = (
+                        build_query_source(backend, sql, params, dialect)
+                        if sql
+                        else build_table_source(
+                            backend, schema or "", table or "", dialect
+                        )
                     )
-                except _INVALID_SQL_EXC as exc:
-                    return f"Invalid SQL. {type(exc).__name__}: {exc}"
+                    if isinstance(built, str):
+                        return built
+                    predicate, where_error = validate_where(
+                        where, built.ref, params, dialect
+                    )
+                    if where_error is not None:
+                        return where_error
+                    return _run(
+                        backend, rec, built, predicate, params, columns, n, dialect
+                    )
+                except INVALID_SQL_EXC as exc:
+                    # A probe failure is not a LOB failure (the probe is a bare
+                    # ``SELECT *``), so ``built`` must already be a resolved
+                    # ``Source``. The dialect term matters too: on SQLite every
+                    # ``sql`` source is probed, and the hint is T-SQL-only.
+                    probed = (
+                        dialect == "tsql"
+                        and isinstance(built, Source)
+                        and built.types_probed
+                    )
+                    message = f"Invalid SQL. {type(exc).__name__}: {exc}"
+                    return (message + LOB_HINT) if probed else message
                 except (KeyError, TypeError, ValueError) as exc:
                     return f"Invalid parameters. {type(exc).__name__}: {exc}"
                 except RuntimeError as exc:
@@ -288,32 +357,34 @@ class SummarizeTools:
         mcp.add_tool(fn, name="summarize_columns", description=_DESCRIPTION)
 
 
-def _run(  # noqa: PLR0913
+def _run(
     backend: DatabaseBackend,
     rec: Any,
-    schema: str,
-    table: str,
-    table_ref: Any,
+    source: Source,
     predicate: Any,
     params: dict[str, Any] | None,
     columns: list[str] | None,
     n: int,
     dialect: str,
 ) -> str:
-    """Execute the metadata -> count -> scalar -> value-list profiling pipeline.
+    """Execute the count -> scalar -> value-list profiling pipeline.
 
-    Split out of ``core`` so the ``count_tools`` exception tail wraps a single
-    call. Every predicate-bearing query is passed ``params`` so the validated
-    ``where`` predicate's ``:name`` placeholders bind; the metadata query takes
-    its own ``{schema, table}`` dict and the unfiltered zero-match count carries
-    no predicate.
+    Source-agnostic: everything it needs about *what* is being profiled -- the
+    reference to select from, the column metadata, the message label, and any
+    call-level notes -- arrives in the already-resolved ``source``. Every
+    predicate-bearing query is passed ``params`` so the validated ``where``
+    predicate's ``:name`` placeholders bind; the unfiltered zero-match count
+    carries no predicate.
+
+    Column resolution deliberately happens *before* the row count, so a
+    zero-row source still pays for it: resolution is what rejects a bad
+    source, and skipping it would report "0 rows" for a query that cannot be
+    resolved at all.
 
     Args:
         backend: The resolved backend to execute read-only queries on.
         rec: The open :class:`ToolCallRecord` to record the profiled shape on.
-        schema: Owning schema (for the metadata query and messages).
-        table: Table name (for the metadata query and messages).
-        table_ref: The dialect table reference from :func:`build_table_ref`.
+        source: The resolved :class:`Source` to profile.
         predicate: The validated ``where`` predicate AST, or ``None``.
         params: Bound values for the predicate's ``:name`` placeholders.
         columns: Requested column names, ``None`` for all, ``[]`` an error.
@@ -323,21 +394,8 @@ def _run(  # noqa: PLR0913
     Returns:
         The rendered profiling block / triage table / status message.
     """
-    meta_rows = backend.execute_readonly_query(
-        metadata_sql(dialect), {"schema": schema, "table": table}
-    )
-    if not meta_rows:
-        return table_not_found_message(schema, table)
-    metas = [
-        ColumnMeta(
-            name=r["name"],
-            declared_type=r["type"],
-            category=categorize_type(r["type"], dialect),
-            ordinal=r["ordinal"],
-        )
-        for r in meta_rows
-    ]
-    narrowed = _narrow_columns(metas, columns)
+    table_ref = source.ref
+    narrowed = _narrow_columns(source.metas, columns)
     if isinstance(narrowed, str):
         return narrowed
     total_columns, profiled = narrowed
@@ -351,8 +409,8 @@ def _run(  # noqa: PLR0913
             total_rows = backend.execute_readonly_query(
                 build_count_sql(table_ref, None, dialect), params
             )[0]["row_count"]
-            return empty_filter_message(total_rows)
-        return empty_table_message(schema, table)
+            return empty_filter_message(total_rows, source.label)
+        return empty_source_message(source.label)
 
     view = "triage" if len(profiled) > TRIAGE_THRESHOLD else "deep"
     include_distinct = view == "deep" or rows <= DISTINCT_GATE_ROWS
@@ -397,6 +455,12 @@ def _run(  # noqa: PLR0913
     summary = render_summary(
         profiles, total_columns, distinct_gated=not include_distinct
     )
+    # Call-level notes and the clamp note share one trailing block, so the
+    # renderers keep their signatures. A table source contributes no notes, so
+    # this is the clamp note alone -- exactly what it was before.
+    footer = [*source.notes]
     if clamp_note:
-        return f"{summary}\n\n{clamp_note}"
+        footer.append(clamp_note)
+    if footer:
+        return f"{summary}\n\n" + "\n".join(footer)
     return summary
