@@ -14,6 +14,7 @@ from mcp_tools_sql.config.models import (
     ResolvedTarget,
     ResolvedTargets,
 )
+from mcp_tools_sql.utils.user_app_data import get_user_app_data_dir
 
 _SENSITIVE_KEYS = {"password"}
 _logger = logging.getLogger(__name__)
@@ -125,7 +126,7 @@ def load_database_config(path: Path | None = None) -> DatabaseConfig:
         Database configuration loaded from file or defaults.
     """
     if path is None:
-        path = Path.home() / ".mcp-tools-sql" / "config.toml"
+        path = get_user_app_data_dir("mcp-tools-sql") / "config.toml"
 
     if not path.exists():
         return DatabaseConfig()

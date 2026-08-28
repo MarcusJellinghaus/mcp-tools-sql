@@ -14,6 +14,7 @@ from mcp_tools_sql.config.loader import (
     load_query_config,
 )
 from mcp_tools_sql.config.models import DatabaseConfig, QueryFileConfig
+from mcp_tools_sql.utils.user_app_data import get_user_app_data_dir
 from mcp_tools_sql.verification._helpers import make_entry
 
 
@@ -65,7 +66,7 @@ def verify_config_files(
             entry["warn"] = True
             result["query_config_sensitive_keys"] = entry
 
-    db_path = db_config_path or Path.home() / ".mcp-tools-sql" / "config.toml"
+    db_path = db_config_path or (get_user_app_data_dir("mcp-tools-sql") / "config.toml")
     if not db_path.exists():
         result["database_config_path"] = make_entry(
             ok=False,

@@ -15,6 +15,7 @@ from mcp_tools_sql.config.authoring import (
     build_query_config,
     build_update_config,
 )
+from mcp_tools_sql.utils.user_app_data import get_user_app_data_dir
 
 logger = logging.getLogger(__name__)
 
@@ -223,7 +224,7 @@ def _build_database_config_template(backend: str) -> str:
 
 def _database_config_path() -> Path:
     """Return target path for database config file."""
-    return Path.home() / ".mcp-tools-sql" / "config.toml"
+    return get_user_app_data_dir("mcp-tools-sql") / "config.toml"
 
 
 def _write_database_config_if_absent(backend: str) -> None:

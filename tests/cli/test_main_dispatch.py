@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import argparse
+import inspect
 import sqlite3
 from pathlib import Path
 from typing import Any
@@ -11,7 +12,13 @@ import pytest
 
 from mcp_tools_sql.cli.commands import init as init_cmd
 from mcp_tools_sql.cli.commands import verify as verify_cmd
-from mcp_tools_sql.main import _build_parser, main
+from mcp_tools_sql.main import (
+    _build_parser,
+    _resolve_log_file,
+    _resolve_log_level,
+    main,
+)
+from mcp_tools_sql.utils.log_utils import OUTPUT, setup_logging
 
 
 def test_dispatch_init_calls_init_run(monkeypatch: pytest.MonkeyPatch) -> None:
@@ -136,15 +143,19 @@ def _build_failing_args(tmp_path: Path, scenario: str) -> list[str]:
 def test_server_friendly_error_for_bad_config_returns_2(
     tmp_path: Path,
     capsys: pytest.CaptureFixture[str],
+    caplog: pytest.LogCaptureFixture,
     scenario: str,
 ) -> None:
-    """Bad configs produce exit 2 with a friendly stderr hint and no traceback."""
+    """Bad configs produce exit 2 with a friendly logged hint and no traceback."""
+    caplog.set_level(OUTPUT)
     argv = _build_failing_args(tmp_path, scenario)
     rc = main(argv)
     captured = capsys.readouterr()
+    messages = [rec.getMessage() for rec in caplog.records]
+    levels = {rec.levelname for rec in caplog.records}
     assert rc == 2
-    assert "Error:" in captured.err
-    assert "verify" in captured.err
+    assert "ERROR" in levels  # the exception text
+    assert any("verify" in msg for msg in messages)  # the OUTPUT hint
     assert "Traceback" not in captured.err
 
 
@@ -189,6 +200,106 @@ def test_setup_logging_runs_before_run_server(
     rc = main(["server"])
     assert rc == 0
     assert order == ["setup_logging", "run_server"]
+
+
+@pytest.mark.parametrize(
+    ("argv", "expected"),
+    [
+        ([], "INFO"),  # bare -> server
+        (["server"], "INFO"),
+        (["init", "--backend", "sqlite"], "OUTPUT"),
+        (["verify"], "OUTPUT"),
+        (["--log-level", "DEBUG", "server"], "DEBUG"),  # explicit wins
+        (["--log-level", "DEBUG", "verify"], "DEBUG"),
+        (["--log-level", "OUTPUT", "server"], "OUTPUT"),  # new choice accepted
+    ],
+)
+def test_resolve_log_level(argv: list[str], expected: str) -> None:
+    """The resolved level honours an explicit flag, else the per-command default."""
+    args = _build_parser().parse_args(argv)
+    assert _resolve_log_level(args, args.command or "server") == expected
+
+
+@pytest.mark.parametrize(
+    ("argv", "expected"),
+    [
+        (["--console-only", "server"], None),
+        (["--log-file", "x.log", "server"], "x.log"),
+        (["--console-only", "--log-file", "x.log", "server"], None),  # console wins
+        (["init", "--backend", "sqlite"], None),
+        (["verify"], None),
+        (["--log-file", "x.log", "verify"], "x.log"),
+    ],
+)
+def test_resolve_log_file(argv: list[str], expected: str | None) -> None:
+    """--console-only wins, an explicit file is honoured, non-server has no default."""
+    args = _build_parser().parse_args(argv)
+    assert _resolve_log_file(args, args.command or "server") == expected
+
+
+def test_resolve_log_file_server_default(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """`server` defaults to a timestamped file under ~/.mcp-tools-sql/logs/."""
+    monkeypatch.setattr(Path, "home", lambda: tmp_path)
+    args = _build_parser().parse_args(["server"])
+    result = _resolve_log_file(args, "server")
+    assert result is not None
+    resolved = Path(result)
+    assert resolved.parent == tmp_path / ".mcp-tools-sql" / "logs"
+    assert resolved.name.startswith("mcp_tools_sql_")
+    assert resolved.name.endswith(".log")
+    assert not resolved.exists()  # helper is pure: it creates nothing
+
+
+@pytest.mark.parametrize(
+    ("argv", "expect_file", "expected_console_level", "expected_log_level"),
+    [
+        (["server"], True, OUTPUT, "INFO"),
+        (["--console-only", "server"], False, None, "INFO"),  # guards the conditional
+        (["verify"], False, None, "OUTPUT"),  # non-server stays console-only
+    ],
+)
+def test_setup_logging_arguments(
+    argv: list[str],
+    expect_file: bool,
+    expected_console_level: int | None,
+    expected_log_level: str,
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """`setup_logging` receives the per-command file and console thresholds."""
+    recorded: dict[str, Any] = {}
+
+    def fake_setup(
+        log_level: str, log_file: str | None = None, console_level: int | None = None
+    ) -> None:
+        recorded.update(
+            log_level=log_level, log_file=log_file, console_level=console_level
+        )
+
+    monkeypatch.setattr(Path, "home", lambda: tmp_path)
+    monkeypatch.setattr("mcp_tools_sql.main.setup_logging", fake_setup)
+    monkeypatch.setattr("mcp_tools_sql.main.run_server", lambda args: None)
+    monkeypatch.setattr(verify_cmd, "run", lambda args: 0)
+
+    assert main(argv) == 0
+    assert (recorded["log_file"] is not None) is expect_file
+    assert recorded["console_level"] == expected_console_level
+    assert recorded["log_level"] == expected_log_level
+
+
+def test_upstream_setup_logging_accepts_console_level() -> None:
+    """The installed mcp-coder-utils must support the dual-sink parameter.
+
+    Every other test in this package runs against a monkeypatched
+    `setup_logging` (see the autouse fixture in `conftest.py`), so nothing else
+    would notice an mcp-coder-utils older than the `>=0.1.6.dev0` floor —
+    the suite would stay green while every real launch died with
+    `TypeError: unexpected keyword argument 'console_level'`.
+    """
+    parameters = inspect.signature(setup_logging).parameters
+    assert "console_level" in parameters
 
 
 def test_init_subparser_requires_backend() -> None:

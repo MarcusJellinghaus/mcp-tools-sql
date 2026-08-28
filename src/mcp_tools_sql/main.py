@@ -5,14 +5,15 @@ from __future__ import annotations
 import argparse
 import logging
 import sys
-import traceback
+from datetime import datetime
 from pathlib import Path
 
 from mcp_tools_sql import __version__
 from mcp_tools_sql.cli.commands import init, verify
 from mcp_tools_sql.cli.parsers import HelpHintArgumentParser, WideHelpFormatter
 from mcp_tools_sql.server import run_server
-from mcp_tools_sql.utils.log_utils import setup_logging
+from mcp_tools_sql.utils.log_utils import OUTPUT, setup_logging
+from mcp_tools_sql.utils.user_app_data import get_user_app_data_dir
 
 logger = logging.getLogger(__name__)
 
@@ -61,15 +62,18 @@ def _build_parser() -> argparse.ArgumentParser:
     )
     parser.add_argument(
         "--log-level",
-        choices=["DEBUG", "INFO", "WARNING", "ERROR"],
-        default="INFO",
-        help="Set the logging level (default: INFO)",
+        choices=["DEBUG", "INFO", "OUTPUT", "WARNING", "ERROR"],
+        default=None,
+        help="Set the logging level (default: INFO for server, OUTPUT for init/verify)",
     )
     parser.add_argument(
         "--log-file",
         type=Path,
         default=None,
-        help="Path to log file (default: stderr only)",
+        help=(
+            "Path for structured JSON logs "
+            "(default: mcp_tools_sql_{timestamp}.log in ~/.mcp-tools-sql/logs/)"
+        ),
     )
     parser.add_argument(
         "--console-only",
@@ -87,6 +91,40 @@ def _build_parser() -> argparse.ArgumentParser:
     return parser
 
 
+def _resolve_log_level(args: argparse.Namespace, command: str) -> str:
+    """Resolve the effective log level for `command`.
+
+    An explicit --log-level always wins. Otherwise `server` defaults to INFO
+    (a full file trail) and the other commands to OUTPUT (clean console).
+
+    Returns:
+        The log level name to pass to setup_logging.
+    """
+    if args.log_level is not None:
+        return str(args.log_level)
+    return "INFO" if command == "server" else "OUTPUT"
+
+
+def _resolve_log_file(args: argparse.Namespace, command: str) -> str | None:
+    """Resolve the log-file path for `command`, or None for console-only.
+
+    --console-only wins over an explicit --log-file. Only `server` gets a
+    default file; init/verify stay console-only unless --log-file is given.
+
+    Returns:
+        Path to the log file as a string, or None when no file should be used.
+    """
+    if args.console_only:
+        return None
+    if args.log_file:
+        return str(args.log_file)
+    if command != "server":
+        return None
+    timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
+    logs_dir = get_user_app_data_dir("mcp-tools-sql") / "logs"
+    return str(logs_dir / f"mcp_tools_sql_{timestamp}.log")
+
+
 def main(argv: list[str] | None = None) -> int:
     """Parse arguments and dispatch to the appropriate command.
 
@@ -100,10 +138,10 @@ def main(argv: list[str] | None = None) -> int:
         parser.print_help()
         return 0
 
-    log_file = None if args.console_only else args.log_file
-    setup_logging(args.log_level, log_file)
-
     command = args.command or "server"
+    log_level = _resolve_log_level(args, command)
+    log_file = _resolve_log_file(args, command)
+    setup_logging(log_level, log_file, console_level=OUTPUT if log_file else None)
 
     if command == "server":
         try:
@@ -112,10 +150,8 @@ def main(argv: list[str] | None = None) -> int:
         except KeyboardInterrupt:
             return 130
         except (ValueError, OSError) as exc:
-            print(f"Error: {exc}", file=sys.stderr)
-            print("Try 'mcp-tools-sql verify' for diagnostics.", file=sys.stderr)
-            if args.log_level == "DEBUG":
-                traceback.print_exc()
+            logger.error("%s", exc, exc_info=log_level == "DEBUG")
+            logger.log(OUTPUT, "Try 'mcp-tools-sql verify' for diagnostics.")
             return 2
     if command == "init":
         return init.run(args)

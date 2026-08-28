@@ -20,7 +20,9 @@ top-level help and exits with code 0.
 These flags are accepted on the top-level `mcp-tools-sql` command and
 apply to every subcommand. Subcommands MAY ignore flags that do not
 apply to them (e.g. `init` does not consult `--config` or
-`--database-config`).
+`--database-config`). `--log-level` and `--log-file` are accepted
+everywhere but **resolve differently per subcommand** — see
+[Logging](#logging) below.
 
 | Flag | Default | Description |
 |------|---------|-------------|
@@ -28,9 +30,36 @@ apply to them (e.g. `init` does not consult `--config` or
 | `--version` | — | Print the installed package version and exit 0. |
 | `--config PATH` | (auto-discovered) | Path to the project query config. Discovery falls back to `mcp-tools-sql.toml` in the current directory and then `[tool.mcp-tools-sql]` in `pyproject.toml`. |
 | `--database-config PATH` | `~/.mcp-tools-sql/config.toml` | Path to the database config (connections + credentials). |
-| `--log-level LEVEL` | `INFO` | One of `DEBUG`, `INFO`, `WARNING`, `ERROR`. |
-| `--log-file PATH` | (none) | Append logs to this file. Ignored when `--console-only` is set. |
-| `--console-only` | off | Disable file logging; log to stderr only. |
+| `--log-level LEVEL` | per command (see below) | One of `DEBUG`, `INFO`, `OUTPUT`, `WARNING`, `ERROR`. |
+| `--log-file PATH` | per command (see below) | Write structured JSON logs to this file instead of the default path. Ignored when `--console-only` is set. |
+| `--console-only` | off | Suppress the log file; send everything to stderr instead. |
+
+### Logging
+
+`mcp-tools-sql` writes to two sinks with independent thresholds:
+
+| Sink | Format | Threshold |
+|------|--------|-----------|
+| Log file | structured JSON | the resolved `--log-level` |
+| Console (stderr) | plain text | `OUTPUT` and above — user-facing messages, warnings, errors |
+
+Defaults depend on the command:
+
+| Command | `--log-level` | Log file |
+|---------|---------------|----------|
+| `server` | `INFO` | `~/.mcp-tools-sql/logs/mcp_tools_sql_<timestamp>.log` — a new file per launch |
+| `init`, `verify` | `OUTPUT` | none — console only |
+
+`server` defaults to a file because MCP clients typically discard the server's
+stderr, making the file the only durable record. A failed launch is logged at
+`ERROR`, so the reason it failed is in the file at every `--log-level`. Log
+files are never rotated or deleted, and the server will fail to start if
+`~/.mcp-tools-sql/logs/` cannot be created.
+
+`--log-level` sets the **file** threshold. The console stays at `OUTPUT`
+whenever a log file is in use. To get detailed output inline, use
+`--console-only`: it suppresses the file and sends everything at the resolved
+`--log-level` to stderr. `--console-only` takes precedence over `--log-file`.
 
 ## Commands
 

@@ -85,7 +85,15 @@ jobs:
           python-version: 3.11
 
       - name: Install dependencies
-        run: uv pip install --system ".[dev]"
+        # mcp-coder-utils is pinned to git main: `console_level` (needed by the
+        # server logging path) landed after the 0.1.5 PyPI release. Pre-install
+        # it so the `mcp-coder-utils>=0.1.6.dev0` requirement in [project]
+        # resolves. Keeping the URL here (not in pyproject.toml) is what lets
+        # tools/check_no_url_deps.py keep passing.
+        run: |
+          uv pip install --system \
+            "mcp-coder-utils @ git+https://github.com/MarcusJellinghaus/mcp-coder-utils.git" \
+            ".[dev]"
 
       - name: Environment info
         run: |
@@ -113,7 +121,11 @@ jobs:
           python-version: 3.11
 
       - name: Install dependencies
-        run: uv pip install --system ".[dev]"
+        # mcp-coder-utils from git — see the comment in the `test` job.
+        run: |
+          uv pip install --system \
+            "mcp-coder-utils @ git+https://github.com/MarcusJellinghaus/mcp-coder-utils.git" \
+            ".[dev]"
 
       - name: Run SQLite integration tests
         run: |
@@ -151,7 +163,11 @@ jobs:
           python-version: 3.11
 
       - name: Install dependencies
-        run: uv pip install --system ".[dev,postgresql]"
+        # mcp-coder-utils from git — see the comment in the `test` job.
+        run: |
+          uv pip install --system \
+            "mcp-coder-utils @ git+https://github.com/MarcusJellinghaus/mcp-coder-utils.git" \
+            ".[dev,postgresql]"
 
       - name: Run PostgreSQL integration tests
         env:
@@ -201,7 +217,11 @@ jobs:
           sudo ACCEPT_EULA=Y apt-get install -y msodbcsql18 unixodbc-dev
 
       - name: Install dependencies
-        run: uv pip install --system ".[dev,mssql]"
+        # mcp-coder-utils from git — see the comment in the `test` job.
+        run: |
+          uv pip install --system \
+            "mcp-coder-utils @ git+https://github.com/MarcusJellinghaus/mcp-coder-utils.git" \
+            ".[dev,mssql]"
 
       - name: ODBC diagnostics
         run: |
@@ -248,7 +268,11 @@ jobs:
           python-version: 3.11
 
       - name: Install dependencies
-        run: uv pip install --system ".[dev]"
+        # mcp-coder-utils from git — see the comment in the `test` job.
+        run: |
+          uv pip install --system \
+            "mcp-coder-utils @ git+https://github.com/MarcusJellinghaus/mcp-coder-utils.git" \
+            ".[dev]"
 
       - name: Environment info
         run: |
