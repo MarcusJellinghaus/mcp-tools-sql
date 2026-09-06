@@ -32,7 +32,7 @@ Use cases:
 - Long-running feature branches
 
 **Important:** Before specifying a base branch, verify it exists:
-Call `mcp__mcp-workspace__git` with command `"ls-remote"` and args `["--heads", "origin", "<branch-name>"]`.
+Call `mcp__mcp-workspace__git` with command `"ls_remote"` and args `["--heads", "origin", "<branch-name>"]`.
 
 If no base branch is needed, omit this section entirely.
 
