@@ -90,7 +90,8 @@ Never use `python -c` via Bash. If you reason instead of running, label the conc
 **Allowed commands via Bash tool.** These have no MCP equivalent — use Bash directly. Skills that instruct bash commands (e.g. `git commit`) must also use Bash.
 
 ```
-git commit / add / rebase / push
+git commit / add / rebase / push / checkout -b / branch
+gh issue create / edit / comment (labels only via set-status)
 gh issue view (cross-repo only — otherwise use the MCP tool)
 mcp-coder gh-tool set-status <label>
 ```
