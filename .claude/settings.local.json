@@ -23,6 +23,7 @@
       "mcp__mcp-workspace__append_file",
       "mcp__mcp-workspace__check_branch_status",
       "mcp__mcp-workspace__check_file_size",
+      "mcp__mcp-workspace__delete_directory",
       "mcp__mcp-workspace__delete_this_file",
       "mcp__mcp-workspace__edit_file",
       "mcp__mcp-workspace__get_base_branch",
