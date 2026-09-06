@@ -46,7 +46,7 @@ If you can't name the gap, use the MCP tool. Exempt: the approved git/gh command
 | Check a Python semantic before claiming it | scratch probe — see [Scratch probes](#scratch-probes) |
 | Get library source | `mcp__mcp-tools-py__get_library_source` |
 | Refactoring | `mcp__mcp-tools-py__move_symbol`, `move_module`, `rename_symbol`, `list_symbols`, `find_references` |
-| Git read-only (fetch, ls-tree, show, ls-files, ls-remote, rev-parse, branch list) | `mcp__mcp-workspace__git` |
+| Git read-only (fetch, ls_tree, show, ls_files, ls_remote, rev_parse, branch list) | `mcp__mcp-workspace__git` |
 | `gh issue view` | `mcp__mcp-workspace__github_issue_view` |
 | `gh issue list` | `mcp__mcp-workspace__github_issue_list` |
 | `gh pr view` | `mcp__mcp-workspace__github_pr_view` |
