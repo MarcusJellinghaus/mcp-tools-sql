@@ -220,7 +220,7 @@ Sections, in order:
 | `BUILTIN` | Built-in default queries load successfully and have at least one tool registered. |
 | `CONNECTION` | Backend-shape checks (host/port/database/path/credentials), then `SELECT 1` against the configured database. On Linux only, when the connection uses `backend = "mssql"` with `trusted_connection = true`, an extra `kerberos_ticket` row runs `klist -s` and reports `[ERR]` when no cached Kerberos ticket is found. |
 | `INSTALL INSTRUCTIONS` | Aggregated install hints from any failing `[ERR]` rows above (printed only when at least one row carries a hint). |
-| `QUERIES` | Per-configured-query: SQL `EXPLAIN`, well-formed parameters, `max_rows_default > 0`. Skipped when `CONNECTION` failed. |
+| `QUERIES` | Per-configured-query: SQL `EXPLAIN`, well-formed parameters, `max_rows_default > 0`, `max_rows_hard > 0`. Skipped when `CONNECTION` failed. |
 | `UPDATES` | Per-configured-update: table exists, key column exists, all field columns exist. Skipped when `CONNECTION` failed. |
 
 Each row is one of three statuses:
@@ -273,6 +273,7 @@ $ mcp-tools-sql verify
 [OK]  read_schemas.sql              EXPLAIN ok
 [OK]  read_schemas.params           well-formed
 [OK]  read_schemas.max_rows_default 100
+[OK]  read_schemas.max_rows_hard    100
 ... (one [OK] row per default + configured query) ...
 
 === UPDATES ===

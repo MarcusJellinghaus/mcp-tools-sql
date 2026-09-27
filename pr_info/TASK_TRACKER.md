@@ -41,9 +41,9 @@ This tracks **Feature Implementation** consisting of multiple **Tasks**.
 
 ### Step 4: `verify` reports `max_rows_hard <= 0` ([step_4.md](./steps/step_4.md))
 
-- [ ] Implementation: `_positive_entry` helper and `<name>.max_rows_hard` row in `verification/queries.py`; test in `tests/verification/test_queries.py`; `tests/cli/fixtures/verify_snapshot.txt` and `docs/cli.md` updates
-- [ ] Quality checks: pylint, pytest, mypy — fix all issues
-- [ ] Commit message prepared: `feat(verify): check max_rows_hard > 0 alongside max_rows_default`
+- [x] Implementation: `_positive_entry` helper and `<name>.max_rows_hard` row in `verification/queries.py`; test in `tests/verification/test_queries.py`; `tests/cli/fixtures/verify_snapshot.txt` and `docs/cli.md` updates
+- [x] Quality checks: pylint, pytest, mypy — fix all issues
+- [x] Commit message prepared: `feat(verify): check max_rows_hard > 0 alongside max_rows_default`
 
 ## Pull Request
 

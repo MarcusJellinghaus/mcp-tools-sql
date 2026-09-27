@@ -1,9 +1,9 @@
-"""Queries section: SQL EXPLAIN, params well-formed, max_rows_default > 0."""
+"""Queries section: SQL EXPLAIN, params well-formed, row limits > 0."""
 
 from __future__ import annotations
 
 import datetime
-from typing import Any
+from typing import Any, cast
 
 from mcp_tools_sql.backends.base import DatabaseBackend
 from mcp_tools_sql.backends.registry import BackendRegistry
@@ -76,6 +76,21 @@ def _check_params_well_formed(
     return (not errors, "; ".join(errors))
 
 
+def _positive_entry(field: str, value: int) -> dict[str, Any]:
+    """Build a verifier entry asserting ``value > 0`` for ``field``.
+
+    Returns:
+        A standard verifier entry whose error names ``field`` when
+        ``value`` is not positive.
+    """
+    ok = value > 0
+    return make_entry(
+        ok=ok,
+        value=str(value),
+        error="" if ok else f"{field} must be > 0",
+    )
+
+
 def verify_one_query(
     name: str,
     qcfg: QueryConfig,
@@ -89,12 +104,13 @@ def verify_one_query(
     that target's connection is reachable, EXPLAINs the SQL against the
     registry-owned backend. When the target is unreachable the ``<name>.sql``
     row is a skip row naming the connection (the static ``params`` /
-    ``max_rows_default`` checks always run). An unresolvable pin (bad
-    connection/database) yields error rows.
+    ``max_rows_default`` / ``max_rows_hard`` checks always run). An
+    unresolvable pin (bad connection/database) yields error rows.
 
     Returns:
-        Three-row dict with keys ``<name>.sql``, ``<name>.params``,
-        ``<name>.max_rows_default`` in that order. No ``overall_ok``.
+        Four-row dict with keys ``<name>.sql``, ``<name>.params``,
+        ``<name>.max_rows_default``, ``<name>.max_rows_hard`` in that order.
+        No ``overall_ok``.
     """
     result: dict[str, Any] = {}
     try:
@@ -105,6 +121,9 @@ def verify_one_query(
             ok=False, value="(skipped)", error=str(exc)
         )
         result[f"{name}.max_rows_default"] = make_entry(
+            ok=False, value="(skipped)", error=str(exc)
+        )
+        result[f"{name}.max_rows_hard"] = make_entry(
             ok=False, value="(skipped)", error=str(exc)
         )
         return result
@@ -129,11 +148,11 @@ def verify_one_query(
         error=err,
     )
 
-    ok = qcfg.max_rows_default > 0
-    result[f"{name}.max_rows_default"] = make_entry(
-        ok=ok,
-        value=str(qcfg.max_rows_default),
-        error="" if ok else "max_rows_default must be > 0",
+    result[f"{name}.max_rows_default"] = _positive_entry(
+        "max_rows_default", qcfg.max_rows_default
+    )
+    result[f"{name}.max_rows_hard"] = _positive_entry(
+        "max_rows_hard", cast(int, qcfg.max_rows_hard)
     )
     return result
 
@@ -144,7 +163,7 @@ def verify_queries(
     registry: BackendRegistry,
     reachable: dict[tuple[str, str], bool],
 ) -> dict[str, Any]:
-    """Per-query validation: SQL EXPLAIN, params well-formed, max_rows_default > 0.
+    """Per-query validation: SQL EXPLAIN, params well-formed, row limits > 0.
 
     Each query is EXPLAINed against its own resolved target; queries pinned to
     an unreachable connection report a skip row (naming the connection) instead
@@ -152,9 +171,9 @@ def verify_queries(
     verdict.
 
     Returns:
-        Standard verifier result dict with three rows per query
-        (``<name>.sql``, ``<name>.params``, ``<name>.max_rows_default``) and an
-        ``overall_ok`` flag.
+        Standard verifier result dict with four rows per query
+        (``<name>.sql``, ``<name>.params``, ``<name>.max_rows_default``,
+        ``<name>.max_rows_hard``) and an ``overall_ok`` flag.
     """
     result: dict[str, Any] = {}
     for name, qcfg in queries.items():

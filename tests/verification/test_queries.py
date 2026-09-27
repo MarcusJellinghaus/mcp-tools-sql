@@ -156,6 +156,34 @@ def test_verify_queries_detects_missing_max_rows_default(
     assert result["overall_ok"] is False
 
 
+def test_verify_queries_detects_non_positive_max_rows_hard(
+    sqlite_targets: ResolvedTargets,
+    sqlite_registry: BackendRegistry,
+    all_reachable: dict[tuple[str, str], bool],
+) -> None:
+    """``max_rows_hard=0`` → ok=False on the ``<name>.max_rows_hard`` row."""
+    queries = {
+        "no_hard": QueryConfig(
+            sql="SELECT * FROM customers",
+            params={},
+            max_rows_default=10,
+            max_rows_hard=0,
+        ),
+        "healthy": QueryConfig(
+            sql="SELECT * FROM customers",
+            params={},
+            max_rows_default=10,
+            max_rows_hard=50,
+        ),
+    }
+    result = verify_queries(queries, sqlite_targets, sqlite_registry, all_reachable)
+
+    assert result["no_hard.max_rows_hard"]["ok"] is False
+    assert "max_rows_hard" in result["no_hard.max_rows_hard"]["error"]
+    assert result["healthy.max_rows_hard"]["ok"] is True
+    assert result["overall_ok"] is False
+
+
 def test_verify_queries_unimplemented_backend_explain_fails_cleanly() -> None:
     """mssql backend's ``explain()`` raises NotImplementedError → ok=False with error."""
     queries = {
