@@ -17,7 +17,8 @@ def format_rows(
     Args:
         rows: Query result rows as list of dicts.
         max_rows: Maximum rows to display. If len(rows) > max_rows,
-                  output is truncated with a warning message.
+                  output is truncated with a warning message. Values below 1
+                  are treated as 1.
         truncation_hint: Optional suffix appended after the count line
                   when truncation occurs. Empty string suppresses it.
 
@@ -26,6 +27,7 @@ def format_rows(
     """
     if not rows:
         return "No results found."
+    max_rows = max(max_rows, 1)
     total = len(rows)
     display_rows = rows[:max_rows]
     table: str = tabulate(display_rows, headers="keys", tablefmt="simple")
@@ -52,6 +54,7 @@ def format_fanout_rows(
         errors: ``(database, message)`` pairs for databases that failed; each
             is rendered inline on its own line rather than raised.
         max_rows: Maximum rows to display before the merged list is truncated.
+            Values below 1 are treated as 1.
         truncation_hint: Optional suffix appended after the footer count line
             when truncation occurs. Empty string suppresses it.
 
@@ -61,6 +64,7 @@ def format_fanout_rows(
         otherwise renders the table plus a per-database truncation footer
         (only on truncation) and one line per errored database.
     """
+    max_rows = max(max_rows, 1)
     if len(counts) <= 1 and not errors:
         return format_rows(rows, max_rows, truncation_hint=truncation_hint)
 

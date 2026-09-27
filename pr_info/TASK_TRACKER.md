@@ -35,9 +35,9 @@ This tracks **Feature Implementation** consisting of multiple **Tasks**.
 
 ### Step 3: Floor at the two formatting sinks ([step_3.md](./steps/step_3.md))
 
-- [ ] Implementation: `max_rows = max(max_rows, 1)` in `format_rows` and `format_fanout_rows` plus docstring notes; negative-`max_rows` tests for both in `tests/test_formatting.py`
-- [ ] Quality checks: pylint, pytest, mypy — fix all issues
-- [ ] Commit message prepared: `fix(formatting): floor max_rows at 1 in the row and fan-out renderers`
+- [x] Implementation: `max_rows = max(max_rows, 1)` in `format_rows` and `format_fanout_rows` plus docstring notes; negative-`max_rows` tests for both in `tests/test_formatting.py`
+- [x] Quality checks: pylint, pytest, mypy — fix all issues
+- [x] Commit message prepared: `fix(formatting): floor max_rows at 1 in the row and fan-out renderers`
 
 ### Step 4: `verify` reports `max_rows_hard <= 0` ([step_4.md](./steps/step_4.md))
 
