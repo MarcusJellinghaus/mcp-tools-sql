@@ -65,8 +65,12 @@ def test_negative_max_rows_floors_to_one(self) -> None:
     rows = [{"id": i} for i in range(5)]
     result = format_rows(rows, max_rows=-1)
     assert "Showing 1 of 5 rows." in result
-    assert "4" not in result
+    assert "3" not in result
 ```
+
+`"3"` is the assertion that discriminates: the current `rows[:-1]` renders ids
+0-3, so it fails pre-fix. (`"4"` would not — the buggy slice already drops the
+last row.)
 
 (Current behaviour, verified by probe: 4 of the 5 rows leak and the footer
 reads `Showing -1 of 5 rows.`)
@@ -80,7 +84,17 @@ def test_negative_max_rows_floors_to_one(self) -> None:
     counts = {"a": 2, "b": 2}
     result = format_fanout_rows(rows, counts, [], max_rows=-1)
     assert "Showing 1 of 4 rows." in result
+
+    body = result.split("\n\nShowing")[0].splitlines()[2:]
+    assert len(body) == 1
+    assert body[0].split() == ["0", "a"]
 ```
+
+The `body` assertions are what make a footer-only fix fail: `tabulate`'s
+`simple` format emits a header line plus a separator line before the data rows,
+so `splitlines()[2:]` is the rendered row list — three rows today, one after the
+floor. An absence check (`"b" not in result`) would not work here: the footer
+breakdown names every database.
 
 Keep an existing-behaviour assertion in each (e.g. `max_rows=0` also floors to
 1) only if it does not duplicate the above.
