@@ -77,6 +77,7 @@ No new modules, packages or folders. `pr_info/steps/` is planning material only.
 | `tests/test_formatting.py` | Negative-`max_rows` tests for both functions | 3 |
 | `src/mcp_tools_sql/verification/queries.py` | `_positive_entry` helper + `<name>.max_rows_hard` row | 4 |
 | `tests/verification/test_queries.py` | Test for the new row | 4 |
+| `tests/cli/fixtures/verify_snapshot.txt` | Three new `max_rows_hard` rows in the golden snapshot | 4 |
 | `docs/cli.md` | QUERIES section description + sample output | 4 |
 
 ## Steps

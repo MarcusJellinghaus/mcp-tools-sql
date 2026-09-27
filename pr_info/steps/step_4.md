@@ -9,6 +9,12 @@ friendly report, matching the `max_rows_default > 0` check that already exists.
   edits in `verify_one_query` (lines 98-137)
 - `tests/verification/test_queries.py` — one test next to
   `test_verify_queries_detects_missing_max_rows_default` (~line 139)
+- `tests/cli/fixtures/verify_snapshot.txt` — byte-identical golden snapshot of
+  the QUERIES + UPDATES sections. Add one `max_rows_hard` row per query
+  (`get_user`, `bad_sql`, `mismatched_params`), each directly after that
+  query's `max_rows_default` row. The key column is truncated at 28 chars, so
+  the third row reads `mismatched_params.max_rows_h` — mirroring the existing
+  `mismatched_params.max_rows_d`.
 - `docs/cli.md` — QUERIES row description (line 223) and the sample `verify`
   output (lines 272-276)
 
@@ -91,9 +97,12 @@ proven to exist on the happy path too.
 ## Checks
 
 `run_format_code`, `run_pylint_check`, `run_pytest_check` (`["-n", "auto"]`),
-`run_mypy_check` — all must pass. Watch `tests/cli/test_verify.py` and
+`run_mypy_check` — all must pass. Watch `tests/cli/test_verify.py`,
+`tests/cli/fixtures/verify_snapshot.txt` and
 `tests/verification/test_orchestrator.py`, which run `verify` end to end over
-configs with queries.
+configs with queries. The snapshot failure in `tests/cli/test_verify.py` is
+expected and is fixed by editing the `verify_snapshot.txt` fixture to include
+the new rows — not by changing the test code.
 
 ## Commit
 
