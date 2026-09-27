@@ -23,9 +23,9 @@ This tracks **Feature Implementation** consisting of multiple **Tasks**.
 
 ### Step 1: Schema constraint — `max_rows` must be `>= 1` ([step_1.md](./steps/step_1.md))
 
-- [ ] Implementation: `Field(ge=1)` on the `max_rows` annotation in `build_query_sig_params`; schema `minimum` assertion plus MCP-level rejection test in `tests/test_query_tools.py`
-- [ ] Quality checks: pylint, pytest, mypy — fix all issues
-- [ ] Commit message prepared: `fix(query): reject max_rows below 1 at the tool schema`
+- [x] Implementation: `Field(ge=1)` on the `max_rows` annotation in `build_query_sig_params`; schema `minimum` assertion plus MCP-level rejection test in `tests/test_query_tools.py`
+- [x] Quality checks: pylint, pytest, mypy — fix all issues
+- [x] Commit message prepared: `fix(query): reject max_rows below 1 at the tool schema`
 
 ### Step 2: Lower clamp in `_cap_max_rows` ([step_2.md](./steps/step_2.md))
 

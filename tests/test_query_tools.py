@@ -185,6 +185,7 @@ async def test_json_schema_generation(sqlite_db: Path) -> None:
         assert props["status"]["type"] == "string"
         assert "min_total" in props
         assert "max_rows" in props
+        assert props["max_rows"]["minimum"] == 1
 
         required = schema.get("required", [])
         assert "customer_id" in required
@@ -339,6 +340,28 @@ async def test_max_rows_hard_clamp(sqlite_db: Path) -> None:
         text = result.content[0].text  # type: ignore[union-attr]
         assert "Requested max_rows=500 exceeds hard limit 10" in text
         assert "capped at 10" in text
+
+
+@pytest.mark.asyncio
+async def test_max_rows_below_one_rejected_by_schema(sqlite_db: Path) -> None:
+    """max_rows below 1 is rejected by the tool schema, before the body runs."""
+    backend = _sqlite_backend(sqlite_db)
+    queries = {
+        "orders": QueryConfig(
+            description="All orders",
+            sql="SELECT id FROM orders",
+            backends={"sqlite": BackendQueryConfig(sql="SELECT id FROM orders")},
+            max_rows_default=5,
+            max_rows_hard=10,
+        )
+    }
+    mcp = FastMCP("test-min-rows")
+    QueryTools(*single_target(backend), queries).register(mcp)
+
+    async with create_connected_server_and_client_session(mcp) as client:
+        for bad in (-1, 0):
+            result = await client.call_tool("query_orders", {"max_rows": bad})
+            assert result.isError is True
 
 
 # ---------------------------------------------------------------------------

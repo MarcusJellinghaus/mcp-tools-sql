@@ -105,7 +105,7 @@ def build_query_sig_params(config: QueryConfig) -> list[inspect.Parameter]:
             "max_rows",
             kind=inspect.Parameter.POSITIONAL_OR_KEYWORD,
             default=config.max_rows_default,
-            annotation=Annotated[int, Field(description=max_rows_desc)],
+            annotation=Annotated[int, Field(ge=1, description=max_rows_desc)],
         )
     )
 
