@@ -382,6 +382,32 @@ async def test_max_rows_below_one_rejected_by_schema(sqlite_db: Path) -> None:
             assert result.isError is True
 
 
+@pytest.mark.asyncio
+async def test_non_positive_max_rows_default_floored_in_schema(
+    sqlite_db: Path,
+) -> None:
+    """A non-positive max_rows_default publishes a default of 1, not 0."""
+    backend = _sqlite_backend(sqlite_db)
+    queries = {
+        "orders": QueryConfig(
+            description="All orders",
+            sql="SELECT id FROM orders",
+            backends={"sqlite": BackendQueryConfig(sql="SELECT id FROM orders")},
+            max_rows_default=0,
+            max_rows_hard=0,
+        )
+    }
+    mcp = FastMCP("test-floored-default")
+    QueryTools(*single_target(backend), queries).register(mcp)
+
+    async with create_connected_server_and_client_session(mcp) as client:
+        tools = await client.list_tools()
+        tool = next(t for t in tools.tools if t.name == "query_orders")
+        max_rows = tool.inputSchema["properties"]["max_rows"]
+        assert max_rows["minimum"] == 1
+        assert max_rows["default"] == 1
+
+
 # ---------------------------------------------------------------------------
 # SQL injection prevention
 # ---------------------------------------------------------------------------

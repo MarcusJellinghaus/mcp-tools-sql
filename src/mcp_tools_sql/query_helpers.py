@@ -65,7 +65,10 @@ def build_query_sig_params(config: QueryConfig) -> list[inspect.Parameter]:
     Returns:
         User-declared params followed by an implicit ``max_rows`` parameter
         and, when ``config.filter_column`` is non-empty, a
-        ``<filter_column>_filter`` parameter.
+        ``<filter_column>_filter`` parameter. ``max_rows`` carries a
+        ``ge=1`` constraint and its default is floored at 1, so a
+        non-positive ``max_rows_default`` cannot publish a default that
+        violates the constraint.
     """
     sig_params: list[inspect.Parameter] = []
     for param_cfg in config.params.values():
@@ -104,7 +107,7 @@ def build_query_sig_params(config: QueryConfig) -> list[inspect.Parameter]:
         inspect.Parameter(
             "max_rows",
             kind=inspect.Parameter.POSITIONAL_OR_KEYWORD,
-            default=config.max_rows_default,
+            default=max(config.max_rows_default, 1),
             annotation=Annotated[int, Field(ge=1, description=max_rows_desc)],
         )
     )

@@ -217,6 +217,19 @@ class TestSchemaToolsTruncation:
             assert "Showing" not in text
             assert "id" in text
 
+    async def test_max_rows_below_one_rejected_by_schema(
+        self, sqlite_wide_db: Path
+    ) -> None:
+        """Built-in tools share build_query_sig_params, so ge=1 applies here too."""
+        mcp = _make_mcp_with_tools(str(sqlite_wide_db))
+        async with create_connected_server_and_client_session(mcp) as client:
+            for bad in (-1, 0):
+                result = await client.call_tool(
+                    "read_columns",
+                    {"schema": "main", "table": "wide_table", "max_rows": bad},
+                )
+                assert result.isError is True
+
 
 # ---------------------------------------------------------------------------
 # Param stripping tests
