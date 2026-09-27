@@ -29,9 +29,9 @@ This tracks **Feature Implementation** consisting of multiple **Tasks**.
 
 ### Step 2: Lower clamp in `_cap_max_rows` ([step_2.md](./steps/step_2.md))
 
-- [ ] Implementation: floor both `requested` and `hard` at 1 in `_cap_max_rows` plus docstring update; direct unit test in `tests/test_query_tools.py`
-- [ ] Quality checks: pylint, pytest, mypy — fix all issues
-- [ ] Commit message prepared: `fix(query): floor max_rows and max_rows_hard at 1 in the cap helper`
+- [x] Implementation: floor both `requested` and `hard` at 1 in `_cap_max_rows` plus docstring update; direct unit test in `tests/test_query_tools.py`
+- [x] Quality checks: pylint, pytest, mypy — fix all issues
+- [x] Commit message prepared: `fix(query): floor max_rows and max_rows_hard at 1 in the cap helper`
 
 ### Step 3: Floor at the two formatting sinks ([step_3.md](./steps/step_3.md))
 

@@ -131,11 +131,20 @@ def build_query_sig_params(config: QueryConfig) -> list[inspect.Parameter]:
 def _cap_max_rows(config: QueryConfig, requested: int) -> tuple[int, str]:
     """Clamp ``requested`` to ``config.max_rows_hard``.
 
+    Both operands are floored at 1, so the returned limit is always >= 1. A
+    repaired ``hard`` is silent: the resulting upper-clamp note already names
+    the effective limit, and ``verify`` owns the operator-facing report for a
+    non-positive ``max_rows_hard``.
+
     Returns:
         A ``(capped, note)`` pair. ``note`` is a human-readable explanation to
-        append to output when the request exceeded the hard limit, else "".
+        append to output when the request exceeded the hard limit or fell below
+        the minimum, else "".
     """
-    hard: int = cast(int, config.max_rows_hard)
+    hard: int = max(cast(int, config.max_rows_hard), 1)
+    if requested < 1:
+        note = f"\n\nRequested max_rows={requested} is below the minimum 1; using 1."
+        return 1, note
     if requested > hard:
         note = (
             f"\n\nRequested max_rows={requested} exceeds hard limit "
