@@ -517,6 +517,26 @@ async def test_fanout_footer_absent_without_truncation() -> None:
 
 
 @pytest.mark.asyncio
+async def test_fanout_below_minimum_max_rows_notes_and_caps() -> None:
+    """A below-minimum max_rows renders one merged row and says so."""
+    registry = _fanout_registry(
+        _FanoutBackend([{"name": "alice"}, {"name": "amy"}]),
+        _FanoutBackend([{"name": "carol"}]),
+    )
+    body = build_schema_body(
+        "read_tables", _tables_config(), registry, _multi_targets(), ""
+    )
+
+    text = await body(database="*", max_rows=-1)
+
+    assert "Requested max_rows=-1 is below the minimum 1; using 1." in text
+    assert "Showing 1 of 3 rows." in text
+    assert "alice" in text
+    assert "amy" not in text
+    assert "carol" not in text
+
+
+@pytest.mark.asyncio
 async def test_fanout_one_target_error_rendered_inline() -> None:
     """A failing database is reported inline; the other's rows still show."""
     registry = _fanout_registry(

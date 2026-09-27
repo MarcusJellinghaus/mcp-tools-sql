@@ -68,6 +68,64 @@ async def test_execute_and_format_caps_max_rows_and_filters() -> None:
     assert "Bank B" not in text
 
 
+class _ThreeRowBackend:
+    """A stub backend returning three named rows on every query."""
+
+    def execute_query(
+        self, sql: str, params: dict[str, Any] | None = None
+    ) -> list[dict[str, Any]]:
+        """Return three fixed rows.
+
+        Returns:
+            Three single-column rows, enough to observe any row cap.
+        """
+        return [{"name": "Bank A"}, {"name": "Bank B"}, {"name": "Bank C"}]
+
+
+async def _run_execute_and_format(config: QueryConfig, kwargs: dict[str, Any]) -> str:
+    """Run ``execute_and_format`` over ``_ThreeRowBackend`` with ``kwargs``.
+
+    Returns:
+        The rendered result text, including any appended max_rows note.
+    """
+    return await execute_and_format(
+        "customers",
+        "SELECT name FROM customers",
+        set(),
+        _ThreeRowBackend(),  # type: ignore[arg-type]
+        config,
+        None,
+        "hint",
+        kwargs,
+    )
+
+
+@pytest.mark.asyncio
+async def test_execute_and_format_below_minimum_max_rows_notes_and_caps() -> None:
+    """A below-minimum max_rows renders one row and says so in the output."""
+    config = QueryConfig(sql="SELECT name FROM customers", max_rows_hard=10)
+
+    text = await _run_execute_and_format(config, {"max_rows": -1})
+
+    assert "Requested max_rows=-1 is below the minimum 1; using 1." in text
+    assert "Showing 1 of 3 rows." in text
+    assert "Bank B" not in text
+
+
+@pytest.mark.asyncio
+async def test_execute_and_format_omitted_max_rows_uses_floored_default() -> None:
+    """An omitted max_rows with a non-positive default caps silently at 1."""
+    config = QueryConfig(
+        sql="SELECT name FROM customers", max_rows_default=0, max_rows_hard=0
+    )
+
+    text = await _run_execute_and_format(config, {})
+
+    assert "below the minimum" not in text
+    assert "Showing 1 of 3 rows." in text
+    assert "Bank B" not in text
+
+
 def test_cap_max_rows_floors_both_operands() -> None:
     """Negative/zero requested and a non-positive hard limit both floor to 1."""
     cfg = QueryConfig(sql="SELECT 1", max_rows_default=5, max_rows_hard=10)
