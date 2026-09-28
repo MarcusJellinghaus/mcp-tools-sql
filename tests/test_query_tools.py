@@ -352,6 +352,50 @@ async def test_non_positive_max_rows_default_floored_in_schema(
 
 
 # ---------------------------------------------------------------------------
+# Read-only execution path
+# ---------------------------------------------------------------------------
+
+
+@pytest.mark.asyncio
+async def test_query_tool_uses_execute_readonly_query(
+    sqlite_db: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """A configured query executes through execute_readonly_query only."""
+    backend = _sqlite_backend(sqlite_db)
+
+    def forbidden(
+        sql: str, params: dict[str, Any] | None = None
+    ) -> list[dict[str, Any]]:
+        """Fail the test if the read path reaches the writable connection.
+
+        Raises:
+            AssertionError: Always.
+        """
+        msg = "read path must not call execute_query"
+        raise AssertionError(msg)
+
+    monkeypatch.setattr(backend, "execute_query", forbidden)
+
+    queries = {
+        "orders": QueryConfig(
+            description="All orders",
+            sql="SELECT id FROM orders",
+            backends={"sqlite": BackendQueryConfig(sql="SELECT id FROM orders")},
+        )
+    }
+    mcp = FastMCP("test-readonly-path")
+    QueryTools(*single_target(backend), queries).register(mcp)
+
+    async with create_connected_server_and_client_session(
+        mcp, raise_exceptions=True
+    ) as client:
+        result = await client.call_tool("query_orders", {})
+        text = result.content[0].text  # type: ignore[union-attr]
+
+    assert "id" in text
+
+
+# ---------------------------------------------------------------------------
 # SQL injection prevention
 # ---------------------------------------------------------------------------
 
@@ -363,14 +407,14 @@ async def test_params_passed_as_dict_not_interpolated(
     """Parameters reach the backend as a dict, not interpolated into the SQL string."""
     backend = _sqlite_backend(sqlite_db)
     captured: dict[str, Any] = {}
-    original = backend.execute_query
+    original = backend.execute_readonly_query
 
     def spy(sql: str, params: dict[str, Any] | None = None) -> list[dict[str, Any]]:
         captured["sql"] = sql
         captured["params"] = params
         return original(sql, params)
 
-    monkeypatch.setattr(backend, "execute_query", spy)
+    monkeypatch.setattr(backend, "execute_readonly_query", spy)
 
     queries = {
         "by_country": QueryConfig(
@@ -510,13 +554,13 @@ async def test_query_tool_binds_datetime_param(
 
     backend = _sqlite_backend(db_path)
     captured: dict[str, Any] = {}
-    original = backend.execute_query
+    original = backend.execute_readonly_query
 
     def spy(sql: str, params: dict[str, Any] | None = None) -> list[dict[str, Any]]:
         captured["params"] = params
         return original(sql, params)
 
-    monkeypatch.setattr(backend, "execute_query", spy)
+    monkeypatch.setattr(backend, "execute_readonly_query", spy)
 
     queries = {
         "events_since": QueryConfig(

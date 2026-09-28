@@ -228,6 +228,11 @@ async def execute_and_format(
     rows. Used by both ``build_query_body`` (pinned) and the runtime schema
     bodies so the common tail has a single home.
 
+    Execution goes through ``execute_readonly_query``, so the database itself
+    rejects a write that slipped past the registration gate. On SQLite that
+    means a fresh ``PRAGMA query_only = ON`` connection per call — under
+    ``database="*"``, one per target per call. Accepted cost.
+
     Returns:
         The formatted result text, with a max_rows cap note appended when the
         requested limit exceeded the hard limit or fell below the minimum. An
@@ -244,7 +249,7 @@ async def execute_and_format(
     stripped = {k: v for k, v in kwargs.items() if k in sql_params}
 
     async with log_tool_call(name, stripped, sql=resolved_sql) as rec:
-        rows = backend.execute_query(resolved_sql, stripped or None)
+        rows = backend.execute_readonly_query(resolved_sql, stripped or None)
         if filter_kwarg:
             rows = apply_filter(rows, config.filter_column, filter_pattern)
         rec.record(rows=len(rows), cols=len(rows[0]) if rows else 0)
@@ -405,7 +410,7 @@ def build_schema_body(
         async with log_tool_call(name, stripped, sql=resolved_sql) as rec:
             for target in fan_targets:
                 try:
-                    rows = registry.backend_for(target).execute_query(
+                    rows = registry.backend_for(target).execute_readonly_query(
                         resolved_sql, stripped or None
                     )
                     if filter_kwarg:

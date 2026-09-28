@@ -29,6 +29,11 @@ async def test_execute_and_format_caps_max_rows_and_filters() -> None:
         ) -> list[dict[str, Any]]:
             return [{"name": "Bank A"}, {"name": "Bank B"}, {"name": "Bank C"}]
 
+        def execute_readonly_query(
+            self, sql: str, params: dict[str, Any] | None = None
+        ) -> list[dict[str, Any]]:
+            return self.execute_query(sql, params)
+
     config = QueryConfig(
         description="",
         sql="SELECT name FROM customers",
@@ -66,6 +71,16 @@ class _ThreeRowBackend:
             Three single-column rows, enough to observe any row cap.
         """
         return [{"name": "Bank A"}, {"name": "Bank B"}, {"name": "Bank C"}]
+
+    def execute_readonly_query(
+        self, sql: str, params: dict[str, Any] | None = None
+    ) -> list[dict[str, Any]]:
+        """Return the same three rows through the read-only path.
+
+        Returns:
+            Three single-column rows, enough to observe any row cap.
+        """
+        return self.execute_query(sql, params)
 
 
 async def _run_execute_and_format(config: QueryConfig, kwargs: dict[str, Any]) -> str:
