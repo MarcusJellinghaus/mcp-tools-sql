@@ -12,7 +12,8 @@ The per-call ``core`` resolves the profiling source (``summarize/source.py``)
 -- a persisted table from ``schema``+``table``, or an arbitrary read-only
 SELECT from ``sql``, never both -- and then runs the pipeline: column
 narrow/cap -> filtered ``COUNT(*)`` short-circuit -> single scalar-aggregate
-pass -> per-column value lists (deep view only) -> :func:`render_summary`.
+pass -> per-column value lists (deep view only, and only at or below the
+row-count gate) -> :func:`render_summary`.
 Source resolution runs a backend query of its own (the catalog lookup on the
 table path, the value probe on the ``sql`` path), so it sits *inside* the same
 exception tail as the rest: a source that parses but cannot be resolved by the
@@ -81,11 +82,15 @@ _DESCRIPTION = (
     "read-only where predicate; the predicate must use :name placeholders "
     "for values, bound via params (never inline literals). With sql, the "
     "where predicate is applied OUTSIDE the query, so it can filter computed "
-    "and aggregated columns. The source is executed once per profiled column "
-    "plus three times, so narrow with columns= on expensive queries. Returns "
-    "a formatted text block; sources wider than 15 profiled columns render a "
-    "compact one-line-per-column triage instead. n sets the value-list "
-    "length (default 20, clamped to 1..50)."
+    "and aggregated columns. Returns a formatted text block; sources wider "
+    "than 15 profiled columns render a compact one-line-per-column triage "
+    "instead. At 15 or fewer profiled columns you also get per-column value "
+    "lists, one extra execution of the source per column (3 queries become "
+    "3+N), so columns= trades breadth for depth rather than reducing cost. "
+    "To reduce cost, filter with where=, or profile a subset with sql= "
+    "carrying its own row limit. Above 1,000,000 rows distinct counts and "
+    "value lists are omitted. n sets the value-list length (default 20, "
+    "clamped to 1..50)."
 )
 
 # One message for every way the source choice can be wrong -- both supplied,

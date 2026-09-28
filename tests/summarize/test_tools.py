@@ -21,6 +21,7 @@ from mcp.shared.memory import create_connected_server_and_client_session
 
 from mcp_tools_sql.config.models import ResolvedTargets
 from mcp_tools_sql.summarize import SummarizeTools
+from mcp_tools_sql.summarize.tools import _DESCRIPTION
 from tests.summarize.tool_helpers import call_summarize as _call_summarize
 from tests.summarize.tool_helpers import client_for as _client_for
 from tests.summarize.tool_helpers import sqlite_backend as _sqlite_backend
@@ -440,3 +441,19 @@ async def test_source_build_failure_returns_message(
     async with _client_for(backend) as client:
         out = await _call_summarize(client, "main", "t")
     assert out.startswith(prefix)
+
+
+# ---------------------------------------------------------------------------
+# Tool description — cost advice
+# ---------------------------------------------------------------------------
+
+
+def test_description_advises_where_not_columns_for_cost() -> None:
+    """The cost advice points at where=/sql=, and never at columns=."""
+    assert "so narrow with columns= on expensive" not in _DESCRIPTION
+    assert "3+N" in _DESCRIPTION
+    cost_advice = _DESCRIPTION.split("To reduce cost,")[1]
+    assert "where=" in cost_advice
+    assert "sql=" in cost_advice
+    assert "1,000,000" in _DESCRIPTION
+    assert len(_DESCRIPTION) < 1_500
