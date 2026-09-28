@@ -11,7 +11,7 @@ from typing import Any
 from mcp_tools_sql.backends.base import DatabaseBackend
 from mcp_tools_sql.backends.mssql import build_sanitized_connection_string
 from mcp_tools_sql.config.models import ResolvedTarget
-from mcp_tools_sql.verification._helpers import make_entry
+from mcp_tools_sql.verification._helpers import make_entry, make_warn_entry
 
 logger = logging.getLogger(__name__)
 
@@ -20,6 +20,13 @@ _CONTROL_CHAR_HINT = (
     "backslash escape (\\n, \\t) in a double-quoted TOML value. "
     "Use a single-quoted literal ('server\\name') or double the backslash "
     '("server\\\\name") to keep the literal backslash.'
+)
+
+
+_MEMORY_PATH_HINT = (
+    "each connection to ':memory:' opens a new, empty database — configured "
+    "queries and schema reads return zero rows, while updates.* writes to a "
+    "separate connection you cannot read back. Point path at a file instead."
 )
 
 
@@ -129,9 +136,12 @@ def verify_connection(
         )
 
     if connection.backend == "sqlite":
-        result["path"] = _required_str_entry(
-            connection.path, required_error="path must be set for sqlite"
-        )
+        if connection.path == ":memory:":
+            result["path"] = make_warn_entry(":memory:", _MEMORY_PATH_HINT)
+        else:
+            result["path"] = _required_str_entry(
+                connection.path, required_error="path must be set for sqlite"
+            )
     else:
         if connection.host and _has_control_chars(connection.host):
             result["host_port"] = make_entry(

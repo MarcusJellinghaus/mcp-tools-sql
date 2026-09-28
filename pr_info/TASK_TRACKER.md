@@ -26,7 +26,7 @@ This tracks **Feature Implementation** consisting of multiple **Tasks**.
 - [x] [Step 3](./steps/step_3.md) — Switch the tool-facing read paths to `execute_readonly_query`
 - [x] [Step 4](./steps/step_4.md) — Stop truncating verify row labels
 - [x] [Step 5](./steps/step_5.md) — Per-variant `read_only` rows in `verify`
-- [ ] [Step 6](./steps/step_6.md) — `:memory:` warning on the sqlite `path` row
+- [x] [Step 6](./steps/step_6.md) — `:memory:` warning on the sqlite `path` row
 - [ ] [Step 7](./steps/step_7.md) — Documentation
 
 ## Pull Request
