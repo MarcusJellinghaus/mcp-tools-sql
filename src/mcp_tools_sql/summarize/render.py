@@ -128,6 +128,22 @@ def _fmt_pct(part: int, whole: int) -> str:
     return f"({part / whole * 100:.1f}%)"
 
 
+def _clamp0(n: int) -> int:
+    """Floor a count at zero.
+
+    The profiling pipeline runs its count, scalar and value-list queries
+    separately with no snapshot, so a concurrent write between them can make a
+    difference of two counts negative (``rows`` from one query, ``non_null`` or
+    a frequency sum from another). Printing ``nulls -3`` would be worse than
+    printing ``0``; ``tools.py`` detects the same skew and appends a footer note
+    saying the counts disagreed.
+
+    Returns:
+        ``n``, or ``0`` when ``n`` is negative.
+    """
+    return max(0, n)
+
+
 def _truncate(value: Any) -> str:
     """Render a single value for display, capped at 60 characters.
 
@@ -343,7 +359,7 @@ def _render_values(p: ColumnProfile) -> list[str]:
             )
         if p.distinct is not None:
             rem_vals = p.distinct - shown_nonnull_distinct
-            rem_rows = rows - shown_rows
+            rem_rows = _clamp0(rows - shown_rows)
             if rem_vals > 0:
                 lines.append(
                     f"    … {_fmt_int(rem_vals)} other values, "
@@ -378,7 +394,7 @@ def _render_block(p: ColumnProfile) -> str:
         The block as a single newline-joined string (no trailing blank line).
     """
     meta = p.meta
-    nulls = p.rows - p.non_null
+    nulls = _clamp0(p.rows - p.non_null)
     note = f" — {meta.note}" if meta.note else ""
     lines = [f"{meta.name}  ({meta.declared_type}, {meta.category}{note})"]
     lines += _STAT_DISPATCH[meta.category](p, p.rows, nulls)
@@ -456,7 +472,7 @@ def render_triage(
     """
     rows: list[dict[str, Any]] = []
     for p in profiles:
-        nulls = p.rows - p.non_null
+        nulls = _clamp0(p.rows - p.non_null)
         rows.append(
             {
                 "name": p.meta.name,
