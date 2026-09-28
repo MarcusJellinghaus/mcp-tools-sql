@@ -21,7 +21,12 @@ from mcp.shared.memory import create_connected_server_and_client_session
 
 from mcp_tools_sql.config.models import ResolvedTargets
 from mcp_tools_sql.summarize import SummarizeTools
-from mcp_tools_sql.summarize.render import ColumnProfile
+from mcp_tools_sql.summarize.render import (
+    DISTINCT_GATE_ROWS,
+    ColumnProfile,
+    distinct_gate_note,
+)
+from mcp_tools_sql.summarize.source import TYPES_PROBED_NOTE
 from mcp_tools_sql.summarize.sql import ColumnMeta
 from mcp_tools_sql.summarize.tools import _DESCRIPTION, _counts_inconsistent
 from tests.summarize.tool_helpers import call_summarize as _call_summarize
@@ -416,6 +421,47 @@ async def test_value_lists_still_fetched_below_the_gate() -> None:
         out = await _call_summarize(client, "main", "big")
     assert "COUNT(DISTINCT" in captured["scalar_sql"]
     assert "top values:" in out
+
+
+@pytest.mark.asyncio
+async def test_no_gate_note_below_the_gate() -> None:
+    """At the gate boundary the footer carries no gate note at all."""
+    backend, _ = _gate_backend(n_cols=3, row_count=DISTINCT_GATE_ROWS)
+    async with _client_for(backend) as client:
+        out = await _call_summarize(client, "main", "big")
+    assert "omitted" not in out
+    assert distinct_gate_note() not in out
+
+
+@pytest.mark.asyncio
+async def test_no_clamp_note_above_the_gate() -> None:
+    """With no value list fetched, a clamped n is not reported as clamped."""
+    backend, _ = _gate_backend(n_cols=3, row_count=2_000_000)
+    async with _client_for(backend) as client:
+        out = await _call_summarize(client, "main", "big", n=999)
+    assert "Requested n=999" not in out
+
+
+def _gate_query_backend(row_count: int) -> MagicMock:
+    """Return a MagicMock backend for a ``sql=`` source above the row gate.
+
+    The ``sql`` path resolves its columns through the value probe, so this fake
+    answers ``execute_readonly_query_with_columns`` too -- which is what makes
+    the source contribute notes of its own for the footer-order assertion.
+    """
+    backend, _ = _gate_backend(n_cols=1, row_count=row_count)
+    backend.execute_readonly_query_with_columns.return_value = (["n0"], [(1,)])
+    return backend
+
+
+@pytest.mark.asyncio
+async def test_gate_note_precedes_source_notes() -> None:
+    """The gate note leads the footer, ahead of the source's own notes."""
+    backend = _gate_query_backend(row_count=2_000_000)
+    async with _client_for(backend) as client:
+        out = await _call_summarize(client, sql="SELECT n0 FROM big")
+    assert TYPES_PROBED_NOTE in out  # the probed source contributes notes
+    assert out.index(distinct_gate_note()) < out.index(TYPES_PROBED_NOTE)
 
 
 @pytest.mark.asyncio

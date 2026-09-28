@@ -554,7 +554,7 @@ def inconsistent_counts_note() -> str:
     """
     return (
         "Counts from separate queries disagree: the source changed while it was "
-        "being profiled, so some totals below are approximate."
+        "being profiled, so some totals above are approximate."
     )
 
 

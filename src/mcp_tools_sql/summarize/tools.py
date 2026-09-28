@@ -90,9 +90,9 @@ _DESCRIPTION = (
     "lists, one extra execution of the source per column (3 queries become "
     "3+N), so columns= trades breadth for depth rather than reducing cost. "
     "To reduce cost, filter with where=, or profile a subset with sql= "
-    "carrying its own row limit. Above 1,000,000 rows distinct counts and "
-    "value lists are omitted. n sets the value-list length (default 20, "
-    "clamped to 1..50)."
+    f"carrying its own row limit. Above {DISTINCT_GATE_ROWS:,} rows distinct "
+    "counts and value lists are omitted. n sets the value-list length "
+    "(default 20, clamped to 1..50)."
 )
 
 # One message for every way the source choice can be wrong -- both supplied,
@@ -513,7 +513,9 @@ def _run(
     if any(_counts_inconsistent(p) for p in profiles):
         footer.append(inconsistent_counts_note())
     footer.extend(source.notes)
-    if clamp_note:
+    # Above the gate no value list is fetched, so there is no length for n to
+    # have clamped -- reporting the clamp would describe output that is absent.
+    if clamp_note and include_distinct:
         footer.append(clamp_note)
     if footer:
         return f"{summary}\n\n" + "\n".join(footer)
