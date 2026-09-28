@@ -47,3 +47,31 @@ I'll gather context first.`pr_info/steps/step_4.md:154` — high — the `distin
 Verdict(decision='tasks', tasks=["In pr_info/steps/step_4.md:154, replace the hard-coded test_render.py call-site line list (488, 494, 501, 512, 520, 531, 577, 611, 640, 658) with the instruction to update every `render_summary`/`render_triage` call site in the file, explicitly including the `distinct_gated=False` call step 2 adds in `test_triage_clamps_negative_nulls` — the numeric list predates step 2's inserted tests, so following it verbatim leaves a call passing a removed parameter and step 4's commit cannot be green."], escalate_reason=None)
 **Changes**:
 applied
+
+## Round 4 — 2026-09-28
+**Findings**:
+I'll gather context from the knowledge base, the issue, and the plan files.`pr_info/steps/summary.md:79` — high — the line budget covers only `render.py` and `tools.py`; `tests/summarize/test_render.py` is already 719 lines against the CI-enforced 750 (`.github/workflows/ci.yml:74`, not allowlisted) and steps 2/4 net it upward, so no step accounts for the file that actually has no headroom.
+
+`pr_info/steps/step_2.md:66` — high — step 2 adds three new `ColumnProfile`-building tests (~50 lines at this file's ~18-lines-per-test norm) to `tests/summarize/test_render.py` (719 lines), pushing it past the 750-line CI limit at this commit; step 4's single test deletion (~10 lines) does not bring it back under, so the violation persists to the end of the PR. The step's Checks list also omits `check_file_size`.
+
+`pr_info/steps/step_4.md:16` — medium — step 4 makes the triage `distinct` cell read `_fmt_stat(p.distinct)` unconditionally, but the `_fake_scalar_row` fix is deferred to step 5, so between the two commits a gated triage renders `distinct 10` from an alias the SQL never requested; the fake fix belongs in step 4, where the cell first starts reading `p.distinct`. Unresolved from round 3.
+
+`pr_info/steps/step_5.md:52` — medium — the stale-documentation list omits `ColumnProfile`'s class docstring (`render.py:67`, "(deep view only) the per-column value-list query") and the `value_kind` attribute text (`render.py:89-91`, "no list: all-NULL columns and every `other`/binary column"); both become inaccurate once the gate suppresses value lists. Unresolved from rounds 1-3.
+**Decisions**:
+Verdict(decision='tasks', tasks=['In pr_info/steps/summary.md:79, extend the line budget to cover tests/summarize/test_render.py: it is already 719 lines against the CI-enforced 750-line limit (.github/workflows/ci.yml:74, not allowlisted) and steps 2/4 net it upward. State how the file stays under the limit — e.g. split it into a second test module — and carry that decision into the affected steps.', "In pr_info/steps/step_2.md:66, resolve the file-size violation this step introduces: three new ColumnProfile tests (~50 lines) push tests/summarize/test_render.py past 750 lines at this commit, and step 4's ~10-line deletion does not recover it. Specify the split or relocation that keeps the commit green, and add check_file_size to the step's Checks list."], escalate_reason=None)
+**Changes**:
+applied
+
+## Round 5 — 2026-09-28
+**Findings**:
+I'll gather context now.`pr_info/steps/step_2.md:90` — medium — "no `\"-\"`-prefixed percentage" is unsatisfiable if written literally: `render_triage` formats through `tabulate(tablefmt="simple")`, whose header separator row is dashes, so `"-" not in out` always fails; specify the concrete assertion (e.g. `"-20.0%" not in out`).
+
+`pr_info/steps/step_4.md:169` — medium — step 4 makes the triage cell read `_fmt_stat(p.distinct)` but defers the `_fake_scalar_row` fix to step 5, so at this commit `test_distinct_gate_triage_omits_count_distinct` renders `distinct 10` beside a footer saying distinct was omitted; the fake fix belongs here, where the cell first starts reading `p.distinct`. Unresolved from rounds 3-4.
+
+`pr_info/steps/step_5.md:53` — medium — the stale-documentation list omits `ColumnProfile`'s class docstring (`render.py:103`, `value_kind` `"none"` described as "all-NULL columns and every `other`/binary column") and the module docstring's `render_triage` gate wording; both stay inaccurate once the gate suppresses value lists in either view. Unresolved from rounds 1-4.
+
+`pr_info/steps/summary.md:14` — low — cites `tools.py:418-419` for the gate; the lines are 415-416 (repeated at `pr_info/steps/step_5.md:8`). Unresolved from rounds 1-4.
+**Decisions**:
+Verdict(decision='dismiss', tasks=[], escalate_reason=None)
+**Changes**:
+dismiss
