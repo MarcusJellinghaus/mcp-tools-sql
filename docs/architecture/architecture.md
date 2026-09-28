@@ -129,7 +129,7 @@ and `query_helpers.extract_sql_params`.
 | `main.py` | CLI: argparse, per-command logging setup (level + file resolution), subcommands (server/init/verify) |
 | `server.py` | Creates FastMCP, registers tools, starts STDIO transport |
 | `schema_tools.py` | Built-in introspection: schemas, tables, columns, relations |
-| `query_tools.py` | Dynamic registration of configured SELECT tools |
+| `query_tools.py` | Dynamic registration of configured SELECT tools. Each query's resolved SQL must pass a read-only AST gate at registration; a violating query is skipped with a logged warning and the rest register normally |
 | `update_tools.py` | Dynamic registration of configured UPDATE tools |
 | `validation_tools.py` | SQL validation via EXPLAIN |
 | `summarize/` | `summarize_columns` column profiling. `source.py` resolves the profiling **source** into one `Source` value object — either a persisted table (`schema`+`table`, types from the catalog) or an arbitrary read-only SELECT (`sql`, wrapped as a `(...) AS src` derived table; types come from `sys.dm_exec_describe_first_result_set` on T-SQL, falling back — with a footer note — to the few-row value probe that SQLite always uses). `sql.py` builds the count / scalar-aggregate / value-list SQL, `render.py` the deep and triage text views, `tools.py` registers the tool and orchestrates the pipeline. Downstream of `Source` nothing branches on which path produced it. |
@@ -219,3 +219,10 @@ server — not by editing `databases`.
 - Parameterized queries only — no string interpolation
 - UPDATE requires unique key — prevents mass updates
 - Row limits on all results — prevents context overflow
+- Configured queries are proved read-only by AST inspection before registration
+  and then execute through the backend's read-only path — unconditionally;
+  `allow_updates` governs `updates.*` only. The DB-level backstop differs per
+  backend: on SQLite `execute_readonly_query` opens a `PRAGMA query_only = ON`
+  connection, while on MSSQL it delegates to `execute_query`, so there the
+  backstop is the operator's `db_datareader` + `db_denydatawriter` login and the
+  AST gate is the whole in-process enforcement

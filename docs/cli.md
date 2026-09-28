@@ -218,17 +218,21 @@ Sections, in order:
 | `CONFIG` | Project query config and database config: resolved path, parse status, sensitive-key warning when credentials are detected in the project query config. |
 | `DEPENDENCIES` | Backend-conditional checks (e.g. `pyodbc` and an ODBC driver for `mssql`, `psycopg` for `postgresql`, none for `sqlite`). |
 | `BUILTIN` | Built-in default queries load successfully and have at least one tool registered. |
-| `CONNECTION` | Backend-shape checks (host/port/database/path/credentials), then `SELECT 1` against the configured database. On Linux only, when the connection uses `backend = "mssql"` with `trusted_connection = true`, an extra `kerberos_ticket` row runs `klist -s` and reports `[ERR]` when no cached Kerberos ticket is found. |
+| `CONNECTION` | Backend-shape checks (host/port/database/path/credentials), then `SELECT 1` against the configured database. A sqlite `path` of `:memory:` reports `[WARN]`: every fresh connection to `:memory:` is a new, empty database, so read paths silently return zero rows while `updates.*` still writes to the persistent connection. On Linux only, when the connection uses `backend = "mssql"` with `trusted_connection = true`, an extra `kerberos_ticket` row runs `klist -s` and reports `[ERR]` when no cached Kerberos ticket is found. |
 | `INSTALL INSTRUCTIONS` | Aggregated install hints from any failing `[ERR]` rows above (printed only when at least one row carries a hint). |
-| `QUERIES` | Per-configured-query: SQL `EXPLAIN`, well-formed parameters, `max_rows_default > 0`, `max_rows_hard > 0`. Skipped when `CONNECTION` failed. |
+| `QUERIES` | Per-configured-query: SQL `EXPLAIN`, a read-only proof, well-formed parameters, `max_rows_default > 0`, `max_rows_hard > 0`. The read-only check runs once per declared backend variant (`<name>.read_only[<backend>]`), not just the pinned one, so a write hiding in a `[queries.<name>.backends.<other>]` override is caught before the config ships. A `backends.<key>` that maps to no backend (e.g. `postgresql`, or a typo) is dead config and yields a `[WARN]` row rather than an error. Skipped when `CONNECTION` failed. |
 | `UPDATES` | Per-configured-update: table exists, key column exists, all field columns exist. Skipped when `CONNECTION` failed. |
 
 Each row is one of three statuses:
 
 - `[OK]`  — check passed.
-- `[WARN]` — non-fatal issue; the most common case is detection of
-  sensitive keys (e.g. `password`) in the project query config, which
-  still runs but should be moved to `~/.mcp-tools-sql/config.toml`.
+- `[WARN]` — non-fatal issue; counted separately and never part of the
+  exit code. The cases are: sensitive keys (e.g. `password`) in the
+  project query config, which still run but should be moved to
+  `~/.mcp-tools-sql/config.toml`; a check skipped because its connection
+  is unreachable (that connection's own probe reports the `[ERR]`); a
+  sqlite `path` of `:memory:`; and a `backends.<key>` on a configured
+  query that maps to no backend.
 - `[ERR]` — check failed; the trailing summary line will include
   this in its error count and `verify` will exit with code 1.
 
@@ -270,11 +274,12 @@ $ mcp-tools-sql verify
 [OK]  select_1                      ok
 
 === QUERIES ===
-[OK]  read_schemas.sql              EXPLAIN ok
-[OK]  read_schemas.params           well-formed
-[OK]  read_schemas.max_rows_default 100
-[OK]  read_schemas.max_rows_hard    100
-... (one [OK] row per default + configured query) ...
+[OK]  get_user.sql                  EXPLAIN ok
+[OK]  get_user.read_only[sqlite]    read-only
+[OK]  get_user.params               well-formed
+[OK]  get_user.max_rows_default     100
+[OK]  get_user.max_rows_hard        100
+... (one [OK] row per configured query) ...
 
 === UPDATES ===
 ... (skipped when no updates are configured) ...

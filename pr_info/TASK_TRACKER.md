@@ -27,6 +27,6 @@ This tracks **Feature Implementation** consisting of multiple **Tasks**.
 - [x] [Step 4](./steps/step_4.md) — Stop truncating verify row labels
 - [x] [Step 5](./steps/step_5.md) — Per-variant `read_only` rows in `verify`
 - [x] [Step 6](./steps/step_6.md) — `:memory:` warning on the sqlite `path` row
-- [ ] [Step 7](./steps/step_7.md) — Documentation
+- [x] [Step 7](./steps/step_7.md) — Documentation
 
 ## Pull Request

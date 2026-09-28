@@ -7,6 +7,7 @@ An MCP server for safe, configurable SQL database access. Exposes schema introsp
 ## Key Ideas
 
 - **Configurable, not ad-hoc**: Every query the LLM can run is defined upfront in config. The config is the security boundary.
+- **Queries are read-only**: Each configured query's SQL is proved read-only before it is registered as a tool; a violating query is skipped with a warning. This is unconditional — `security.allow_updates` governs `updates.*` only.
 - **Schema discovery**: Built-in tools to explore schemas, tables, columns, and foreign key relations.
 - **Structured updates**: UPDATE operations are defined as table + key + fields, not raw SQL. The server generates the SQL.
 - **Split config**: Query definitions live in the project repo (safe to commit). Credentials live in the user's home directory (never committed).
