@@ -61,7 +61,14 @@ would otherwise pass:
 - Configured-query path: a stub backend whose `execute_query` raises
   `AssertionError` and whose `execute_readonly_query` returns rows. A tool call
   must succeed.
-- Fan-out path: same shape, through `build_schema_body` with `database="*"`.
+- Fan-out path: same stub shape, through `build_schema_body` with
+  `database="*"`. **"The call succeeded" is not a sufficient assertion here** —
+  the fan-out wraps each target's execute in `except Exception`
+  (`query_helpers.py:350`) and folds the failure into an inline per-target error
+  string, so a still-on-`execute_query` implementation returns a formatted
+  result instead of raising and the test would false-pass. Assert both: the
+  expected rows are present in the output, **and** no inline per-target error
+  text appears (no `AssertionError` / error-section marker for any target).
 
 Fake updates:
 

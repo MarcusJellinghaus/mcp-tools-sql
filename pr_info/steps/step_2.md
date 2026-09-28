@@ -10,6 +10,7 @@ This is the step that closes the hole. Depends on step 1.
 - `src/mcp_tools_sql/query_helpers.py` — the shared helper
 - `src/mcp_tools_sql/query_tools.py` — the gate
 - `tests/test_query_tools.py`
+- `tests/test_server.py` — the decision-1 wiring test
 
 ## WHAT
 
@@ -104,9 +105,16 @@ Registration behaviour:
   raw `ParseError` traceback escaping `register`.
 - A valid `SELECT` query still registers, and a **bad query name still raises
   `ValueError`** — pin that the two failure modes did not get merged.
-- The gate fires with `security.allow_updates = true` as well (decision 1). If
-  `QueryTools` never sees `SecurityConfig` this is implicit; add the test only
-  if a wiring path makes it meaningful, otherwise skip it and note why.
+- **Decision 1 gets its own test — required, not optional.** It is the issue's
+  headline claim, so it must be pinned at the wiring level rather than left
+  implicit in `QueryTools` not seeing `SecurityConfig`. Add it to
+  `tests/test_server.py`, following the existing idiom there
+  (`tests/test_server.py:217-219`): build `ToolServer(qcfg, targets, registry,
+  allow_updates=True)` from a config carrying
+  `[queries.purge] sql = "DELETE FROM Orders"`, call
+  `_register_configured_tools()`, and assert `query_purge` is absent from the
+  registered tool names. The `allow_updates=True` value is the point: the gate
+  must reject regardless of the flag.
 
 Helper behaviour — a couple of direct `read_only_rejection` tests are enough
 (clean `SELECT` → `None`; unparseable → a message mentioning the dialect). The
@@ -117,7 +125,9 @@ shape tables live in step 1; do not duplicate them.
 > Read `pr_info/steps/summary.md` and `pr_info/steps/step_2.md`. Step 1 is done.
 >
 > Implement step 2 test-first: add the registration-gate tests to
-> `tests/test_query_tools.py`, watch them fail, then add `read_only_rejection` to
+> `tests/test_query_tools.py` and the mandatory decision-1 wiring test to
+> `tests/test_server.py` (`ToolServer(..., allow_updates=True)` must still not
+> register a `DELETE` query), watch them fail, then add `read_only_rejection` to
 > `src/mcp_tools_sql/query_helpers.py` and the gate to `QueryTools.register` in
 > `src/mcp_tools_sql/query_tools.py`.
 >
