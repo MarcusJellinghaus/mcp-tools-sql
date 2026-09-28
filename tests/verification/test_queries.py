@@ -6,6 +6,7 @@ from mcp_tools_sql.backends.mssql import MSSQLBackend
 from mcp_tools_sql.backends.registry import BackendRegistry
 from mcp_tools_sql.backends.sqlite import SQLiteBackend
 from mcp_tools_sql.config.models import (
+    BackendQueryConfig,
     ConnectionConfig,
     QueryConfig,
     QueryParamConfig,
@@ -369,3 +370,154 @@ def test_verify_queries_two_databases_each_explained_against_own_target(
     assert result["on_sales.sql"]["ok"] is True
     assert result["on_hr.sql"]["ok"] is True
     assert result["overall_ok"] is True
+
+
+# ---------------------------------------------------------------------------
+# Per-variant read_only rows
+# ---------------------------------------------------------------------------
+
+
+def test_read_only_row_passes_for_clean_select(
+    sqlite_targets: ResolvedTargets,
+    sqlite_registry: BackendRegistry,
+    all_reachable: dict[tuple[str, str], bool],
+) -> None:
+    """A clean SELECT gets one ``read_only[sqlite]`` row with ok=True."""
+    queries = {
+        "clean": QueryConfig(
+            sql="SELECT * FROM customers",
+            params={},
+            max_rows_default=10,
+        ),
+    }
+    result = verify_queries(queries, sqlite_targets, sqlite_registry, all_reachable)
+
+    row = result["clean.read_only[sqlite]"]
+    assert row["ok"] is True
+    assert row["value"] == "read-only"
+    assert row["error"] == ""
+    assert result["overall_ok"] is True
+
+
+def test_read_only_row_fails_for_delete(
+    sqlite_targets: ResolvedTargets,
+    sqlite_registry: BackendRegistry,
+    all_reachable: dict[tuple[str, str], bool],
+) -> None:
+    """A DELETE query fails its read_only row and carries the rejection text."""
+    queries = {
+        "wipe": QueryConfig(
+            sql="DELETE FROM customers",
+            params={},
+            max_rows_default=10,
+        ),
+    }
+    result = verify_queries(queries, sqlite_targets, sqlite_registry, all_reachable)
+
+    row = result["wipe.read_only[sqlite]"]
+    assert row["ok"] is False
+    assert row["value"] == "failed"
+    assert row["error"]
+    assert result["overall_ok"] is False
+
+
+def test_read_only_row_per_backend_variant(
+    sqlite_targets: ResolvedTargets,
+    sqlite_registry: BackendRegistry,
+    all_reachable: dict[tuple[str, str], bool],
+) -> None:
+    """A clean pinned SELECT plus a DELETE mssql override → one row each verdict."""
+    queries = {
+        "mixed": QueryConfig(
+            sql="SELECT * FROM customers",
+            params={},
+            max_rows_default=10,
+            backends={"mssql": BackendQueryConfig(sql="DELETE FROM customers")},
+        ),
+    }
+    result = verify_queries(queries, sqlite_targets, sqlite_registry, all_reachable)
+
+    assert result["mixed.read_only[sqlite]"]["ok"] is True
+    assert result["mixed.read_only[mssql]"]["ok"] is False
+    assert result["mixed.read_only[mssql]"]["error"]
+    assert result["overall_ok"] is False
+
+
+def test_read_only_row_warns_for_unmappable_backend(
+    sqlite_targets: ResolvedTargets,
+    sqlite_registry: BackendRegistry,
+    all_reachable: dict[tuple[str, str], bool],
+) -> None:
+    """A ``backends.postgresql`` key is dead config: a warn row, not a failure."""
+    queries = {
+        "odd": QueryConfig(
+            sql="SELECT * FROM customers",
+            params={},
+            max_rows_default=10,
+            backends={"postgresql": BackendQueryConfig(sql="SELECT 1")},
+        ),
+    }
+    result = verify_queries(queries, sqlite_targets, sqlite_registry, all_reachable)
+
+    row = result["odd.read_only[postgresql]"]
+    assert row["warn"] is True
+    assert row["value"] == "(unknown backend)"
+    assert "postgresql" in row["error"]
+    assert result["overall_ok"] is True
+
+
+def test_read_only_row_unsuffixed_when_pin_unresolvable(
+    sqlite_targets: ResolvedTargets,
+    sqlite_registry: BackendRegistry,
+    all_reachable: dict[tuple[str, str], bool],
+) -> None:
+    """An unresolvable pin yields exactly one un-suffixed ``read_only`` row."""
+    queries = {
+        "lost": QueryConfig(
+            sql="SELECT * FROM customers",
+            params={},
+            max_rows_default=10,
+            connection="nope",
+        ),
+    }
+    result = verify_queries(queries, sqlite_targets, sqlite_registry, all_reachable)
+
+    read_only_keys = [k for k in result if ".read_only" in k]
+    assert read_only_keys == ["lost.read_only"]
+    row = result["lost.read_only"]
+    assert row["ok"] is False
+    assert row["value"] == "(skipped)"
+    assert row["error"]
+    assert result["lost.params"]["value"] == "(skipped)"
+    assert result["overall_ok"] is False
+
+
+def test_read_only_rows_sit_between_sql_and_params(
+    sqlite_targets: ResolvedTargets,
+    sqlite_registry: BackendRegistry,
+    all_reachable: dict[tuple[str, str], bool],
+) -> None:
+    """Row order is ``.sql``, the read_only rows, then ``.params``."""
+    queries = {
+        "ordered": QueryConfig(
+            sql="SELECT * FROM customers",
+            params={},
+            max_rows_default=10,
+            backends={"mssql": BackendQueryConfig(sql="SELECT * FROM customers")},
+        ),
+    }
+    result = verify_one_query(
+        "ordered",
+        queries["ordered"],
+        sqlite_targets,
+        sqlite_registry,
+        all_reachable,
+    )
+
+    assert list(result.keys()) == [
+        "ordered.sql",
+        "ordered.read_only[sqlite]",
+        "ordered.read_only[mssql]",
+        "ordered.params",
+        "ordered.max_rows_default",
+    ]

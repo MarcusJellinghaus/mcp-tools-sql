@@ -35,6 +35,21 @@ def make_entry(
     return {"ok": ok, "value": value, "error": error, "install_hint": install_hint}
 
 
+def make_warn_entry(value: str, error: str = "") -> dict[str, Any]:
+    """Build a WARN entry that does not affect the exit code.
+
+    Bakes in ``ok=True`` and post-sets ``warn``, the same way
+    :func:`make_skipped_entry` does: a warn row must never flip the exit code,
+    and ``overall_ok`` reads ``ok`` before it reads ``warn``.
+
+    Returns:
+        A verifier entry dict with ``warn`` set.
+    """
+    entry = make_entry(ok=True, value=value, error=error)
+    entry["warn"] = True
+    return entry
+
+
 def make_skipped_entry(connection: str) -> dict[str, Any]:
     """Build a WARN entry for a check skipped because its connection is down.
 

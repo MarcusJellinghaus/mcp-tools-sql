@@ -1,13 +1,17 @@
 === QUERIES ===
 [OK]  get_user.sql                  EXPLAIN ok
+[OK]  get_user.read_only[sqlite]    read-only
 [OK]  get_user.params               well-formed
 [OK]  get_user.max_rows_default     10
 [OK]  get_user.max_rows_hard        10
 [ERR]  bad_sql.sql                   failed  - near "FROMX": syntax error
+[ERR]  bad_sql.read_only[sqlite]     failed  - Not read-only. SQL could not be parsed as sqlite: Invalid expression / Unexpected token. Line 1, Col: 23.
+  SELECT * FROMX [4mbadtable[0m
 [OK]  bad_sql.params                well-formed
 [OK]  bad_sql.max_rows_default      10
 [OK]  bad_sql.max_rows_hard         10
 [ERR]  mismatched_params.sql         failed  - no such column: name
+[OK]  mismatched_params.read_only[sqlite]  read-only
 [ERR]  mismatched_params.params      issue  - SQL :foo not in config params; Config params ['bar'] not used in SQL
 [OK]  mismatched_params.max_rows_default  10
 [OK]  mismatched_params.max_rows_hard  10
