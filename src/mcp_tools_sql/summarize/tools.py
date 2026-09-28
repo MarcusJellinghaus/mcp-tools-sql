@@ -419,7 +419,10 @@ def _run(
         return empty_source_message(source.label)
 
     view = "triage" if len(profiled) > TRIAGE_THRESHOLD else "deep"
-    include_distinct = view == "deep" or rows <= DISTINCT_GATE_ROWS
+    # One row-count gate, independent of the view: above it the source gets the
+    # count and scalar queries only -- no COUNT(DISTINCT), no per-column value
+    # lists. Narrowing with columns= cannot switch it back on.
+    include_distinct = rows <= DISTINCT_GATE_ROWS
     scalar_row = backend.execute_readonly_query(
         build_scalar_sql(
             profiled, table_ref, predicate, dialect, include_distinct=include_distinct
@@ -433,7 +436,12 @@ def _run(
         non_null, distinct, col_stats = _split_stats(scalar_row, idx)
         value_kind: Literal["top", "sample", "none"] = "none"
         values: list[tuple[Any, ...]] | None = None
-        if view == "deep" and meta.category != "other" and non_null > 0:
+        if (
+            include_distinct
+            and view == "deep"
+            and meta.category != "other"
+            and non_null > 0
+        ):
             value_kind = (
                 "top" if distinct is not None and distinct < non_null else "sample"
             )

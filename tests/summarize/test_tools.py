@@ -323,12 +323,17 @@ async def test_multi_target_selectors_omit_star(profiling_db: Path) -> None:
 # ---------------------------------------------------------------------------
 
 
-def _fake_scalar_row(n_cols: int) -> dict[str, Any]:
-    """Build a synthetic scalar-pass result row for *n_cols* numeric columns."""
+def _fake_scalar_row(n_cols: int, include_distinct: bool = True) -> dict[str, Any]:
+    """Build a synthetic scalar-pass result row for *n_cols* numeric columns.
+
+    The ``__distinct`` alias is present only when *include_distinct*, mirroring
+    the real scalar pass: a gated call never asks for ``COUNT(DISTINCT)``.
+    """
     row: dict[str, Any] = {}
     for i in range(n_cols):
         row[f"c{i}__nonnull"] = 100
-        row[f"c{i}__distinct"] = 10
+        if include_distinct:
+            row[f"c{i}__distinct"] = 10
         row[f"c{i}__min"] = 1
         row[f"c{i}__max"] = 5
         row[f"c{i}__mean"] = 3.0
@@ -342,7 +347,6 @@ def _gate_backend(n_cols: int, row_count: int) -> tuple[MagicMock, dict[str, str
     """Return a MagicMock backend and a dict that captures the scalar SQL."""
     captured: dict[str, str] = {}
     metas = [{"name": f"n{i}", "type": "INTEGER", "ordinal": i} for i in range(n_cols)]
-    scalar_row = _fake_scalar_row(n_cols)
 
     def fake(sql: str, params: dict[str, Any] | None = None) -> list[dict[str, Any]]:
         if "pragma_table_info" in sql or "INFORMATION_SCHEMA" in sql:
@@ -351,7 +355,7 @@ def _gate_backend(n_cols: int, row_count: int) -> tuple[MagicMock, dict[str, str
             return [{"row_count": row_count}]
         if "c0__nonnull" in sql:
             captured["scalar_sql"] = sql
-            return [scalar_row]
+            return [_fake_scalar_row(n_cols, include_distinct="COUNT(DISTINCT" in sql)]
         return [{"value": 1, "freq": 5}]
 
     backend = MagicMock()
@@ -377,13 +381,39 @@ async def test_distinct_gate_triage_omits_count_distinct() -> None:
 
 
 @pytest.mark.asyncio
-async def test_distinct_gate_deep_never_gated() -> None:
-    """A deep call is never gated: distinct is computed even above the row gate."""
+async def test_distinct_gate_applies_to_deep_view() -> None:
+    """A deep call above the row gate omits distinct, like triage does."""
     backend, captured = _gate_backend(n_cols=3, row_count=2_000_000)
     async with _client_for(backend) as client:
         out = await _call_summarize(client, "main", "big")
-    assert "(INTEGER, numeric)" in out  # rendered deep
+    assert "(INTEGER, numeric)" in out  # still the deep view
+    assert "COUNT(DISTINCT" not in captured["scalar_sql"]
+    assert "distinct —" in out
+    assert "distinct counts and value lists omitted" in out
+
+
+@pytest.mark.asyncio
+async def test_value_lists_skipped_above_the_gate() -> None:
+    """Above the gate no per-column value list is fetched, in either view."""
+    backend, _ = _gate_backend(n_cols=3, row_count=2_000_000)
+    async with _client_for(backend) as client:
+        out = await _call_summarize(client, "main", "big")
+    sqls = [call.args[0] for call in backend.execute_readonly_query.call_args_list]
+    # Metadata lookup, then exactly the count and scalar queries -- nothing more.
+    assert len(sqls) == 3
+    assert not any("GROUP BY" in sql for sql in sqls)
+    assert "top values:" not in out
+    assert "sample values" not in out
+
+
+@pytest.mark.asyncio
+async def test_value_lists_still_fetched_below_the_gate() -> None:
+    """A deep call at or below the gate keeps its per-column value lists."""
+    backend, captured = _gate_backend(n_cols=3, row_count=1_000_000)
+    async with _client_for(backend) as client:
+        out = await _call_summarize(client, "main", "big")
     assert "COUNT(DISTINCT" in captured["scalar_sql"]
+    assert "top values:" in out
 
 
 @pytest.mark.asyncio

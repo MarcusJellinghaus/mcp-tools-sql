@@ -38,7 +38,8 @@ _VALUE_DISPLAY_CAP: int = 60
 _FLOAT_STAT_DECIMALS: int = 1
 
 # Blank cell rendered when a stat is absent (all-null min/max) or a distinct
-# count was gated out of triage (``ColumnProfile.distinct is None``).
+# count was gated out by the row gate, in either view
+# (``ColumnProfile.distinct is None``).
 _BLANK = "—"  # em dash
 
 # Column-count threshold: a call profiling *more* than this many columns renders
@@ -50,8 +51,9 @@ TRIAGE_THRESHOLD: int = 15
 # appends a footer directing the caller to ``columns=`` for any beyond the cap.
 COLUMN_CAP: int = 50
 
-# Row-count ceiling above which triage omits ``COUNT(DISTINCT)`` (too costly on a
-# large table); the distinct cells blank and the footer states the reason.
+# Row-count ceiling above which both views omit ``COUNT(DISTINCT)`` and the
+# per-column value lists (too costly on a large table); the distinct cells blank
+# and the footer states the reason.
 DISTINCT_GATE_ROWS: int = 1_000_000
 
 # Defensive guard returned by :func:`render_summary` for an unexpectedly empty
@@ -76,7 +78,7 @@ class ColumnProfile:
         non_null: ``COUNT(c)`` -- non-null tally; ``nulls`` is ``rows -
             non_null``.
         distinct: ``COUNT(DISTINCT c)``, or ``None`` when the distinct count was
-            gated out (triage over a large table) or is inapplicable (``other``
+            gated out by the row gate, in either view, or is inapplicable (``other``
             / LOB columns). A ``None`` renders as a blank cell and suppresses the
             top-values remainder arithmetic.
         stats: Category-specific aggregates keyed by stat suffix (``min``,
