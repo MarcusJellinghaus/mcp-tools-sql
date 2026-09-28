@@ -337,7 +337,7 @@ def test_distinct_none_blanks_cell_and_omits_remainder() -> None:
 
 
 def test_sample_distinct_none_omits_of_clause() -> None:
-    """A sample list with distinct=None drops the ``of D`` clause."""
+    """A sample list with distinct=None names only the shown count."""
     profile = ColumnProfile(
         meta=_meta("code", "varchar", "string"),
         rows=2,
@@ -350,8 +350,9 @@ def test_sample_distinct_none_omits_of_clause() -> None:
 
     out = render_deep([profile])
 
-    assert "  sample values (2 distinct values):" in out
+    assert "  sample values (2 shown):" in out
     assert " of " not in out
+    assert "distinct values" not in out  # no unmeasured count is asserted
 
 
 def test_other_block_size_line_present_and_absent() -> None:

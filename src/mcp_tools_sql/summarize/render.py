@@ -337,7 +337,8 @@ def _render_values(p: ColumnProfile) -> list[str]:
     For a ``sample`` list: a header naming the shown count and (when known) the
     distinct total, then the values with no counts. The shown count is
     ``len(p.values)`` -- the rows the SQL actually returned, already capped --
-    never a requested ``n``.
+    never a requested ``n``. With ``distinct`` unknown the header names the shown
+    count alone, since there is no distinct total to name.
 
     Args:
         p: The profile whose value list to render.
@@ -373,7 +374,7 @@ def _render_values(p: ColumnProfile) -> list[str]:
             f" distinct — every value unique):"
         )
     else:
-        header = f"  sample values ({_fmt_int(len(values))} distinct values):"
+        header = f"  sample values ({_fmt_int(len(values))} shown):"
     lines = [header]
     for row in values:
         lines.append(f"    {_truncate(row[0])}")
