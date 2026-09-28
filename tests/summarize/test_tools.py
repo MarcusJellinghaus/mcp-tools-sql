@@ -442,6 +442,16 @@ async def test_no_clamp_note_above_the_gate() -> None:
     assert "Requested n=999" not in out
 
 
+@pytest.mark.asyncio
+async def test_no_clamp_note_in_the_triage_view() -> None:
+    """Triage builds no value list either, so a clamped n is not reported."""
+    backend, _ = _gate_backend(n_cols=16, row_count=1_000)
+    async with _client_for(backend) as client:
+        out = await _call_summarize(client, "main", "big", n=999)
+    assert "null_pct" in out  # rendered triage, below the gate
+    assert "Requested n=999" not in out
+
+
 def _gate_query_backend(row_count: int) -> MagicMock:
     """Return a MagicMock backend for a ``sql=`` source above the row gate.
 

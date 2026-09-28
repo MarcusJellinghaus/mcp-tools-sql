@@ -478,9 +478,11 @@ def _run(
             and meta.category != "other"
             and non_null > 0
         ):
-            value_kind = (
-                "top" if distinct is not None and distinct < non_null else "sample"
-            )
+            # include_distinct plus a non-``other`` category means the scalar
+            # pass measured the distinct count, so the shape is a real choice
+            # between duplication ("top") and every value unique ("sample").
+            assert distinct is not None
+            value_kind = "top" if distinct < non_null else "sample"
             vl_rows = backend.execute_readonly_query(
                 build_value_list_sql(
                     meta, table_ref, predicate, clamped_n, dialect, kind=value_kind
@@ -513,9 +515,10 @@ def _run(
     if any(_counts_inconsistent(p) for p in profiles):
         footer.append(inconsistent_counts_note())
     footer.extend(source.notes)
-    # Above the gate no value list is fetched, so there is no length for n to
-    # have clamped -- reporting the clamp would describe output that is absent.
-    if clamp_note and include_distinct:
+    # n only ever sets a value-list length, so the clamp is reported only when a
+    # value list was actually built -- above the gate, in the triage view, and
+    # for an ``other``-only source there is nothing it could have clamped.
+    if clamp_note and any(p.value_kind != "none" for p in profiles):
         footer.append(clamp_note)
     if footer:
         return f"{summary}\n\n" + "\n".join(footer)
