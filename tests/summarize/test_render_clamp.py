@@ -52,7 +52,7 @@ def test_deep_block_clamps_negative_nulls() -> None:
 
 def test_triage_clamps_negative_nulls() -> None:
     """The triage null percentage clamps with the count it is derived from."""
-    out = render_triage([_skewed_profile()], total_columns=1, distinct_gated=False)
+    out = render_triage([_skewed_profile()], total_columns=1)
 
     assert "0.0%" in out
     assert "-20.0%" not in out

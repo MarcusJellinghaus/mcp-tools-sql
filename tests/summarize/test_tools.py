@@ -361,12 +361,19 @@ def _gate_backend(n_cols: int, row_count: int) -> tuple[MagicMock, dict[str, str
 
 @pytest.mark.asyncio
 async def test_distinct_gate_triage_omits_count_distinct() -> None:
-    """A triage call above the row gate builds the scalar SQL without distinct."""
+    """A triage call above the row gate omits distinct and says so in the footer."""
     backend, captured = _gate_backend(n_cols=16, row_count=2_000_000)
     async with _client_for(backend) as client:
         out = await _call_summarize(client, "main", "big")
     assert "null_pct" in out  # rendered triage
     assert "COUNT(DISTINCT" not in captured["scalar_sql"]
+    note = (
+        "distinct counts and value lists omitted: the source exceeds "
+        "1,000,000 rows. Narrow with where=, or use sql= with a row limit."
+    )
+    # The note reads as a pair with the columns= hint: one blank line between.
+    hint = "Narrow with columns= (≤ 15 columns) for the deep per-column view."
+    assert f"{hint}\n\n{note}" in out
 
 
 @pytest.mark.asyncio

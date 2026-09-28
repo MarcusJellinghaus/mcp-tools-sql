@@ -40,6 +40,7 @@ from mcp_tools_sql.summarize.render import (
     DISTINCT_GATE_ROWS,
     TRIAGE_THRESHOLD,
     ColumnProfile,
+    distinct_gate_note,
     empty_columns_message,
     empty_filter_message,
     empty_source_message,
@@ -457,13 +458,14 @@ def _run(
                 value_kind=value_kind,
             )
         )
-    summary = render_summary(
-        profiles, total_columns, distinct_gated=not include_distinct
-    )
-    # Call-level notes and the clamp note share one trailing block, so the
-    # renderers keep their signatures. A table source contributes no notes, so
-    # this is the clamp note alone -- exactly what it was before.
-    footer = [*source.notes]
+    summary = render_summary(profiles, total_columns)
+    # Every call-level note shares one trailing block, in a fixed order: the
+    # gate note first, then the source's own notes, then the clamp note. A
+    # table source contributes no notes of its own.
+    footer: list[str] = []
+    if not include_distinct:
+        footer.append(distinct_gate_note())
+    footer.extend(source.notes)
     if clamp_note:
         footer.append(clamp_note)
     if footer:
