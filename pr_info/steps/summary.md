@@ -145,7 +145,7 @@ No new source modules — deliberate.
 | `tests/test_query_tools.py` | Gate behaviour; `_StubBackend` gains `execute_readonly_query`; two spies retargeted | 2, 3 |
 | `tests/test_schema_tools_multitarget.py` | Fake's `NotImplementedError` → delegation | 3 |
 | `tests/backends/test_registry.py` | Fake check (already defines the method) | 3 |
-| `tests/cli/test_verify.py` | Long-label test; `execute_query` side effect retargeted | 3, 4 |
+| `tests/cli/test_verify.py` | Long-label test. The `execute_query` side effect stays as-is — that probe is the `SELECT 1` liveness check, which decision 9 leaves on `execute_query`; step 3 only confirms it still passes | 4 |
 | `tests/cli/fixtures/verify_snapshot.txt` | Regenerated (padding, then new rows) | 4, 5 |
 | `tests/verification/test_queries.py` | Per-variant rows, warn row, skipped row | 5 |
 | `tests/verification/test_connection.py` | `:memory:` warn row | 6 |
