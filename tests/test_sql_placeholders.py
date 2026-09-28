@@ -22,6 +22,7 @@ from mcp_tools_sql.utils.sql_placeholders import (
     build_count_query,
     extract_param_names,
     has_leading_cte,
+    keyword_absorption_violation,
     read_only_violation,
     substitute_named_with_literals,
     translate_named_to_qmark,
@@ -364,6 +365,100 @@ class TestReadOnlyViolation:
     def test_unparseable_sql_propagates_parse_error(self) -> None:
         with pytest.raises(sqlglot.errors.ParseError):
             read_only_violation("SELECT FROM WHERE )(", "sqlite")
+
+
+# Separator-less batches whose write keyword sqlglot absorbs as a column
+# alias. Measured against sqlglot 30.19.0: only the ``DELETE`` batch parses
+# at all (the other write keywords raise ``ParseError``), so the remaining
+# cases are the alias shapes those batches render to.
+_ABSORBED_SQL = [
+    "SELECT 1\nDELETE FROM t",
+    "SELECT 1 DELETE FROM t",
+    "SELECT 1 AS DELETE FROM t",
+    "SELECT 1 AS INSERT FROM t",
+    "SELECT 1 AS UPDATE FROM t",
+    "SELECT 1 AS MERGE FROM t",
+    "SELECT 1 AS CREATE FROM t",
+    "SELECT 1 AS DROP FROM t",
+    "SELECT 1 AS ALTER FROM t",
+    "SELECT 1 AS TRUNCATE FROM t",
+    "SELECT 1 AS EXEC FROM t",
+    "SELECT 1 AS EXECUTE FROM t",
+    "SELECT 1 AS GRANT FROM t",
+    "SELECT 1 AS REVOKE FROM t",
+]
+
+# Genuine reads that must not be rejected, each with the dialects under
+# which they parse (``FOR XML PATH`` is T-SQL only).
+_CLEAN_SQL: list[tuple[str, tuple[str, ...]]] = [
+    # A keyword as a string literal is not an identifier.
+    ("SELECT 'DELETE' AS action", ("sqlite", "tsql")),
+    # The keyword is only a prefix of the name.
+    ("SELECT create_date", ("sqlite", "tsql")),
+    # Quoted identifiers are genuine columns, whatever they are called.
+    ("SELECT [Update]", ("tsql",)),
+    ('SELECT 1 AS "delete"', ("sqlite", "tsql")),
+    # The four bundled SQLite schema queries.
+    ("SELECT 'main' AS name", ("sqlite",)),
+    (
+        "SELECT name FROM sqlite_master WHERE type='table' "
+        "AND name NOT LIKE 'sqlite_%' ORDER BY name",
+        ("sqlite",),
+    ),
+    (
+        'SELECT name, type, NOT "notnull" AS nullable, dflt_value AS "default", '
+        "pk > 0 AS is_primary_key FROM pragma_table_info(:table)",
+        ("sqlite",),
+    ),
+    (
+        'SELECT id AS constraint_name, "from" AS "column", "table" AS '
+        'referenced_table, "to" AS referenced_column '
+        "FROM pragma_foreign_key_list(:table)",
+        ("sqlite",),
+    ),
+    # Representative T-SQL reads.
+    ("SELECT a FROM t WITH (NOLOCK)", ("tsql",)),
+    ("SELECT j.a FROM OPENJSON(@doc) WITH (a int '$.a') AS j", ("tsql",)),
+    ("SELECT * FROM dbo.fn_things(:id)", ("tsql",)),
+    ("SELECT t.a, x.b FROM t CROSS APPLY dbo.fn_things(t.id) AS x", ("tsql",)),
+    ("SELECT a FROM t FOR XML PATH('row')", ("tsql",)),
+    ("SELECT a FROM t OPTION (RECOMPILE)", ("sqlite", "tsql")),
+    (
+        "WITH a AS (SELECT 1 AS x), b AS (SELECT 2 AS y) " "SELECT a.x, b.y FROM a, b",
+        ("sqlite", "tsql"),
+    ),
+    ("SELECT 1 UNION ALL SELECT 2", ("sqlite", "tsql")),
+    ("SELECT (SELECT COUNT(*) FROM t) AS n", ("sqlite", "tsql")),
+    (
+        "SELECT c.COLUMN_NAME FROM INFORMATION_SCHEMA.COLUMNS c "
+        "JOIN INFORMATION_SCHEMA.TABLES tt ON tt.TABLE_NAME = c.TABLE_NAME",
+        ("sqlite", "tsql"),
+    ),
+]
+
+
+class TestKeywordAbsorptionViolation:
+    """Tests for the second-layer guard ``keyword_absorption_violation``."""
+
+    @pytest.mark.parametrize("sql", _ABSORBED_SQL)
+    @pytest.mark.parametrize("dialect", ["sqlite", "tsql"])
+    def test_absorbed_keyword_rejected(self, sql: str, dialect: str) -> None:
+        assert keyword_absorption_violation(sql, dialect) is not None
+
+    @pytest.mark.parametrize("dialect", ["sqlite", "tsql"])
+    def test_ast_proof_misses_the_absorbed_batch(self, dialect: str) -> None:
+        # The asymmetry this guard exists for: the batch runs two statements
+        # through pyodbc, yet the AST proof sees a clean single SELECT.
+        assert read_only_violation("SELECT 1\nDELETE FROM t", dialect) is None
+
+    @pytest.mark.parametrize(("sql", "dialects"), _CLEAN_SQL)
+    def test_genuine_read_accepted(self, sql: str, dialects: tuple[str, ...]) -> None:
+        for dialect in dialects:
+            assert keyword_absorption_violation(sql, dialect) is None
+
+    def test_unparseable_sql_propagates_parse_error(self) -> None:
+        with pytest.raises(sqlglot.errors.ParseError):
+            keyword_absorption_violation("SELECT FROM WHERE )(", "sqlite")
 
 
 class TestBuildCountQuery:

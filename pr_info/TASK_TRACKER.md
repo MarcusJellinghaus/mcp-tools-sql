@@ -21,7 +21,7 @@ This tracks **Feature Implementation** consisting of multiple **Tasks**.
 
 ## Tasks
 
-- [ ] [Step 1](./steps/step_1.md) — Keyword-absorption guard + reworded rejection message
+- [x] [Step 1](./steps/step_1.md) — Keyword-absorption guard + reworded rejection message
 - [ ] [Step 2](./steps/step_2.md) — Shared verdict helper + the registration gate
 - [ ] [Step 3](./steps/step_3.md) — Switch the tool-facing read paths to `execute_readonly_query`
 - [ ] [Step 4](./steps/step_4.md) — Stop truncating verify row labels

@@ -44,6 +44,7 @@ __all__ = [
     "extract_param_names",
     "first_statement_kind",
     "has_leading_cte",
+    "keyword_absorption_violation",
     "read_only_violation",
     "substitute_named_with_literals",
     "translate_named_to_qmark",
@@ -76,6 +77,26 @@ _WRITE_NODES = (
 #   ``VALUES (...), (...)``   -> exp.Values
 # Any root NOT in this tuple is rejected -- never widen this to a catch-all.
 _READONLY_ROOTS = (exp.Select, exp.Union, exp.Values)
+
+# Statement keywords that sqlglot will absorb as a column alias when a second
+# statement is appended without a separator. See
+# :func:`keyword_absorption_violation` for why this blocklist exists at all.
+_ABSORBABLE_KEYWORDS: frozenset[str] = frozenset(
+    {
+        "DELETE",
+        "INSERT",
+        "UPDATE",
+        "MERGE",
+        "CREATE",
+        "DROP",
+        "ALTER",
+        "TRUNCATE",
+        "EXEC",
+        "EXECUTE",
+        "GRANT",
+        "REVOKE",
+    }
+)
 
 # Shared rejection message for leading-CTE (``WITH``) queries under T-SQL.
 # Both consumers -- ``count_records`` and ``summarize_columns`` -- wrap the
@@ -370,7 +391,52 @@ def read_only_violation(sql: str, dialect: str) -> str | None:
     if any(select.args.get("into") for select in root.find_all(exp.Select)):
         return "Not read-only. SELECT ... INTO is not permitted."
     if not isinstance(root, _READONLY_ROOTS):
-        return "Not read-only. Only SELECT/WITH/VALUES queries can be counted."
+        return "Not read-only. Only SELECT/WITH/VALUES statements are permitted."
+    return None
+
+
+def keyword_absorption_violation(sql: str, dialect: str) -> str | None:
+    r"""Return a rejection message when a statement keyword was parsed as an identifier.
+
+    This *blocklists* keywords, which is exactly what :func:`read_only_violation`
+    argues against: that gate positively proves a statement is read-only rather
+    than pattern-matching for dangerous words. This function is a deliberate
+    exception, justified only as a second layer *on top of* that AST proof and
+    never as a replacement for it.
+
+    The mechanism it covers: sqlglot does not truncate a separator-less batch,
+    it consumes the whole text and reinterprets the second statement's leading
+    write keyword as a column alias. ``SELECT 1\nDELETE FROM t`` parses as
+    ``SELECT 1 AS DELETE FROM t``, so the AST proof sees a clean single
+    ``SELECT`` -- and a statement-count check sees a single statement -- while
+    pyodbc still executes both statements against the database. An unquoted
+    identifier whose whole name is a statement keyword is therefore treated as
+    such an absorption, because no genuine query needs one.
+
+    Unparseable SQL propagates sqlglot's ``ParseError`` rather than returning a
+    verdict, exactly as :func:`read_only_violation` does: the shared verdict
+    wrapper owns the fail-closed contract.
+
+    Args:
+        sql: The SQL text to inspect.
+        dialect: The sqlglot dialect to parse under (``"sqlite"`` or ``"tsql"``).
+
+    Returns:
+        A concise rejection message when a statement keyword appears as an
+        unquoted identifier, or ``None`` when it does not.
+    """
+    root = sqlglot.parse_one(sql, read=dialect)
+    for node in root.find_all(exp.Identifier):
+        # A quoted identifier is a genuine column, whatever it is called.
+        if node.args.get("quoted"):
+            continue
+        name = node.name.upper()
+        if name in _ABSORBABLE_KEYWORDS:
+            return (
+                f"Not read-only. '{name}' appears where an identifier was "
+                "expected; this is how a second statement appended without a "
+                "separator is absorbed as a column alias."
+            )
     return None
 
 
