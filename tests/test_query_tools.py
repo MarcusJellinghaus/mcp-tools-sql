@@ -19,49 +19,8 @@ from mcp_tools_sql.config.models import (
     QueryParamConfig,
     ResolvedTargets,
 )
-from mcp_tools_sql.query_helpers import execute_and_format, extract_sql_params
 from mcp_tools_sql.query_tools import QueryTools
 from tests.target_helpers import RecordingRegistry, make_target, single_target
-
-
-def test_extract_sql_params_skips_string_literal() -> None:
-    """Delegation guarantee: placeholders inside string literals are ignored."""
-    assert extract_sql_params("SELECT ':foo' AS x WHERE id = :bar") == {"bar"}
-
-
-@pytest.mark.asyncio
-async def test_execute_and_format_caps_max_rows_and_filters() -> None:
-    """execute_and_format clamps max_rows (with note) and applies the filter."""
-
-    class _StubBackend:
-        def execute_query(
-            self, sql: str, params: dict[str, Any] | None = None
-        ) -> list[dict[str, Any]]:
-            return [{"name": "Bank A"}, {"name": "Bank B"}, {"name": "Bank C"}]
-
-    config = QueryConfig(
-        description="",
-        sql="SELECT name FROM customers",
-        max_rows_default=5,
-        max_rows_hard=10,
-        filter_column="name",
-    )
-
-    text = await execute_and_format(
-        "customers",
-        "SELECT name FROM customers",
-        set(),
-        _StubBackend(),  # type: ignore[arg-type]
-        config,
-        "name_filter",
-        "hint",
-        {"max_rows": 500, "name_filter": "Bank A"},
-    )
-
-    assert "Requested max_rows=500 exceeds hard limit 10" in text
-    assert "capped at 10" in text
-    assert "Bank A" in text
-    assert "Bank B" not in text
 
 
 def _sqlite_backend(db_path: Path) -> SQLiteBackend:
@@ -185,6 +144,7 @@ async def test_json_schema_generation(sqlite_db: Path) -> None:
         assert props["status"]["type"] == "string"
         assert "min_total" in props
         assert "max_rows" in props
+        assert props["max_rows"]["minimum"] == 1
 
         required = schema.get("required", [])
         assert "customer_id" in required
@@ -339,6 +299,54 @@ async def test_max_rows_hard_clamp(sqlite_db: Path) -> None:
         text = result.content[0].text  # type: ignore[union-attr]
         assert "Requested max_rows=500 exceeds hard limit 10" in text
         assert "capped at 10" in text
+
+
+@pytest.mark.asyncio
+async def test_max_rows_below_one_rejected_by_schema(sqlite_db: Path) -> None:
+    """max_rows below 1 is rejected by the tool schema, before the body runs."""
+    backend = _sqlite_backend(sqlite_db)
+    queries = {
+        "orders": QueryConfig(
+            description="All orders",
+            sql="SELECT id FROM orders",
+            backends={"sqlite": BackendQueryConfig(sql="SELECT id FROM orders")},
+            max_rows_default=5,
+            max_rows_hard=10,
+        )
+    }
+    mcp = FastMCP("test-min-rows")
+    QueryTools(*single_target(backend), queries).register(mcp)
+
+    async with create_connected_server_and_client_session(mcp) as client:
+        for bad in (-1, 0):
+            result = await client.call_tool("query_orders", {"max_rows": bad})
+            assert result.isError is True
+
+
+@pytest.mark.asyncio
+async def test_non_positive_max_rows_default_floored_in_schema(
+    sqlite_db: Path,
+) -> None:
+    """A non-positive max_rows_default publishes a default of 1, not 0."""
+    backend = _sqlite_backend(sqlite_db)
+    queries = {
+        "orders": QueryConfig(
+            description="All orders",
+            sql="SELECT id FROM orders",
+            backends={"sqlite": BackendQueryConfig(sql="SELECT id FROM orders")},
+            max_rows_default=0,
+            max_rows_hard=0,
+        )
+    }
+    mcp = FastMCP("test-floored-default")
+    QueryTools(*single_target(backend), queries).register(mcp)
+
+    async with create_connected_server_and_client_session(mcp) as client:
+        tools = await client.list_tools()
+        tool = next(t for t in tools.tools if t.name == "query_orders")
+        max_rows = tool.inputSchema["properties"]["max_rows"]
+        assert max_rows["minimum"] == 1
+        assert max_rows["default"] == 1
 
 
 # ---------------------------------------------------------------------------

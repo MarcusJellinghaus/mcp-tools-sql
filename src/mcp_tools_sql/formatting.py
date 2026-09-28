@@ -6,6 +6,12 @@ from typing import Any
 
 from tabulate import tabulate
 
+# Lowest meaningful row cap. Below 1 the cap is not merely useless but
+# actively dangerous: ``rows[:-1]`` returns "all but the last |n| rows"
+# instead of nothing, so a negative cap leaks nearly the whole result set.
+# Every ``max_rows`` is floored at this bound before it reaches a slice.
+MAX_ROWS_MIN: int = 1
+
 
 def format_rows(
     rows: list[dict[str, Any]],
@@ -17,7 +23,8 @@ def format_rows(
     Args:
         rows: Query result rows as list of dicts.
         max_rows: Maximum rows to display. If len(rows) > max_rows,
-                  output is truncated with a warning message.
+                  output is truncated with a warning message. Values below
+                  :data:`MAX_ROWS_MIN` are raised to it.
         truncation_hint: Optional suffix appended after the count line
                   when truncation occurs. Empty string suppresses it.
 
@@ -26,6 +33,7 @@ def format_rows(
     """
     if not rows:
         return "No results found."
+    max_rows = max(max_rows, MAX_ROWS_MIN)
     total = len(rows)
     display_rows = rows[:max_rows]
     table: str = tabulate(display_rows, headers="keys", tablefmt="simple")
@@ -52,6 +60,7 @@ def format_fanout_rows(
         errors: ``(database, message)`` pairs for databases that failed; each
             is rendered inline on its own line rather than raised.
         max_rows: Maximum rows to display before the merged list is truncated.
+            Values below :data:`MAX_ROWS_MIN` are raised to it.
         truncation_hint: Optional suffix appended after the footer count line
             when truncation occurs. Empty string suppresses it.
 
@@ -61,6 +70,7 @@ def format_fanout_rows(
         otherwise renders the table plus a per-database truncation footer
         (only on truncation) and one line per errored database.
     """
+    max_rows = max(max_rows, MAX_ROWS_MIN)
     if len(counts) <= 1 and not errors:
         return format_rows(rows, max_rows, truncation_hint=truncation_hint)
 

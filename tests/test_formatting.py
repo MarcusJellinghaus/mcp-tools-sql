@@ -103,6 +103,19 @@ class TestFormatRows:
         assert last_line.endswith("rows.")
         assert "Use filter to narrow" not in result
 
+    def test_negative_max_rows_floors_to_one(self) -> None:
+        """A negative max_rows shows one row, not 'all but the last N'."""
+        rows = [{"id": i} for i in range(5)]
+        result = format_rows(rows, max_rows=-1)
+        assert "Showing 1 of 5 rows." in result
+        assert "3" not in result
+
+    def test_zero_max_rows_floors_to_one(self) -> None:
+        """max_rows=0 shows one row rather than an empty table."""
+        rows = [{"id": i} for i in range(5)]
+        result = format_rows(rows, max_rows=0)
+        assert "Showing 1 of 5 rows." in result
+
 
 class TestFormatFanoutRows:
     """Tests for the format_fanout_rows function."""
@@ -185,6 +198,17 @@ class TestFormatFanoutRows:
             rows, counts, [], max_rows=4, truncation_hint="Use filter to narrow."
         )
         assert "Matched: sales 3, hr 3. Use filter to narrow." in result
+
+    def test_negative_max_rows_floors_to_one(self) -> None:
+        """A negative max_rows renders one row in the multi-database branch."""
+        rows = [{"id": i, "_database": "a" if i < 2 else "b"} for i in range(4)]
+        counts = {"a": 2, "b": 2}
+        result = format_fanout_rows(rows, counts, [], max_rows=-1)
+        assert "Showing 1 of 4 rows." in result
+
+        body = result.split("\n\nShowing")[0].splitlines()[2:]
+        assert len(body) == 1
+        assert body[0].split() == ["0", "a"]
 
 
 class TestFormatUpdateResult:

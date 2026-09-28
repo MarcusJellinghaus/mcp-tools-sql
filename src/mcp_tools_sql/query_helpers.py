@@ -15,7 +15,7 @@ from typing import TYPE_CHECKING, Annotated, Any, Literal, Optional, cast
 
 from pydantic import Field
 
-from mcp_tools_sql.formatting import format_fanout_rows, format_rows
+from mcp_tools_sql.formatting import MAX_ROWS_MIN, format_fanout_rows, format_rows
 from mcp_tools_sql.tool_logging import log_tool_call
 from mcp_tools_sql.utils.data_type_utility.type_mapping import resolve_python_type
 from mcp_tools_sql.utils.sql_placeholders import ParseError, extract_param_names
@@ -59,13 +59,30 @@ def apply_filter(
     return [r for r in rows if fnmatch(str(r.get(column, "")).lower(), pattern.lower())]
 
 
+def _default_max_rows(config: QueryConfig) -> int:
+    """Return the effective ``max_rows`` default, floored at ``MAX_ROWS_MIN``.
+
+    Used both as the published signature default and as the fallback when a
+    direct (non-MCP) caller omits ``max_rows``, so the two cannot disagree and
+    a non-positive ``max_rows_default`` never looks like a caller request.
+
+    Returns:
+        ``config.max_rows_default``, raised to ``MAX_ROWS_MIN`` when lower.
+    """
+    return max(config.max_rows_default, MAX_ROWS_MIN)
+
+
 def build_query_sig_params(config: QueryConfig) -> list[inspect.Parameter]:
     """Build the public signature parameters for a query tool.
 
     Returns:
         User-declared params followed by an implicit ``max_rows`` parameter
         and, when ``config.filter_column`` is non-empty, a
-        ``<filter_column>_filter`` parameter.
+        ``<filter_column>_filter`` parameter. ``max_rows`` is constrained to
+        :data:`~mcp_tools_sql.formatting.MAX_ROWS_MIN` and above, and its
+        default is floored at the same bound, so a non-positive
+        ``max_rows_default`` cannot publish a default that violates the
+        constraint.
     """
     sig_params: list[inspect.Parameter] = []
     for param_cfg in config.params.values():
@@ -104,8 +121,10 @@ def build_query_sig_params(config: QueryConfig) -> list[inspect.Parameter]:
         inspect.Parameter(
             "max_rows",
             kind=inspect.Parameter.POSITIONAL_OR_KEYWORD,
-            default=config.max_rows_default,
-            annotation=Annotated[int, Field(description=max_rows_desc)],
+            default=_default_max_rows(config),
+            annotation=Annotated[
+                int, Field(ge=MAX_ROWS_MIN, description=max_rows_desc)
+            ],
         )
     )
 
@@ -131,11 +150,23 @@ def build_query_sig_params(config: QueryConfig) -> list[inspect.Parameter]:
 def _cap_max_rows(config: QueryConfig, requested: int) -> tuple[int, str]:
     """Clamp ``requested`` to ``config.max_rows_hard``.
 
+    Both operands are floored at ``MAX_ROWS_MIN``, so the returned limit is
+    never below it. A repaired ``hard`` is silent: the resulting upper-clamp
+    note already names the effective limit, and ``verify`` owns the
+    operator-facing report for a non-positive ``max_rows_hard``.
+
     Returns:
         A ``(capped, note)`` pair. ``note`` is a human-readable explanation to
-        append to output when the request exceeded the hard limit, else "".
+        append to output when the request exceeded the hard limit or fell below
+        the minimum, else "".
     """
-    hard: int = cast(int, config.max_rows_hard)
+    hard: int = max(cast(int, config.max_rows_hard), MAX_ROWS_MIN)
+    if requested < MAX_ROWS_MIN:
+        note = (
+            f"\n\nRequested max_rows={requested} is below the minimum "
+            f"{MAX_ROWS_MIN}; using {MAX_ROWS_MIN}."
+        )
+        return MAX_ROWS_MIN, note
     if requested > hard:
         note = (
             f"\n\nRequested max_rows={requested} exceeds hard limit "
@@ -165,10 +196,12 @@ async def execute_and_format(
 
     Returns:
         The formatted result text, with a max_rows cap note appended when the
-        requested limit exceeded the hard limit.
+        requested limit exceeded the hard limit or fell below the minimum. An
+        omitted ``max_rows`` resolves to the floored config default and is
+        never reported as a below-minimum request.
     """
     requested, note = _cap_max_rows(
-        config, kwargs.pop("max_rows", config.max_rows_default)
+        config, kwargs.pop("max_rows", _default_max_rows(config))
     )
     filter_pattern: str | None = (
         kwargs.pop(filter_kwarg, None) if filter_kwarg else None
@@ -322,7 +355,7 @@ def build_schema_body(
                 f"Available: {targets.connection_names}"
             )
         requested, note = _cap_max_rows(
-            config, kwargs.pop("max_rows", config.max_rows_default)
+            config, kwargs.pop("max_rows", _default_max_rows(config))
         )
         filter_pattern: str | None = (
             kwargs.pop(filter_kwarg, None) if filter_kwarg else None
