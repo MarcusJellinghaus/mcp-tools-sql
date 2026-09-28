@@ -57,7 +57,7 @@ def test_sample_distinct_none_omits_of_clause() -> None:
     ...
     assert "  sample values (2 shown):" in out
     assert " of " not in out
-    assert "distinct" not in out   # no unmeasured count is asserted
+    assert "distinct values" not in out   # no unmeasured count is asserted
 ```
 
 Run it and watch it fail on the old string before changing `render.py`.

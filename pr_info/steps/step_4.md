@@ -95,6 +95,29 @@ Behaviour at this step: triage above the gate prints the new wording in the
 footer instead of the old; the deep view is unaffected because `include_distinct`
 is still `True` there. Step 5 changes that.
 
+**Placement relative to the triage `columns=` hint.** The issue's rationale says
+the gate note "printed above it" qualifies the hint, but its Decisions table
+fixes the note in the `tools.py` footer, in the order `distinct_gate_note()`,
+`inconsistent_counts_note()`, `source.notes`, `clamp_note`. Those cannot both
+hold: the `tools.py` footer is appended after the renderer's own output, so the
+note lands one blank line *below* the hint, not above it. Follow the Decisions
+table — the footer placement is what satisfies the requirement, for three
+reasons:
+
+- Putting the note back above the hint means `render_triage` has to know the
+  gate fired again, which is the exact flag this step removes. The hint is a
+  renderer footer; the gate note is a call-level note.
+- Only the footer placement gets the note into the **deep** view too, which is
+  what step 5 needs. A note emitted from inside `render_triage` reaches triage
+  only.
+- Adjacency is preserved either way: the hint is the last line of the triage
+  block and the gate note is the first line of the trailing footer, so they are
+  separated by one blank line and read as a pair. Nothing between them.
+
+Assert the adjacency rather than leaving it implicit: in the updated
+`test_distinct_gate_triage_omits_count_distinct`, check that the gate note
+follows the `columns=` hint with only a blank line between them.
+
 ## HOW
 
 Integration points: the `render_summary` call site in `_run`, and the import list

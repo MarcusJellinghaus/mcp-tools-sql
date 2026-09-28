@@ -118,7 +118,7 @@ Import `inconsistent_counts_note` from `mcp_tools_sql.summarize.render` alongsid
 ```
 _counts_inconsistent(p):
     if p.non_null > p.rows: return True
-    if any(p.stats.get(k) or 0 > p.rows for k in _ROW_BOUNDED_STATS): return True
+    if any((p.stats.get(k) or 0) > p.rows for k in _ROW_BOUNDED_STATS): return True
     if p.values:
         if p.value_kind == "top":
             if sum(freqs) > p.rows: return True
