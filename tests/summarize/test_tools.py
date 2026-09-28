@@ -21,7 +21,9 @@ from mcp.shared.memory import create_connected_server_and_client_session
 
 from mcp_tools_sql.config.models import ResolvedTargets
 from mcp_tools_sql.summarize import SummarizeTools
-from mcp_tools_sql.summarize.tools import _DESCRIPTION
+from mcp_tools_sql.summarize.render import ColumnProfile
+from mcp_tools_sql.summarize.sql import ColumnMeta
+from mcp_tools_sql.summarize.tools import _DESCRIPTION, _counts_inconsistent
 from tests.summarize.tool_helpers import call_summarize as _call_summarize
 from tests.summarize.tool_helpers import client_for as _client_for
 from tests.summarize.tool_helpers import sqlite_backend as _sqlite_backend
@@ -494,3 +496,92 @@ def test_description_advises_where_not_columns_for_cost() -> None:
     assert "sql=" in cost_advice
     assert "1,000,000" in _DESCRIPTION
     assert len(_DESCRIPTION) < 1_500
+
+
+# ---------------------------------------------------------------------------
+# _counts_inconsistent: cross-query count skew detection
+# ---------------------------------------------------------------------------
+
+
+def _profile(**overrides: Any) -> ColumnProfile:
+    """Build a consistent numeric profile, overridden field by field."""
+    fields: dict[str, Any] = {
+        "meta": ColumnMeta(
+            name="qty", declared_type="INTEGER", category="numeric", ordinal=0
+        ),
+        "rows": 100,
+        "non_null": 90,
+        "distinct": 10,
+        "stats": {"zero": 3, "neg": 2},
+        "values": None,
+        "value_kind": "none",
+    }
+    fields.update(overrides)
+    return ColumnProfile(**fields)
+
+
+def test_counts_inconsistent_non_null_over_rows() -> None:
+    """A non-null tally above the row count would make nulls negative."""
+    assert _counts_inconsistent(_profile(non_null=101))
+
+
+def test_counts_inconsistent_top_frequencies_over_rows() -> None:
+    """Shown frequencies above the row count would make the remainder negative."""
+    profile = _profile(
+        rows=100, values=[("a", 80), ("b", 30)], value_kind="top", distinct=5
+    )
+    assert _counts_inconsistent(profile)
+
+
+def test_counts_inconsistent_distinct_below_shown_values() -> None:
+    """Fewer distinct values than the top list shows drops the remainder line."""
+    profile = _profile(distinct=1, values=[("a", 5), ("b", 4)], value_kind="top")
+    assert _counts_inconsistent(profile)
+
+
+def test_counts_consistent_when_distinct_equals_shown_values() -> None:
+    """distinct == shown is a list that covered every value, not skew."""
+    profile = _profile(distinct=2, values=[("a", 5), ("b", 4)], value_kind="top")
+    assert not _counts_inconsistent(profile)
+
+
+def test_counts_inconsistent_sample_longer_than_distinct() -> None:
+    """A sample list longer than the distinct count cannot be right."""
+    profile = _profile(distinct=1, values=[("a",), ("b",)], value_kind="sample")
+    assert _counts_inconsistent(profile)
+
+
+def test_counts_consistent_sample_without_distinct_count() -> None:
+    """A gated-out distinct leaves the sample-length comparison undefined."""
+    profile = _profile(distinct=None, values=[("a",), ("b",)], value_kind="sample")
+    assert not _counts_inconsistent(profile)
+
+
+@pytest.mark.parametrize("stat", ["zero", "neg", "empty", "true", "false"])
+def test_counts_inconsistent_row_bounded_stat_over_rows(stat: str) -> None:
+    """Any row-bounded stat above the row count is skew, percentage or not."""
+    assert _counts_inconsistent(_profile(rows=100, stats={stat: 101}))
+
+
+def test_counts_consistent_normal_profile_is_clean() -> None:
+    """An ordinary profile answers False, so the note stays off by default."""
+    profile = _profile(values=[("a", 50), (None, 10)], value_kind="top")
+    assert not _counts_inconsistent(profile)
+
+
+@pytest.mark.asyncio
+async def test_skew_note_reaches_the_footer() -> None:
+    """A scalar non-null above the row count puts the note in the footer."""
+    backend, _ = _gate_backend(n_cols=1, row_count=50)  # fake nonnull is 100
+    async with _client_for(backend) as client:
+        out = await _call_summarize(client, "main", "big")
+    assert "Counts from separate queries disagree" in out
+
+
+@pytest.mark.asyncio
+async def test_no_skew_note_for_a_normal_profile() -> None:
+    """Consistent counts leave the footer without the skew note."""
+    backend, _ = _gate_backend(n_cols=1, row_count=1_000)
+    async with _client_for(backend) as client:
+        out = await _call_summarize(client, "main", "big")
+    assert "Counts from separate queries disagree" not in out

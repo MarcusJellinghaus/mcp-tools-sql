@@ -44,6 +44,7 @@ from mcp_tools_sql.summarize.render import (
     empty_columns_message,
     empty_filter_message,
     empty_source_message,
+    inconsistent_counts_note,
     render_summary,
     unknown_columns_message,
 )
@@ -270,6 +271,41 @@ def _split_stats(
     return (non_null, distinct, col_stats)
 
 
+# Stats counted by the scalar query but percentaged against ``rows`` from the
+# count query, so the same skew pushes them over their own denominator.
+_ROW_BOUNDED_STATS: tuple[str, ...] = ("zero", "neg", "empty", "true", "false")
+
+
+def _counts_inconsistent(p: ColumnProfile) -> bool:
+    """Whether a profile's counts disagree across the queries that produced them.
+
+    Read before rendering, once per profiled column; :func:`_run` appends
+    :func:`inconsistent_counts_note` when any column answers ``True``. Pure -- it
+    takes the assembled profile and returns a bool, so no flag travels out of a
+    renderer and the loop keeps no accumulator.
+
+    Args:
+        p: The assembled profile for one column.
+
+    Returns:
+        ``True`` when at least one count exceeds the total it is part of.
+    """
+    if p.non_null > p.rows:
+        return True
+    if any((p.stats.get(key) or 0) > p.rows for key in _ROW_BOUNDED_STATS):
+        return True
+    if p.values:
+        if p.value_kind == "top":
+            if sum(freq for _, freq in p.values) > p.rows:
+                return True
+            shown = len([value for value, _ in p.values if value is not None])
+            return p.distinct is not None and p.distinct < shown
+        # A sample list is distinct non-null values, so it cannot be longer than
+        # the distinct count; ``distinct is None`` leaves the comparison undefined.
+        return p.distinct is not None and len(p.values) > p.distinct
+    return False
+
+
 class SummarizeTools:
     """Registers the ``summarize_columns`` tool on an MCP server."""
 
@@ -468,11 +504,14 @@ def _run(
         )
     summary = render_summary(profiles, total_columns)
     # Every call-level note shares one trailing block, in a fixed order: the
-    # gate note first, then the source's own notes, then the clamp note. A
-    # table source contributes no notes of its own.
+    # gate note, the skew note, then the source's own notes, then the clamp
+    # note. A table source contributes no notes of its own.
     footer: list[str] = []
     if not include_distinct:
         footer.append(distinct_gate_note())
+    # One note per call however many columns skew; it names no columns.
+    if any(_counts_inconsistent(p) for p in profiles):
+        footer.append(inconsistent_counts_note())
     footer.extend(source.notes)
     if clamp_note:
         footer.append(clamp_note)
