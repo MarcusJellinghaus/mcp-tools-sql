@@ -9,8 +9,9 @@ core of the issue.
   the value-list guard at ~431.
 - `src/mcp_tools_sql/summarize/render.py` — three stale comments / docstrings that
   describe the gate as triage-only.
-- `tests/summarize/test_tools.py` — `test_distinct_gate_deep_never_gated` inverts;
-  new value-list-skip coverage.
+- `tests/summarize/test_tools.py` — `_fake_scalar_row` / `_gate_backend` stop
+  emitting a `__distinct` alias the SQL never asked for;
+  `test_distinct_gate_deep_never_gated` inverts; new value-list-skip coverage.
 
 ## WHAT
 
@@ -90,6 +91,25 @@ Status  (varchar, string)
 
 ## TDD
 
+**Fix the fake first.** `_fake_scalar_row` (test_tools.py:325-337) emits
+`c{i}__distinct = 10` unconditionally, and `_split_stats` pops whatever alias is
+present regardless of `include_distinct` — so a gated call currently yields
+`distinct=10` and renders `distinct 10`. The fake must model the real scalar
+pass: the `__distinct` alias exists only when the SQL asked for it. Give
+`_fake_scalar_row` an `include_distinct: bool = True` parameter that omits the
+`c{i}__distinct` keys when `False`, and have `_gate_backend`'s `fake` decide per
+call from the SQL it was handed:
+
+```python
+if "c0__nonnull" in sql:
+    captured["scalar_sql"] = sql
+    return [_fake_scalar_row(n_cols, include_distinct="COUNT(DISTINCT" in sql)]
+```
+
+(build the row inside `fake` instead of once up front, since it now depends on
+the emitted SQL). Every existing `_gate_backend` caller is unaffected: below the
+gate the SQL still carries `COUNT(DISTINCT`, so the alias is still present.
+
 **Invert** `test_distinct_gate_deep_never_gated` (test_tools.py:372). It currently
 pins the bug. Same `_gate_backend(n_cols=3, row_count=2_000_000)` fixture, new
 subject:
@@ -101,7 +121,7 @@ async def test_distinct_gate_applies_to_deep_view() -> None:
     ...
     assert "(INTEGER, numeric)" in out          # still the deep view
     assert "COUNT(DISTINCT" not in captured["scalar_sql"]
-    assert "distinct —" in out
+    assert "distinct —" in out                  # needs the fake fix above
     assert "distinct counts and value lists omitted" in out
 ```
 
@@ -144,8 +164,10 @@ SQL.
 > Read `pr_info/steps/summary.md` and `pr_info/steps/step_5.md`. Implement step 5
 > only: in `src/mcp_tools_sql/summarize/tools.py` make `include_distinct` read
 > `rows <= DISTINCT_GATE_ROWS` alone and add it as a term to the value-list guard,
-> then correct the three stale gate comments/docstrings in `render.py`. Invert
-> `test_distinct_gate_deep_never_gated` and add the two value-list tests first. Do
+> then correct the three stale gate comments/docstrings in `render.py`. First fix
+> `_fake_scalar_row` / `_gate_backend` so the `__distinct` alias is absent when the
+> scalar SQL carries no `COUNT(DISTINCT)`, then invert
+> `test_distinct_gate_deep_never_gated` and add the two value-list tests. Do
 > not rename `include_distinct`, do not add a second threshold, and do not touch
 > the triage `columns=` hint. Run format, pylint, pytest (`-n auto`) and mypy, then
 > make one commit.
