@@ -68,17 +68,35 @@ defect to fix later.
 |---|---|
 | `src/mcp_tools_sql/summarize/tools.py` | modified — `_DESCRIPTION` rewritten, module docstring, gate rule, value-list skip, `_counts_inconsistent`, footer assembly |
 | `src/mcp_tools_sql/summarize/render.py` | modified — `_clamp0`, `distinct_gate_note`, `inconsistent_counts_note` added; `distinct_gated` removed from both renderers; three arithmetic sites clamped; sample header reworded; stale comments and docstrings corrected |
-| `tests/summarize/test_render.py` | modified — `distinct_gated` dropped from ~12 call sites, gate-footer test deleted, sample-header string updated, clamp coverage added |
+| `tests/summarize/test_render.py` | modified — `distinct_gated` dropped from ~12 call sites, gate-footer test deleted, sample-header string updated, `distinct_gate_note` wording test added |
+| `tests/summarize/test_render_clamp.py` | **new** — the three cross-query clamp tests from step 2 (see the line budget below) |
 | `tests/summarize/test_tools.py` | modified — `test_distinct_gate_deep_never_gated` inverted, gate note / value-list-skip / skew-note coverage added |
 | `tests/summarize/test_tools_query_source.py` | modified — footer-order coverage carrying both `source.notes` and a clamp note |
 
-No new modules, no new packages, no files deleted. `summarize/sql.py` and
-`summarize/source.py` are untouched. `docs/architecture/architecture.md` needs no
-change — verified: it describes the summarize package's layering, not the gate.
+No new source modules, no new packages, no files deleted — the only new file is
+the test module above. `summarize/sql.py` and `summarize/source.py` are
+untouched. `docs/architecture/architecture.md` needs no change — verified: it
+describes the summarize package's layering, not the gate.
 
-**Line budget** (limit 750): `render.py` 602 → roughly 620 (three builders added,
-the triage footer block removed); `tools.py` 466 → roughly 510. Neither is near
-the limit.
+**Line budget** (limit 750, enforced in CI by `mcp-coder check file-size`,
+`.github/workflows/ci.yml:74`; `.large-files-allowlist` carries only
+`mcp-tools-sql.md`, so no file here is exempt):
+
+- `render.py` 602 → roughly 620 (three builders added, the triage footer block
+  removed); `tools.py` 466 → roughly 510. Neither is near the limit.
+- `tests/summarize/test_render.py` is **719** — 31 lines of headroom. Step 2's
+  three clamp tests are roughly 50 lines at this file's ~18-lines-per-test norm,
+  which would breach the limit at step 2's own commit, and step 4's ~10-line
+  deletion does not recover it. **Decision: step 2 puts its three tests in a new
+  module `tests/summarize/test_render_clamp.py`**, not in `test_render.py`. That
+  is the smaller move than splitting a 719-line file mid-PR, and the new module
+  has a coherent subject: the cross-query count arithmetic. Step 4 then stays
+  net-neutral on `test_render.py` — it deletes
+  `test_triage_gated_blanks_distinct_and_notes_reason` (~10 lines) and adds
+  `test_distinct_gate_note_wording` (~10 lines) — so the file ends the PR at
+  roughly its current 719.
+- `tests/summarize/test_tools.py` 442 and `test_tools_query_source.py` 566 both
+  grow (steps 1, 5, 6) with ample headroom.
 
 ## Steps
 
@@ -105,4 +123,5 @@ mcp__mcp-tools-py__run_mypy_check
 ```
 
 Also `run_vulture_check` on steps 4 and 6 (a removed parameter and new
-module-level functions), and `check_file_size` on the last step.
+module-level functions), and `check_file_size` on steps 2, 4 and 6 — the steps
+that add test lines to the two files with the least headroom, plus the last step.

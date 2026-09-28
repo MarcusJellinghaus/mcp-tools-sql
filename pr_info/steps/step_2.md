@@ -14,7 +14,14 @@ subtractions at zero through one helper.
 - `_render_values` — `rem_rows = rows - shown_rows`, and the `_fmt_pct` that
   reads it.
 
-Tests: `tests/summarize/test_render.py`.
+Tests: a **new** module `tests/summarize/test_render_clamp.py` — not
+`test_render.py`. That file is already 719 lines against the 750-line limit CI
+enforces (`mcp-coder check file-size`, `.github/workflows/ci.yml:74`; the
+allowlist exempts only `mcp-tools-sql.md`), and the three tests below are roughly
+50 lines, so adding them there breaks this step's own commit. Step 4's later
+deletion of `test_triage_gated_blanks_distinct_and_notes_reason` is ~10 lines and
+does not recover it. The new module has a coherent subject of its own — the
+cross-query count arithmetic — and step 6 has no reason to touch it.
 
 ## WHAT
 
@@ -63,7 +70,10 @@ profile.
 
 ## TDD
 
-Write first, in `tests/summarize/test_render.py`:
+Write first, in the new `tests/summarize/test_render_clamp.py`. It needs its own
+imports (`ColumnProfile`, `render_deep`, `render_triage` from
+`mcp_tools_sql.summarize.render`) and its own local `_meta` helper — copy the
+small builder `test_render.py` uses rather than importing across test modules.
 
 ```python
 def test_deep_block_clamps_negative_nulls() -> None:
@@ -88,8 +98,8 @@ def test_remainder_line_clamps_negative_rows_and_still_prints() -> None:
 `"… 8 other values, 0 rows (0.0%)"` is present: the remainder line is
 **printed**, not suppressed.
 
-Add `_clamp0` to the existing import list in the test module if asserting on it
-directly; the three tests above go through the renderers, which is preferable.
+Import `_clamp0` in the new module only if asserting on it directly; the three
+tests above go through the renderers, which is preferable.
 
 ## Commit
 
@@ -98,13 +108,18 @@ directly; the three tests above go through the renderers, which is preferable.
 ## Checks
 
 `run_format_code`, `run_pylint_check`, `run_pytest_check` with
-`extra_args: ["-n", "auto"]`, `run_mypy_check`.
+`extra_args: ["-n", "auto"]`, `run_mypy_check`, and `check_file_size` —
+`test_render.py` sits 31 lines under the limit, so confirm this step left it
+alone and that the new module is well under.
 
 ## Prompt
 
 > Read `pr_info/steps/summary.md` and `pr_info/steps/step_2.md`. Implement step 2
 > only: add `_clamp0` to `src/mcp_tools_sql/summarize/render.py` and use it at the
 > three cross-query subtraction sites (`_render_block`, `render_triage`,
-> `_render_values`). Write the three tests first. Do not touch `distinct_gated`,
+> `_render_values`). Write the three tests first, in the **new** module
+> `tests/summarize/test_render_clamp.py` — do not add them to `test_render.py`,
+> which is 719 lines against a CI-enforced 750-line limit. Do not touch
+> `distinct_gated`,
 > the gate rule, or the sample header — later steps own those. Run format, pylint,
-> pytest (`-n auto`) and mypy, then make one commit.
+> pytest (`-n auto`), mypy and check_file_size, then make one commit.

@@ -33,3 +33,17 @@ I'll gather context before reviewing.`pr_info/steps/step_5.md:104` — high — 
 Verdict(decision='tasks', tasks=["In pr_info/steps/step_5.md:104, fix the unsatisfiable assertion: `_fake_scalar_row` (test_tools.py:330) always emits `c{i}__distinct = 10` and `_split_stats` pops it regardless of `include_distinct`, so the deep block renders `distinct 10`, not `distinct —`. Specify that the gate test's fake omits the `__distinct` alias when the scalar SQL contains no `COUNT(DISTINCT)`, so the reused `_gate_backend` produces the un-computed state the assertion expects."], escalate_reason=None)
 **Changes**:
 applied
+
+## Round 3 — 2026-09-28
+**Findings**:
+I'll gather context first.`pr_info/steps/step_4.md:154` — high — the `distinct_gated` call-site list (test_render.py 488, 494, 501, 512, 520, 531, 577, 611, 640, 658) is taken from the pre-step-2 file and omits the `render_triage(..., distinct_gated=False)` call that step 2 introduces (`test_triage_clamps_negative_nulls`, step_2.md:78); following the list verbatim leaves that call passing a removed parameter, so step 4's commit cannot be green. All enumerated line numbers are also shifted by the three tests step 2 inserts — replace the numeric list with a "every `render_summary`/`render_triage` call site, including the one added in step 2" instruction. Unresolved from rounds 1 and 2.
+
+`pr_info/steps/step_4.md:169` — medium — step 4 removes the `distinct_gated` blanking from the triage cell but defers the `_fake_scalar_row` fix to step 5, so after step 4 `test_distinct_gate_triage_omits_count_distinct` renders `distinct 10` in a gated triage — the fake supplies a `c{i}__distinct` alias the SQL never requested. The fake fix (step_5.md:94-111) belongs in step 4, where the cell first starts reading `p.distinct`.
+
+`pr_info/steps/step_5.md:52` — medium — the stale-documentation list omits `ColumnProfile`'s class docstring (`render.py:67`, "(deep view only) the per-column value-list query") and the `value_kind` attribute text (`render.py:89-91`, "no list: all-NULL columns and every `other`/binary column"); both become inaccurate once the gate suppresses value lists. Unresolved from rounds 1 and 2.
+
+`pr_info/steps/summary.md:14` — low — cites `tools.py:418-419` for the gate; the lines are 415-416 (repeated at `pr_info/steps/step_5.md:8`). Unresolved from rounds 1 and 2.
+**Decisions**:
+Verdict(decision='tasks', tasks=["In pr_info/steps/step_4.md:154, replace the hard-coded test_render.py call-site line list (488, 494, 501, 512, 520, 531, 577, 611, 640, 658) with the instruction to update every `render_summary`/`render_triage` call site in the file, explicitly including the `distinct_gated=False` call step 2 adds in `test_triage_clamps_negative_nulls` — the numeric list predates step 2's inserted tests, so following it verbatim leaves a call passing a removed parameter and step 4's commit cannot be green."], escalate_reason=None)
+**Changes**:
+applied

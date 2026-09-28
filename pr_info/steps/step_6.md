@@ -194,7 +194,8 @@ must keep holding.
 `run_format_code`, `run_pylint_check`, `run_pytest_check` with
 `extra_args: ["-n", "auto"]`, `run_mypy_check`, `run_vulture_check` (two new
 module-level functions), and `check_file_size` — the last step of the change, so
-confirm `render.py` and `tools.py` are still under 750 lines.
+confirm `render.py`, `tools.py` and every touched test module are still under 750
+lines.
 
 ## Prompt
 

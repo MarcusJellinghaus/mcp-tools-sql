@@ -18,6 +18,8 @@ This step must land **before** step 5.
   footer list.
 - `tests/summarize/test_render.py` — ~12 call sites lose the argument; one test
   deleted.
+- `tests/summarize/test_render_clamp.py` — the module step 2 creates; its
+  `render_triage(..., distinct_gated=False)` call loses the argument too.
 - `tests/summarize/test_tools.py` — the gate note's new wording.
 
 ## WHAT
@@ -150,12 +152,13 @@ blank line, as today.
    literal `None`. Nothing is lost.
 
 2. **Drop the argument** from **every** remaining `render_summary` /
-   `render_triage` call site in `tests/summarize/test_render.py` — grep the file
-   for `distinct_gated` rather than working from a line list, since steps 2 and 3
-   insert tests above them. This explicitly includes the
-   `render_triage([p], total_columns=1, distinct_gated=False)` call that step 2
-   adds in `test_triage_clamps_negative_nulls` (step_2.md:78); miss it and this
-   step's commit cannot be green. One call site passes `distinct_gated`
+   `render_triage` call site under `tests/summarize/` — grep for
+   `distinct_gated` across the directory rather than working from a line list,
+   since step 3 shifts lines and step 2 adds a whole new module. This explicitly
+   includes the `render_triage([p], total_columns=1, distinct_gated=False)` call
+   that step 2 adds in `test_triage_clamps_negative_nulls`, which now lives in
+   `tests/summarize/test_render_clamp.py`; miss it and this step's commit cannot
+   be green. One call site in `test_render.py` passes `distinct_gated`
    **positionally**, so it breaks on the signature change rather than on the
    keyword.
 
@@ -183,8 +186,10 @@ def test_distinct_gate_note_wording() -> None:
 ## Checks
 
 `run_format_code`, `run_pylint_check`, `run_pytest_check` with
-`extra_args: ["-n", "auto"]`, `run_mypy_check`, and `run_vulture_check` — a
-parameter was removed, so check nothing is left unused.
+`extra_args: ["-n", "auto"]`, `run_mypy_check`, `run_vulture_check` — a
+parameter was removed, so check nothing is left unused — and `check_file_size`:
+this step both deletes a test from `test_render.py` and adds one, and that file
+has only 31 lines of headroom.
 
 ## Prompt
 
@@ -194,6 +199,7 @@ parameter was removed, so check nothing is left unused.
 > (including their docstrings and the triage footer block), and append the note
 > from the `tools.py` footer instead. Keep `DISTINCT_GATE_ROWS` in `render.py` and
 > leave the triage `columns=` hint unchanged. Update the tests as the step
-> describes, including deleting the redundant one. Do not change the gate rule
-> itself — that is step 5. Run format, pylint, pytest (`-n auto`), mypy and
-> vulture, then make one commit.
+> describes, including deleting the redundant one and dropping the argument from
+> the call in `tests/summarize/test_render_clamp.py`. Do not change the gate rule
+> itself — that is step 5. Run format, pylint, pytest (`-n auto`), mypy, vulture
+> and check_file_size, then make one commit.
