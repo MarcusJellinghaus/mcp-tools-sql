@@ -23,6 +23,7 @@ from mcp_tools_sql.utils.sql_placeholders import (
     extract_param_names,
     has_leading_cte,
     keyword_absorption_violation,
+    passthrough_source_violation,
     read_only_violation,
     substitute_named_with_literals,
     translate_named_to_qmark,
@@ -459,6 +460,44 @@ class TestKeywordAbsorptionViolation:
     def test_unparseable_sql_propagates_parse_error(self) -> None:
         with pytest.raises(sqlglot.errors.ParseError):
             keyword_absorption_violation("SELECT FROM WHERE )(", "sqlite")
+
+
+_PASSTHROUGH_SQL = [
+    "SELECT * FROM OPENQUERY(srv, 'DELETE FROM t')",
+    "SELECT * FROM openquery(srv, 'SELECT 1')",
+    "SELECT * FROM OPENROWSET('SQLNCLI', 'srv', 'DELETE FROM t')",
+    "SELECT * FROM OPENDATASOURCE('SQLNCLI', 'srv').db.dbo.t",
+]
+
+
+class TestPassthroughSourceViolation:
+    """Tests for the pass-through row-set guard ``passthrough_source_violation``."""
+
+    @pytest.mark.parametrize("sql", _PASSTHROUGH_SQL)
+    @pytest.mark.parametrize("dialect", ["sqlite", "tsql"])
+    def test_passthrough_source_rejected(self, sql: str, dialect: str) -> None:
+        assert passthrough_source_violation(sql, dialect) is not None
+
+    @pytest.mark.parametrize("dialect", ["sqlite", "tsql"])
+    def test_ast_proof_misses_the_passthrough_source(self, dialect: str) -> None:
+        # The asymmetry this guard exists for: the linked server runs the
+        # DELETE, yet the AST proof sees a clean SELECT with a string literal.
+        sql = "SELECT * FROM OPENQUERY(srv, 'DELETE FROM t')"
+        assert read_only_violation(sql, dialect) is None
+        assert keyword_absorption_violation(sql, dialect) is None
+
+    @pytest.mark.parametrize(("sql", "dialects"), _CLEAN_SQL)
+    def test_genuine_read_accepted(self, sql: str, dialects: tuple[str, ...]) -> None:
+        for dialect in dialects:
+            assert passthrough_source_violation(sql, dialect) is None
+
+    @pytest.mark.parametrize("dialect", ["sqlite", "tsql"])
+    def test_column_merely_named_openquery_accepted(self, dialect: str) -> None:
+        assert passthrough_source_violation("SELECT openquery FROM t", dialect) is None
+
+    def test_unparseable_sql_propagates_parse_error(self) -> None:
+        with pytest.raises(sqlglot.errors.ParseError):
+            passthrough_source_violation("SELECT FROM WHERE )(", "sqlite")
 
 
 class TestBuildCountQuery:

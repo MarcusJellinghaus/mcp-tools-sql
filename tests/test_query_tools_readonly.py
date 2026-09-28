@@ -12,6 +12,7 @@ from mcp.shared.memory import create_connected_server_and_client_session
 from mcp_tools_sql.config.models import QueryConfig
 from mcp_tools_sql.query_helpers import read_only_rejection
 from mcp_tools_sql.query_tools import QueryTools
+from mcp_tools_sql.utils.sql_placeholders import ParseError, read_only_violation
 from tests.target_helpers import single_target, sqlite_backend
 
 if TYPE_CHECKING:
@@ -122,6 +123,30 @@ async def test_valid_query_registers_and_bad_name_still_raises(
         ).register(FastMCP("test-gate-bad-name"))
 
 
+@pytest.mark.asyncio
+@pytest.mark.parametrize(
+    "sql",
+    [
+        "SELECT * FROM OPENQUERY(srv, 'DELETE FROM t')",
+        "SELECT * FROM OPENROWSET('SQLNCLI', 'srv', 'DELETE FROM t')",
+    ],
+)
+@pytest.mark.parametrize("backend_name", ["sqlite", "mssql"])
+async def test_passthrough_source_is_rejected(
+    sqlite_db: Path, sql: str, backend_name: str
+) -> None:
+    """A linked-server pass-through registers no tool -- the far end is opaque."""
+    backend = sqlite_backend(sqlite_db)
+    queries = {"remote": QueryConfig(description="", sql=sql)}
+    mcp = FastMCP("test-gate-passthrough")
+
+    QueryTools(*single_target(backend, backend_name=backend_name), queries).register(
+        mcp
+    )
+
+    assert await _registered_names(mcp) == set()
+
+
 def test_read_only_rejection_accepts_clean_select() -> None:
     """A plain SELECT yields no rejection."""
     assert read_only_rejection("SELECT id FROM orders", "sqlite") is None
@@ -132,3 +157,24 @@ def test_read_only_rejection_reports_unparseable_sql() -> None:
     message = read_only_rejection("SELECT FROM WHERE )(", "tsql")
     assert message is not None
     assert "tsql" in message
+
+
+def test_parse_error_message_is_one_line_without_escapes() -> None:
+    """sqlglot's multi-line, ANSI-underlined ParseError text is flattened.
+
+    A rejection message is rendered as a single ``verify`` row and logged as a
+    single warning line, so a newline or a terminal escape would corrupt both.
+    """
+    sql = "SELECT * FROMX badtable"
+    with pytest.raises(ParseError) as excinfo:
+        read_only_violation(sql, "sqlite")
+    raw = str(excinfo.value)
+    assert "\n" in raw  # the premise: sqlglot's own text is multi-line
+    assert "\x1b[" in raw  # ... and carries ANSI escapes
+
+    message = read_only_rejection(sql, "sqlite")
+
+    assert message is not None
+    assert "\n" not in message
+    assert "\x1b" not in message
+    assert "badtable" in message

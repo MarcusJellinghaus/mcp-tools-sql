@@ -9,6 +9,7 @@ a sibling-to-sibling dependency.
 from __future__ import annotations
 
 import inspect
+import re
 from collections.abc import Awaitable, Callable
 from fnmatch import fnmatch
 from typing import TYPE_CHECKING, Annotated, Any, Literal, Optional, cast
@@ -22,6 +23,7 @@ from mcp_tools_sql.utils.sql_placeholders import (
     ParseError,
     extract_param_names,
     keyword_absorption_violation,
+    passthrough_source_violation,
     read_only_violation,
 )
 
@@ -49,12 +51,29 @@ def extract_sql_params(sql: str) -> set[str]:
         return set()
 
 
+_ANSI_ESCAPE_RE = re.compile(r"\x1b\[[0-9;]*[A-Za-z]")
+
+
+def _single_line(text: str) -> str:
+    """Return ``text`` with ANSI escapes stripped and whitespace collapsed.
+
+    sqlglot's ``ParseError`` text carries the offending SQL on a second line,
+    underlined with ANSI escapes. Rejection messages are rendered as one
+    ``verify`` row and logged as one warning line, so neither survives.
+
+    Returns:
+        The text as a single line, free of terminal control codes.
+    """
+    return " ".join(_ANSI_ESCAPE_RE.sub("", text).split())
+
+
 def read_only_rejection(sql: str, dialect: str) -> str | None:
     """Return a rejection message when ``sql`` is not provably read-only.
 
     Combines the AST proof (:func:`read_only_violation`), the keyword-absorption
-    guard (:func:`keyword_absorption_violation`) and the fail-closed
-    ``ParseError`` contract into a single verdict.
+    guard (:func:`keyword_absorption_violation`), the pass-through source guard
+    (:func:`passthrough_source_violation`) and the fail-closed ``ParseError``
+    contract into a single verdict.
 
     It exists so the startup gate in :meth:`QueryTools.register` and the
     ``verify`` read-only row cannot disagree: the verify row's job is to predict
@@ -73,8 +92,11 @@ def read_only_rejection(sql: str, dialect: str) -> str | None:
         verdict = read_only_violation(sql, dialect)
         if verdict is None:
             verdict = keyword_absorption_violation(sql, dialect)
+        if verdict is None:
+            verdict = passthrough_source_violation(sql, dialect)
     except ParseError as exc:
-        return f"Not read-only. SQL could not be parsed as {dialect}: {exc}"
+        detail = _single_line(str(exc))
+        return f"Not read-only. SQL could not be parsed as {dialect}: {detail}"
     return verdict
 
 

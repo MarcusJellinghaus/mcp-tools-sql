@@ -5,8 +5,7 @@
 [OK]  get_user.max_rows_default     10
 [OK]  get_user.max_rows_hard        10
 [ERR]  bad_sql.sql                   failed  - near "FROMX": syntax error
-[ERR]  bad_sql.read_only[sqlite]     failed  - Not read-only. SQL could not be parsed as sqlite: Invalid expression / Unexpected token. Line 1, Col: 23.
-  SELECT * FROMX [4mbadtable[0m
+[ERR]  bad_sql.read_only[sqlite]     failed  - Not read-only. SQL could not be parsed as sqlite: Invalid expression / Unexpected token. Line 1, Col: 23. SELECT * FROMX badtable
 [OK]  bad_sql.params                well-formed
 [OK]  bad_sql.max_rows_default      10
 [OK]  bad_sql.max_rows_hard         10

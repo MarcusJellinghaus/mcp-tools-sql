@@ -45,6 +45,7 @@ __all__ = [
     "first_statement_kind",
     "has_leading_cte",
     "keyword_absorption_violation",
+    "passthrough_source_violation",
     "read_only_violation",
     "substitute_named_with_literals",
     "translate_named_to_qmark",
@@ -96,6 +97,13 @@ _ABSORBABLE_KEYWORDS: frozenset[str] = frozenset(
         "GRANT",
         "REVOKE",
     }
+)
+
+# T-SQL row-set functions that take a statement (or a whole data source) as a
+# string argument and run it elsewhere. See
+# :func:`passthrough_source_violation`.
+_PASSTHROUGH_FUNCTIONS: frozenset[str] = frozenset(
+    {"OPENQUERY", "OPENROWSET", "OPENDATASOURCE"}
 )
 
 # Shared rejection message for leading-CTE (``WITH``) queries under T-SQL.
@@ -436,6 +444,40 @@ def keyword_absorption_violation(sql: str, dialect: str) -> str | None:
                 f"Not read-only. '{name}' appears where an identifier was "
                 "expected; this is how a second statement appended without a "
                 "separator is absorbed as a column alias."
+            )
+    return None
+
+
+def passthrough_source_violation(sql: str, dialect: str) -> str | None:
+    """Return a rejection message when a table source hands SQL to another server.
+
+    ``SELECT * FROM OPENQUERY(srv, 'DELETE FROM t')`` is a read-only statement
+    by every structural measure -- the root is a ``Select`` and the write lives
+    in a string literal -- yet SQL Server runs that literal on the linked
+    server. ``OPENROWSET`` and ``OPENDATASOURCE`` do the same. This is the
+    ``EXEC`` case in a different costume: the gate cannot inspect what the far
+    end will execute, so it cannot clear it, and there is no opt-out.
+
+    Like :func:`keyword_absorption_violation`, this is a name-based check layered
+    *on top of* the AST proof, never a replacement for it. A genuine column or
+    table merely named ``openquery`` is an identifier rather than a function
+    call, so it is unaffected.
+
+    Args:
+        sql: The SQL text to inspect.
+        dialect: The sqlglot dialect to parse under (``"sqlite"`` or ``"tsql"``).
+
+    Returns:
+        A concise rejection message when a pass-through row-set function is
+        called, or ``None`` when none is.
+    """
+    root = sqlglot.parse_one(sql, read=dialect)
+    for node in root.find_all(exp.Anonymous):
+        name = node.name.upper()
+        if name in _PASSTHROUGH_FUNCTIONS:
+            return (
+                f"Not read-only. {name} is not permitted: it passes SQL to "
+                "another server, which this gate cannot inspect."
             )
     return None
 
