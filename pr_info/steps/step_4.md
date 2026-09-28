@@ -149,9 +149,15 @@ blank line, as today.
    (line 646), which builds `distinct=None` and asserts the em dash with no
    literal `None`. Nothing is lost.
 
-2. **Drop the argument** from the remaining `render_summary` / `render_triage`
-   call sites: test_render.py lines 488, 494 (**positional** — breaks on the
-   signature change), 501, 512, 520, 531, 577, 611, 640, 658.
+2. **Drop the argument** from **every** remaining `render_summary` /
+   `render_triage` call site in `tests/summarize/test_render.py` — grep the file
+   for `distinct_gated` rather than working from a line list, since steps 2 and 3
+   insert tests above them. This explicitly includes the
+   `render_triage([p], total_columns=1, distinct_gated=False)` call that step 2
+   adds in `test_triage_clamps_negative_nulls` (step_2.md:78); miss it and this
+   step's commit cannot be green. One call site passes `distinct_gated`
+   **positionally**, so it breaks on the signature change rather than on the
+   keyword.
 
 3. **New**, in `tests/summarize/test_render.py`:
 
