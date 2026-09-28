@@ -18,7 +18,12 @@ from pydantic import Field
 from mcp_tools_sql.formatting import MAX_ROWS_MIN, format_fanout_rows, format_rows
 from mcp_tools_sql.tool_logging import log_tool_call
 from mcp_tools_sql.utils.data_type_utility.type_mapping import resolve_python_type
-from mcp_tools_sql.utils.sql_placeholders import ParseError, extract_param_names
+from mcp_tools_sql.utils.sql_placeholders import (
+    ParseError,
+    extract_param_names,
+    keyword_absorption_violation,
+    read_only_violation,
+)
 
 if TYPE_CHECKING:
     from mcp_tools_sql.backends.base import DatabaseBackend
@@ -42,6 +47,35 @@ def extract_sql_params(sql: str) -> set[str]:
         return extract_param_names(sql)
     except ParseError:
         return set()
+
+
+def read_only_rejection(sql: str, dialect: str) -> str | None:
+    """Return a rejection message when ``sql`` is not provably read-only.
+
+    Combines the AST proof (:func:`read_only_violation`), the keyword-absorption
+    guard (:func:`keyword_absorption_violation`) and the fail-closed
+    ``ParseError`` contract into a single verdict.
+
+    It exists so the startup gate in :meth:`QueryTools.register` and the
+    ``verify`` read-only row cannot disagree: the verify row's job is to predict
+    what the server will do at startup, so both call this one implementation.
+
+    Args:
+        sql: The resolved SQL text of a configured query.
+        dialect: The sqlglot dialect to parse under. Callers map a backend name
+            with :func:`mcp_tools_sql.backends.base.to_dialect` themselves.
+
+    Returns:
+        A concise rejection message, or ``None`` when the statement is provably
+        read-only.
+    """
+    try:
+        verdict = read_only_violation(sql, dialect)
+        if verdict is None:
+            verdict = keyword_absorption_violation(sql, dialect)
+    except ParseError as exc:
+        return f"Not read-only. SQL could not be parsed as {dialect}: {exc}"
+    return verdict
 
 
 def apply_filter(

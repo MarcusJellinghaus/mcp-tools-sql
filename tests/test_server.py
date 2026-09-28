@@ -236,6 +236,49 @@ async def test_configured_query_registered_as_tool(tmp_path: Path) -> None:
 
 
 @pytest.mark.asyncio
+async def test_write_query_not_registered_even_with_allow_updates(
+    tmp_path: Path,
+) -> None:
+    """The read-only gate is unconditional: allow_updates does not unlock it."""
+    from mcp.shared.memory import create_connected_server_and_client_session
+
+    db = tmp_path / "test.db"
+    conn = sqlite3.connect(str(db))
+    conn.execute("CREATE TABLE Orders (id INTEGER PRIMARY KEY)")
+    conn.commit()
+    conn.close()
+
+    qcfg_path = tmp_path / "mcp-tools-sql.toml"
+    qcfg_path.write_text(
+        'connection = "default"\n'
+        "\n"
+        "[queries.purge]\n"
+        'description = "Purge orders"\n'
+        'sql = "DELETE FROM Orders"\n'
+    )
+    dbcfg_path = tmp_path / "db.toml"
+    dbcfg_path.write_text(
+        f'[connections.default]\nbackend = "sqlite"\npath = "{db.as_posix()}"\n'
+    )
+
+    qcfg = load_query_config(qcfg_path)
+    dbcfg = load_database_config(dbcfg_path)
+    targets = resolve_targets(qcfg, dbcfg)
+    registry = BackendRegistry()
+    server = ToolServer(qcfg, targets, registry, allow_updates=True)
+    server._register_configured_tools()  # pylint: disable=protected-access
+
+    try:
+        async with create_connected_server_and_client_session(
+            server.mcp, raise_exceptions=True
+        ) as client:
+            result = await client.list_tools()
+            assert "query_purge" not in {t.name for t in result.tools}
+    finally:
+        registry.close_all()
+
+
+@pytest.mark.asyncio
 async def test_validate_sql_registered_as_builtin_tool(tmp_path: Path) -> None:
     """`_register_builtin_tools()` registers `validate_sql` on the MCP server."""
     from mcp.shared.memory import create_connected_server_and_client_session
