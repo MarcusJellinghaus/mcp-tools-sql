@@ -293,6 +293,31 @@ def test_validate_where_untokenizable_verdict(where: str) -> None:
     assert error.startswith("Invalid SQL. TokenError (SQL parsed as sqlite): ")
 
 
+@pytest.mark.parametrize(
+    "where",
+    [
+        "-- hi",  # line comment only
+        "/* hi */",  # block comment only
+        ";",  # separator only
+    ],
+)
+def test_validate_where_zero_statement_predicate_verdict(where: str) -> None:
+    """A comment-only or separator-only predicate is a verdict, not a raise.
+
+    Here the probe wrapper (``SELECT 1 FROM <t> WHERE <where>``) means the
+    predicate never reaches the parser on its own, so sqlglot reports the
+    empty ``WHERE`` as a ``ParseError``. What matters is that the tool still
+    answers with a verdict rather than letting an exception escape.
+    """
+    from mcp_tools_sql.summarize.sql import build_table_ref, validate_where
+
+    ref = build_table_ref("dbo", "t", "sqlite")
+    predicate, error = validate_where(where, ref, None, "sqlite")
+    assert predicate is None
+    assert error is not None
+    assert error.startswith("Invalid SQL. ParseError (SQL parsed as sqlite): ")
+
+
 def test_validate_where_against_a_derived_table_source() -> None:
     """A subquery ref builds the probe from the rendered derived table.
 

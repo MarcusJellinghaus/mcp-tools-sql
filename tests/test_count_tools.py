@@ -290,6 +290,38 @@ async def test_preflight_untokenizable_is_a_verdict(sqlite_db: Path, sql: str) -
     assert "\x1b" not in text
 
 
+ZERO_STATEMENT = [
+    "-- hi",  # line comment only
+    "/* hi */",  # block comment only
+    ";",  # separator only
+]
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("sql", ZERO_STATEMENT)
+async def test_preflight_zero_statements_is_a_verdict(
+    sqlite_db: Path, sql: str
+) -> None:
+    """SQL that tokenizes to no statement is a verdict, not a traceback.
+
+    A comment-only or separator-only input is neither empty nor unparseable,
+    so only the statement-count check catches it. Without it the read-only
+    gate's ``parse_one`` raises ``ParseError("No expression was parsed …")``
+    straight out of the tool.
+    """
+    backend = _sqlite_backend(sqlite_db)
+    mcp = FastMCP("test-count-zero-statements")
+    CountTools(*single_target(backend)).register(mcp)
+    async with create_connected_server_and_client_session(
+        mcp, raise_exceptions=True
+    ) as client:
+        text = await _call_count(client, sql)
+    assert text == (
+        "Invalid SQL. ValidationError: no statement found — "
+        "the SQL contains only comments or separators"
+    )
+
+
 # ---------------------------------------------------------------------------
 # Deterministic MSSQL leading-WITH handling (MagicMock backend, no real DB)
 # ---------------------------------------------------------------------------

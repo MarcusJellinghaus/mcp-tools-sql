@@ -365,8 +365,9 @@ def basic_preflight(
     """Run the shared, dialect-aware pre-flight checks on ``sql``.
 
     Applies the checks common to every SQL-consuming tool: empty SQL, the
-    fail-closed parse contract, multiple statements, and missing ``:name``
-    parameters. It deliberately does **not** apply any session-control
+    fail-closed parse contract, zero statements, multiple statements, and
+    missing ``:name`` parameters. It deliberately does **not** apply any
+    session-control
     (``USE``/``SET``/``DECLARE``) check -- callers that need that layer it on
     top (see :func:`mcp_tools_sql.validation_tools._preflight`).
 
@@ -376,6 +377,12 @@ def basic_preflight(
     tool instead of the verdict every other malformed input produces. The
     exception class is read off the raised exception so the verdict still
     names ``ParseError`` when that is what happened.
+
+    The zero-statement check closes the other end of that contract: SQL that
+    is non-empty yet tokenizes to no statement at all (``-- hi``, ``/* hi */``,
+    ``;``) parses without error, so only a count check catches it. Without
+    this, the downstream gate's ``parse_one`` would raise
+    ``ParseError("No expression was parsed from …")`` out of the tool.
 
     Args:
         sql: The SQL text to validate.
@@ -393,6 +400,11 @@ def basic_preflight(
     except SqlglotError as exc:
         detail = single_line(str(exc))
         return f"Invalid SQL. {type(exc).__name__} (SQL parsed as {dialect}): {detail}"
+    if statement_count == 0:
+        return (
+            "Invalid SQL. ValidationError: no statement found — "
+            "the SQL contains only comments or separators"
+        )
     if statement_count > 1:
         return "Invalid SQL. ValidationError: multiple statements not supported"
     missing = extract_param_names(sql, dialect) - (params or {}).keys()

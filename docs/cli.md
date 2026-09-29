@@ -231,8 +231,10 @@ Each row is one of three statuses:
   project query config, which still run but should be moved to
   `~/.mcp-tools-sql/config.toml`; a check skipped because its connection
   is unreachable (that connection's own probe reports the `[ERR]`); a
-  sqlite `path` of `:memory:`; and a `backends.<key>` on a configured
-  query that maps to no backend.
+  sqlite `path` of `:memory:`; a `backends.<key>` on a configured
+  query that maps to no backend; and a `<name>.sql` row skipped because
+  the query is not read-only (that query's own read-only row reports the
+  `[ERR]`).
 - `[ERR]` — check failed; the trailing summary line will include
   this in its error count and `verify` will exit with code 1.
 

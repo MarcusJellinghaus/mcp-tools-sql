@@ -206,6 +206,24 @@ def test_token_error_is_a_rejection_message(sql: str, dialect: str) -> None:
     assert "\n" not in message
 
 
+@pytest.mark.parametrize("sql", ["-- hi", "/* hi */", ";"])
+@pytest.mark.parametrize("dialect", ["sqlite", "tsql"])
+def test_zero_statement_sql_is_a_rejection_message(sql: str, dialect: str) -> None:
+    """Comment-only or separator-only config SQL is a rejection, not a raise.
+
+    This gate is unaffected by the zero-statement check in ``basic_preflight``
+    -- it never calls it -- because it already wraps the whole composition in
+    ``except SqlglotError``, and ``parse_one`` raises ``ParseError`` here.
+    """
+    with pytest.raises(ParseError):
+        read_only_violation(sql, dialect)
+
+    message = read_only_rejection(sql, dialect)
+
+    assert message is not None
+    assert f"could not be parsed as {dialect}" in message
+
+
 def test_read_only_rejection_accepts_clean_select() -> None:
     """A plain SELECT yields no rejection."""
     assert read_only_rejection("SELECT id FROM orders", "sqlite") is None
