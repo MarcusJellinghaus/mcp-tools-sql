@@ -623,4 +623,5 @@ def test_read_only_rows_sit_between_sql_and_params(
         "ordered.read_only[mssql]",
         "ordered.params",
         "ordered.max_rows_default",
+        "ordered.max_rows_hard",
     ]
