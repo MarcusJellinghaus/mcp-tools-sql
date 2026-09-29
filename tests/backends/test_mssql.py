@@ -1,279 +1,20 @@
-"""Unit tests for MSSQL connection-string builder helpers and backend."""
+"""Unit tests for the MSSQL backend.
+
+Connection-string and redaction-helper tests live in
+``test_mssql_connection_string.py``.
+"""
 
 from __future__ import annotations
 
-import sys
 import threading
-import types
 from typing import Any
 from unittest.mock import MagicMock
 
 import pytest
 
-from mcp_tools_sql.backends.mssql import (
-    MSSQLBackend,
-    _build_connection_string,
-    _odbc_escape,
-    build_sanitized_connection_string,
-)
-from mcp_tools_sql.config.models import ConnectionConfig
+from mcp_tools_sql.backends.mssql import MSSQLBackend, _odbc_escape
+from tests.backends.conftest import LEAKY_PASSWORDS, _cfg, assert_no_leak
 from tests.conftest import MSSQLTestEnv
-
-
-@pytest.fixture
-def fake_pyodbc(monkeypatch: pytest.MonkeyPatch) -> Any:
-    """Replace pyodbc with a fake module exposing connect() returning a Mock."""
-    fake = types.ModuleType("pyodbc")
-    error_cls = type("Error", (Exception,), {})
-    operational_error_cls = type("OperationalError", (error_cls,), {})
-    fake.Error = error_cls  # type: ignore[attr-defined]
-    fake.OperationalError = operational_error_cls  # type: ignore[attr-defined]
-    fake.connect = MagicMock(  # type: ignore[attr-defined]
-        return_value=MagicMock(name="connection")
-    )
-    monkeypatch.setitem(sys.modules, "pyodbc", fake)
-    return fake
-
-
-def _cfg(**kw: Any) -> ConnectionConfig:
-    """Build a ConnectionConfig with sensible defaults for tests."""
-    base: dict[str, Any] = {
-        "backend": "mssql",
-        "host": "h",
-        "port": 1433,
-        "database": "d",
-        "username": "u",
-        "password": "p",
-    }
-    base.update(kw)
-    return ConnectionConfig(**base)
-
-
-class TestOdbcEscape:
-    """Tests for `_odbc_escape`."""
-
-    def test_plain_value_unchanged(self) -> None:
-        assert _odbc_escape("plain") == "plain"
-
-    def test_value_with_semicolon_wrapped(self) -> None:
-        assert _odbc_escape("a;b") == "{a;b}"
-
-    def test_value_with_equals_wrapped(self) -> None:
-        assert _odbc_escape("a=b") == "{a=b}"
-
-    def test_value_with_opening_brace_wrapped(self) -> None:
-        assert _odbc_escape("a{b") == "{a{b}"
-
-    def test_value_with_closing_brace_doubled(self) -> None:
-        assert _odbc_escape("a}b") == "{a}}b}"
-
-    def test_value_with_leading_space_wrapped(self) -> None:
-        assert _odbc_escape(" a") == "{ a}"
-
-    def test_value_with_trailing_space_wrapped(self) -> None:
-        assert _odbc_escape("a ") == "{a }"
-
-    def test_empty_value_returned_empty(self) -> None:
-        assert _odbc_escape("") == ""
-
-
-class TestConnectionStringBuilder:
-    """Tests for `_build_connection_string`."""
-
-    def test_password_auth_basic(self) -> None:
-        c = ConnectionConfig(
-            backend="mssql",
-            host="h",
-            port=1433,
-            database="d",
-            username="u",
-            password="p",
-        )
-        s = _build_connection_string(c)
-        assert "Server=h,1433" in s
-        assert "UID=u" in s and "PWD=p" in s
-        assert "Trusted_Connection" not in s
-        assert "Encrypt=yes" in s
-        assert "TrustServerCertificate=no" in s
-
-    def test_trusted_connection_omits_uid_pwd(self) -> None:
-        c = ConnectionConfig(
-            backend="mssql",
-            host="h",
-            port=1433,
-            database="d",
-            trusted_connection=True,
-        )
-        s = _build_connection_string(c)
-        assert "Trusted_Connection=yes" in s
-        assert "UID=" not in s and "PWD=" not in s
-
-    def test_port_zero_omits_port_from_server(self) -> None:
-        """port=0 (the model default) → Server=host with no ,port suffix."""
-        c = ConnectionConfig(
-            backend="mssql",
-            host="h",
-            port=0,
-            database="d",
-            trusted_connection=True,
-        )
-        s = _build_connection_string(c)
-        assert "Server=h;" in s
-        assert "Server=h," not in s
-
-    def test_named_instance_with_port_zero(self) -> None:
-        """host=server\\instance, port=0 → Server=server\\instance (no port).
-
-        This is the form ODBC needs so SQL Browser can resolve the named
-        instance's dynamic port. Specifying a port alongside an instance
-        name makes ODBC bypass SQL Browser, which is almost never desired.
-        """
-        c = ConnectionConfig(
-            backend="mssql",
-            host=r"myserver\inst",
-            port=0,
-            database="d",
-            trusted_connection=True,
-        )
-        s = _build_connection_string(c)
-        assert r"Server=myserver\inst;" in s
-        assert ",1433" not in s
-
-    def test_port_uses_comma_not_colon(self) -> None:
-        c = ConnectionConfig(
-            backend="mssql",
-            host="h",
-            port=1234,
-            database="d",
-            trusted_connection=True,
-        )
-        s = _build_connection_string(c)
-        assert "Server=h,1234" in s
-        assert "h:1234" not in s
-
-    def test_password_with_semicolon_escaped(self) -> None:
-        c = ConnectionConfig(
-            backend="mssql",
-            host="h",
-            port=1433,
-            database="d",
-            username="u",
-            password="a;b",
-        )
-        assert "PWD={a;b}" in _build_connection_string(c)
-
-    def test_password_with_brace_doubled(self) -> None:
-        c = ConnectionConfig(
-            backend="mssql",
-            host="h",
-            port=1433,
-            database="d",
-            username="u",
-            password="a}b",
-        )
-        assert "PWD={a}}b}" in _build_connection_string(c)
-
-    def test_encrypt_false(self) -> None:
-        c = ConnectionConfig(
-            backend="mssql",
-            host="h",
-            port=1433,
-            database="d",
-            trusted_connection=True,
-            encrypt=False,
-        )
-        assert "Encrypt=no" in _build_connection_string(c)
-
-    def test_trust_server_certificate_true(self) -> None:
-        c = ConnectionConfig(
-            backend="mssql",
-            host="h",
-            port=1433,
-            database="d",
-            trusted_connection=True,
-            trust_server_certificate=True,
-        )
-        assert "TrustServerCertificate=yes" in _build_connection_string(c)
-
-    def test_driver_wrapped_in_braces(self) -> None:
-        c = ConnectionConfig(
-            backend="mssql",
-            host="h",
-            port=1433,
-            database="d",
-            trusted_connection=True,
-            driver="ODBC Driver 18 for SQL Server",
-        )
-        assert "Driver={ODBC Driver 18 for SQL Server}" in _build_connection_string(c)
-
-    def test_no_trailing_semicolon(self) -> None:
-        c = ConnectionConfig(
-            backend="mssql",
-            host="h",
-            port=1433,
-            database="d",
-            trusted_connection=True,
-        )
-        assert not _build_connection_string(c).endswith(";")
-
-    def test_database_with_semicolon_escaped(self) -> None:
-        c = ConnectionConfig(
-            backend="mssql",
-            host="h",
-            port=1433,
-            database="db;weird",
-            trusted_connection=True,
-        )
-        assert "Database={db;weird}" in _build_connection_string(c)
-
-
-class TestSanitizedConnectionString:
-    """Tests for the public ``build_sanitized_connection_string`` helper."""
-
-    def test_password_replaced_with_stars(self) -> None:
-        c = ConnectionConfig(
-            backend="mssql",
-            host="h",
-            port=1433,
-            database="d",
-            username="u",
-            password="supersecret",
-        )
-        s = build_sanitized_connection_string(c)
-        assert "supersecret" not in s
-        assert "PWD=***" in s
-
-    def test_trusted_connection_no_redaction_marker(self) -> None:
-        """trusted_connection has no password → string identical to raw."""
-        c = ConnectionConfig(
-            backend="mssql",
-            host="h",
-            port=1433,
-            database="d",
-            trusted_connection=True,
-        )
-        s = build_sanitized_connection_string(c)
-        assert "Trusted_Connection=yes" in s
-        assert "***" not in s
-        # No password → result identical to the raw connection string.
-        assert s == _build_connection_string(c)
-
-    def test_rest_of_string_matches_raw(self) -> None:
-        """All non-password parts match ``_build_connection_string`` output."""
-        c = ConnectionConfig(
-            backend="mssql",
-            host=r"myserver\inst",
-            port=0,
-            database="d",
-            username="u",
-            password="secret",
-            encrypt=False,
-            trust_server_certificate=True,
-        )
-        sanitized = build_sanitized_connection_string(c)
-        raw = _build_connection_string(c)
-        # The only difference is the password: replacing it should round-trip.
-        assert sanitized == raw.replace("secret", "***")
 
 
 class TestLifecycle:
@@ -490,6 +231,21 @@ class TestIsolatedConnection:
         kwargs = fake_pyodbc.connect.call_args.kwargs
         assert kwargs.get("autocommit") is True
 
+    @pytest.mark.parametrize("password", LEAKY_PASSWORDS)
+    def test_password_redacted_in_connect_error(
+        self, fake_pyodbc: Any, password: str
+    ) -> None:
+        """A failing isolated connect redacts the password like connect() does."""
+        fake_pyodbc.connect.side_effect = fake_pyodbc.OperationalError(
+            "08001", f"Login failed; PWD={_odbc_escape(password)}"
+        )
+        b = MSSQLBackend(_cfg(password=password))
+        with pytest.raises(fake_pyodbc.Error) as exc:
+            with b.get_isolated_connection():
+                pass
+        assert_no_leak(str(exc.value), password)
+        assert "***" in str(exc.value)
+
 
 class TestConcurrency:
     """Thread-safety tests for lazy-connect."""
@@ -513,16 +269,19 @@ class TestConcurrency:
 class TestErrorSanitization:
     """Tests that the password is redacted in errors from pyodbc.connect."""
 
-    def test_password_redacted_in_pyodbc_error(self, fake_pyodbc: Any) -> None:
+    @pytest.mark.parametrize("password", LEAKY_PASSWORDS)
+    def test_password_redacted_in_pyodbc_error(
+        self, fake_pyodbc: Any, password: str
+    ) -> None:
         original = fake_pyodbc.OperationalError(
-            "08001", "Login failed; PWD=supersecret"
+            "08001", f"Login failed; PWD={_odbc_escape(password)}"
         )
         fake_pyodbc.connect.side_effect = original
-        b = MSSQLBackend(_cfg(password="supersecret"))
+        b = MSSQLBackend(_cfg(password=password))
         with pytest.raises(fake_pyodbc.Error) as exc:
             b.connect()
         # Secret removed, marker present.
-        assert "supersecret" not in str(exc.value)
+        assert_no_leak(str(exc.value), password)
         assert "***" in str(exc.value)
         # Same instance re-raised: preserves type and sqlstate tuple shape.
         assert exc.value is original
@@ -533,12 +292,13 @@ class TestErrorSanitization:
 class TestConnectDebugLogging:
     """Tests that MSSQLBackend.connect() emits diagnostic debug logs."""
 
+    @pytest.mark.parametrize("password", LEAKY_PASSWORDS)
     def test_connect_logs_redacted_conn_string(
-        self, fake_pyodbc: Any, caplog: pytest.LogCaptureFixture
+        self, fake_pyodbc: Any, caplog: pytest.LogCaptureFixture, password: str
     ) -> None:
         """Successful connect → debug log contains the redacted conn string."""
         del fake_pyodbc  # only needed for module patching side effect
-        b = MSSQLBackend(_cfg(password="supersecret"))
+        b = MSSQLBackend(_cfg(password=password))
         with caplog.at_level("DEBUG", logger="mcp_tools_sql.backends.mssql"):
             b.connect()
         attempt_lines = [
@@ -548,17 +308,18 @@ class TestConnectDebugLogging:
         ]
         assert attempt_lines, "no attempt debug line emitted"
         for line in attempt_lines:
-            assert "supersecret" not in line
+            assert_no_leak(line, password)
             assert "PWD=***" in line
 
+    @pytest.mark.parametrize("password", ["supersecret", "a}b"])
     def test_connect_failure_logs_exception_details(
-        self, fake_pyodbc: Any, caplog: pytest.LogCaptureFixture
+        self, fake_pyodbc: Any, caplog: pytest.LogCaptureFixture, password: str
     ) -> None:
         """pyodbc.connect raises → debug log records exception type + args."""
         fake_pyodbc.connect.side_effect = fake_pyodbc.OperationalError(
-            "08001", "Login failed; PWD=supersecret"
+            "08001", f"Login failed; PWD={_odbc_escape(password)}"
         )
-        b = MSSQLBackend(_cfg(password="supersecret"))
+        b = MSSQLBackend(_cfg(password=password))
         with caplog.at_level("DEBUG", logger="mcp_tools_sql.backends.mssql"):
             with pytest.raises(fake_pyodbc.Error):
                 b.connect()
@@ -571,7 +332,7 @@ class TestConnectDebugLogging:
         for line in failure_lines:
             assert "OperationalError" in line
             assert "08001" in line
-            assert "supersecret" not in line
+            assert_no_leak(line, password)
 
 
 @pytest.mark.mssql_integration
