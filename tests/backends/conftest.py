@@ -45,6 +45,11 @@ def _cfg(**kw: Any) -> ConnectionConfig:
 
 
 def assert_no_leak(text: str, password: str) -> None:
-    """Assert neither the literal nor the ODBC-escaped password is in *text*."""
+    """Assert no password-derived form appears in *text*.
+
+    Covers the literal password, the full ODBC-escaped form, and the bare
+    doubled-brace body without its surrounding braces.
+    """
     assert password not in text
     assert _odbc_escape(password) not in text
+    assert password.replace("}", "}}") not in text

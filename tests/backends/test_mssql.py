@@ -269,16 +269,19 @@ class TestConcurrency:
 class TestErrorSanitization:
     """Tests that the password is redacted in errors from pyodbc.connect."""
 
-    def test_password_redacted_in_pyodbc_error(self, fake_pyodbc: Any) -> None:
+    @pytest.mark.parametrize("password", LEAKY_PASSWORDS)
+    def test_password_redacted_in_pyodbc_error(
+        self, fake_pyodbc: Any, password: str
+    ) -> None:
         original = fake_pyodbc.OperationalError(
-            "08001", "Login failed; PWD=supersecret"
+            "08001", f"Login failed; PWD={_odbc_escape(password)}"
         )
         fake_pyodbc.connect.side_effect = original
-        b = MSSQLBackend(_cfg(password="supersecret"))
+        b = MSSQLBackend(_cfg(password=password))
         with pytest.raises(fake_pyodbc.Error) as exc:
             b.connect()
         # Secret removed, marker present.
-        assert "supersecret" not in str(exc.value)
+        assert_no_leak(str(exc.value), password)
         assert "***" in str(exc.value)
         # Same instance re-raised: preserves type and sqlstate tuple shape.
         assert exc.value is original
@@ -308,14 +311,15 @@ class TestConnectDebugLogging:
             assert_no_leak(line, password)
             assert "PWD=***" in line
 
+    @pytest.mark.parametrize("password", ["supersecret", "a}b"])
     def test_connect_failure_logs_exception_details(
-        self, fake_pyodbc: Any, caplog: pytest.LogCaptureFixture
+        self, fake_pyodbc: Any, caplog: pytest.LogCaptureFixture, password: str
     ) -> None:
         """pyodbc.connect raises → debug log records exception type + args."""
         fake_pyodbc.connect.side_effect = fake_pyodbc.OperationalError(
-            "08001", "Login failed; PWD=supersecret"
+            "08001", f"Login failed; PWD={_odbc_escape(password)}"
         )
-        b = MSSQLBackend(_cfg(password="supersecret"))
+        b = MSSQLBackend(_cfg(password=password))
         with caplog.at_level("DEBUG", logger="mcp_tools_sql.backends.mssql"):
             with pytest.raises(fake_pyodbc.Error):
                 b.connect()
@@ -328,7 +332,7 @@ class TestConnectDebugLogging:
         for line in failure_lines:
             assert "OperationalError" in line
             assert "08001" in line
-            assert "supersecret" not in line
+            assert_no_leak(line, password)
 
 
 @pytest.mark.mssql_integration

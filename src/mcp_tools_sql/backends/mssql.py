@@ -73,19 +73,20 @@ def _build_connection_string(config: ConnectionConfig) -> str:
 def _sanitize(msg: str, password: str) -> str:
     """Redact the password from driver text such as ``pyodbc.Error.args``.
 
-    Both the literal password and its ODBC-escaped form are redacted: a
-    password containing ``}`` reaches the driver doubled and braced, so the
-    literal alone does not match.
+    Every password-derived form is redacted: a password containing ``}``
+    reaches the driver doubled and braced, so the literal alone does not
+    match, and neither does the braced form if the driver echoes only the
+    doubled body without its braces.
 
     Returns:
         The message with every password-derived form replaced by ``***``.
     """
     if not password:
         return msg
-    escaped = _odbc_escape(password)
-    if escaped != password:
-        msg = msg.replace(escaped, "***")
-    return msg.replace(password, "***")
+    forms = [_odbc_escape(password), password.replace("}", "}}"), password]
+    for form in dict.fromkeys(forms):
+        msg = msg.replace(form, "***")
+    return msg
 
 
 def build_sanitized_connection_string(config: ConnectionConfig) -> str:
