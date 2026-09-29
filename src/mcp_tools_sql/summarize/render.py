@@ -66,9 +66,9 @@ class ColumnProfile:
     """Fully-assembled profiling result for one column, ready to render.
 
     Built in ``tools.py`` from the metadata query, the scalar-aggregate pass,
-    and (deep view only) the per-column value-list query. Consumed by the
-    renderers here and in the triage view; the renderers never re-derive any
-    number from a backend.
+    and -- in either view, when the row gate allows it -- the per-column
+    value-list query. Consumed by the renderers here and in the triage view;
+    the renderers never re-derive any number from a backend.
 
     Attributes:
         meta: The column's metadata (declared casing / type / category /
@@ -90,7 +90,8 @@ class ColumnProfile:
             the SQL ``LIMIT`` / ``TOP``. ``None`` when no list was fetched.
         value_kind: ``"top"`` (frequency-ranked, has duplicates), ``"sample"``
             (distinct non-null values, every count 1), or ``"none"`` (no list:
-            all-NULL columns and every ``other`` / binary column).
+            all-NULL columns, every ``other`` / binary column, and every column
+            in a call gated out by the row gate).
     """
 
     meta: ColumnMeta

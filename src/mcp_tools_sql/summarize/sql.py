@@ -549,11 +549,12 @@ def build_scalar_sql(
 
 # --- Value-list pass -------------------------------------------------------
 #
-# One GROUP BY (deep view only) per profiled column. The *shape* is chosen by
-# duplication: a ``top`` list ranks values by frequency (the caller passes this
-# when distinct < non_null), a ``sample`` list emits distinct non-null values
-# with no freq column (distinct == non_null, where every count is 1). Never
-# built for ``other``-category columns -- LOB types cannot be grouped.
+# One GROUP BY per profiled column, in either view, when the row gate allows it.
+# The *shape* is chosen by duplication: a ``top`` list ranks values by frequency
+# (the caller passes this when distinct < non_null), a ``sample`` list emits
+# distinct non-null values with no freq column (distinct == non_null, where
+# every count is 1). Never built for ``other``-category columns -- LOB types
+# cannot be grouped.
 
 VALUE_LIST_HARD_CAP: int = 50
 VALUE_LIST_MIN: int = 1

@@ -69,7 +69,7 @@ def test_triage_clamps_negative_nulls() -> None:
 def test_remainder_line_clamps_negative_rows_and_still_prints() -> None:
     """An over-counted top list prints a zero remainder, not a missing line."""
     profile = ColumnProfile(
-        meta=_meta("city", "varchar", "other"),
+        meta=_meta("city", "varchar", "string"),
         rows=100,
         non_null=100,
         distinct=10,
