@@ -544,17 +544,19 @@ def inconsistent_counts_note() -> str:
     """Footer note for a profile whose counts disagree with each other.
 
     The pipeline runs its count, scalar and value-list queries separately with no
-    snapshot, so a concurrent write can leave one query's total below another
-    query's part. ``render.py`` clamps the arithmetic at zero (:func:`_clamp0`);
-    this note is what tells the reader that a printed zero remainder -- or an
-    absent remainder line -- is that skew rather than the data.
+    snapshot, so one query's total can land below another query's part -- a
+    concurrent write, or a ``sql=`` source that returns different rows each time
+    it is re-executed. ``render.py`` clamps the arithmetic at zero
+    (:func:`_clamp0`); this note is what tells the reader that a printed zero
+    remainder -- or an absent remainder line -- is that skew rather than the data.
+    Source-kind neutral in its wording, like :func:`distinct_gate_note`.
 
     Returns:
         The inconsistent-counts footer note.
     """
     return (
-        "Counts from separate queries disagree: the source changed while it was "
-        "being profiled, so some totals above are approximate."
+        "Counts from separate queries disagree: the source did not return the "
+        "same rows to every query, so some totals above are approximate."
     )
 
 

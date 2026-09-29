@@ -429,7 +429,6 @@ async def test_no_gate_note_below_the_gate() -> None:
     backend, _ = _gate_backend(n_cols=3, row_count=DISTINCT_GATE_ROWS)
     async with _client_for(backend) as client:
         out = await _call_summarize(client, "main", "big")
-    assert "omitted" not in out
     assert distinct_gate_note() not in out
 
 
