@@ -148,11 +148,12 @@ class MSSQLBackend(DatabaseBackend):
     def connect(self) -> None:
         """Open a connection to SQL Server (lazy, idempotent, thread-safe).
 
+        Driver errors propagate from :meth:`_open_connection`, which redacts
+        the password from the exception's ``args`` (type, sqlstate, and
+        traceback preserved).
+
         Raises:
             RuntimeError: If the backend was already closed.
-            pyodbc.Error: Re-raised by :meth:`_open_connection` after redacting
-                the password from ``args`` (type, sqlstate, and traceback
-                preserved).
         """
         if self._connection is not None and not self._closed:
             return
@@ -285,10 +286,6 @@ class MSSQLBackend(DatabaseBackend):
 
         Yields:
             The fresh pyodbc connection.
-
-        Raises:
-            pyodbc.Error: Re-raised by :meth:`_open_connection` after redacting
-                the password from ``args``.
         """
         conn = self._open_connection()
         try:
