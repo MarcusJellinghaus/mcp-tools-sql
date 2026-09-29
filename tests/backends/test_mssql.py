@@ -302,10 +302,27 @@ class TestSanitizedConnectionString:
             encrypt=False,
             trust_server_certificate=True,
         )
-        sanitized = build_sanitized_connection_string(c)
-        raw = _build_connection_string(c)
-        # The only difference is the password: replacing it should round-trip.
-        assert sanitized == raw.replace("secret", "***")
+        # No value in this config contains a semicolon, so splitting is safe.
+        raw_parts = _build_connection_string(c).split(";")
+        san_parts = build_sanitized_connection_string(c).split(";")
+        assert [p for p in san_parts if not p.startswith("PWD=")] == [
+            p for p in raw_parts if not p.startswith("PWD=")
+        ]
+        assert "PWD=***" in san_parts
+
+    @pytest.mark.parametrize("password", LEAKY_PASSWORDS)
+    def test_no_password_form_leaks(self, password: str) -> None:
+        s = build_sanitized_connection_string(_cfg(password=password))
+        assert_no_leak(s, password)
+        assert "PWD=***" in s
+
+    def test_empty_password_renders_bare_pwd(self) -> None:
+        """An unset password stays visible as a bare ``PWD=``, not ``PWD=***``."""
+        s = build_sanitized_connection_string(
+            _cfg(password="", trusted_connection=False)
+        )
+        assert "PWD=" in s
+        assert "PWD=***" not in s
 
 
 class TestLifecycle:

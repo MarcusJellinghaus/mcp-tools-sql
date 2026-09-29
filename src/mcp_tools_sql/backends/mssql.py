@@ -91,16 +91,18 @@ def _sanitize(msg: str, password: str) -> str:
 def build_sanitized_connection_string(config: ConnectionConfig) -> str:
     """Return the full ODBC connection string with the password redacted.
 
-    Builds the same connection string used at runtime via
-    :func:`_build_connection_string`, then replaces any occurrence of the
-    password with ``***``. For ``trusted_connection`` (no password) the
-    string is returned unchanged.
+    The real password is never built into the string: the builder is fed a
+    copy of the config already carrying the ``***`` placeholder, so nothing
+    has to be scrubbed out afterwards. An unset password renders as a bare
+    ``PWD=`` so misconfiguration stays visible; for ``trusted_connection``
+    no ``PWD=`` part is emitted at all.
 
     Returns:
         The ODBC connection string suitable for display, with the password
         replaced by ``***``.
     """
-    return _sanitize(_build_connection_string(config), config.password)
+    shown = "***" if config.password else ""
+    return _build_connection_string(config.model_copy(update={"password": shown}))
 
 
 class MSSQLBackend(DatabaseBackend):

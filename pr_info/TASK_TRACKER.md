@@ -22,7 +22,7 @@ This tracks **Feature Implementation** consisting of multiple **Tasks**.
 ## Tasks
 
 - [x] [Step 1](./steps/step_1.md) — `_sanitize` redacts the ODBC-escaped password form
-- [ ] [Step 2](./steps/step_2.md) — `build_sanitized_connection_string` builds structurally
+- [x] [Step 2](./steps/step_2.md) — `build_sanitized_connection_string` builds structurally
 - [ ] [Step 3](./steps/step_3.md) — one connect path for both `pyodbc.connect` sites
 
 ## Pull Request
