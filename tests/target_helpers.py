@@ -5,6 +5,7 @@ from __future__ import annotations
 from typing import TYPE_CHECKING
 
 from mcp_tools_sql.backends.registry import BackendRegistry
+from mcp_tools_sql.backends.sqlite import SQLiteBackend
 from mcp_tools_sql.config.models import (
     ConnectionConfig,
     ResolvedTarget,
@@ -12,7 +13,20 @@ from mcp_tools_sql.config.models import (
 )
 
 if TYPE_CHECKING:
+    from pathlib import Path
+
     from mcp_tools_sql.backends.base import DatabaseBackend
+
+
+def sqlite_backend(db_path: Path) -> SQLiteBackend:
+    """Return a connected SQLite backend for the given database path.
+
+    Returns:
+        A connected :class:`SQLiteBackend` for *db_path*.
+    """
+    backend = SQLiteBackend(ConnectionConfig(backend="sqlite", path=str(db_path)))
+    backend.connect()
+    return backend
 
 
 class RecordingRegistry(BackendRegistry):

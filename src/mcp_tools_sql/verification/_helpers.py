@@ -35,6 +35,21 @@ def make_entry(
     return {"ok": ok, "value": value, "error": error, "install_hint": install_hint}
 
 
+def make_warn_entry(value: str, error: str = "") -> dict[str, Any]:
+    """Build a WARN entry that does not affect the exit code.
+
+    Bakes in ``ok=True`` and post-sets ``warn``, the same way
+    :func:`make_skipped_entry` does: a warn row must never flip the exit code,
+    and ``overall_ok`` reads ``ok`` before it reads ``warn``.
+
+    Returns:
+        A verifier entry dict with ``warn`` set.
+    """
+    entry = make_entry(ok=True, value=value, error=error)
+    entry["warn"] = True
+    return entry
+
+
 def make_skipped_entry(connection: str) -> dict[str, Any]:
     """Build a WARN entry for a check skipped because its connection is down.
 
@@ -48,5 +63,27 @@ def make_skipped_entry(connection: str) -> dict[str, Any]:
         A verifier entry dict with ``warn`` set.
     """
     entry = make_entry(ok=True, value=f"skipped (connection {connection} unreachable)")
+    entry["warn"] = True
+    return entry
+
+
+def make_skipped_not_read_only_entry() -> dict[str, Any]:
+    """Build a WARN entry for an EXPLAIN skipped because the query is rejected.
+
+    The ``<name>.sql`` EXPLAIN probe would otherwise send the database operator
+    the very SQL the read-only gate is about to refuse, and report the
+    database's complaint about it rather than the real reason the query is bad.
+    Rendered as ``[WARN]`` for the same reason as :func:`make_skipped_entry`:
+    the query's own ``read_only`` row already records the error, so this row
+    must not flip the exit code a second time.
+
+    Returns:
+        A verifier entry dict with ``warn`` set.
+    """
+    entry = make_entry(
+        ok=True,
+        value="(skipped)",
+        error="not read-only; see the read_only row",
+    )
     entry["warn"] = True
     return entry

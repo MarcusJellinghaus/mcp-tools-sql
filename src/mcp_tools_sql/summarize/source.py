@@ -18,7 +18,7 @@ the rest of the pipeline profiles. Four concerns live here:
 
 :func:`validate_source`
     Applies the shared security gates (``basic_preflight`` ->
-    ``read_only_violation`` -> a narrower ``Select``/``Union`` root allow-list
+    ``arbitrary_sql_violation`` -> a narrower ``Select``/``Union`` root allow-list
     -> the T-SQL leading-CTE reject), handles the source's own ``ORDER BY`` /
     row limit, and returns the query as an aliased derived-table reference
     (``(<source>) AS src``) built from the **re-parsed** statement -- the user's
@@ -71,9 +71,9 @@ from mcp_tools_sql.summarize.sql import (
 )
 from mcp_tools_sql.utils.sql_placeholders import (
     LEADING_CTE_REJECTION,
+    arbitrary_sql_violation,
     basic_preflight,
     has_leading_cte,
-    read_only_violation,
     substitute_named_with_literals,
 )
 
@@ -356,10 +356,13 @@ def validate_source(
     """Validate a user SELECT and return it as an aliased derived table.
 
     Gates, in order: :func:`basic_preflight` (empty / parse / multi-statement /
-    unbound ``:name``), :func:`read_only_violation`, a narrower root allow-list
-    accepting only ``Select`` / ``Union`` (``read_only_violation`` also passes
-    ``VALUES``), and -- on T-SQL only -- :func:`has_leading_cte`, because SQL
-    Server cannot wrap a CTE query in a derived table.
+    unbound ``:name``), :func:`arbitrary_sql_violation` (the AST read-only proof
+    plus the pass-through row-set reject -- the re-render below preserves an
+    ``OPENQUERY(...)`` call, so the AST proof alone would let it through), a
+    narrower root allow-list accepting only ``Select`` / ``Union`` (the AST
+    proof also passes ``VALUES``), and -- on T-SQL only --
+    :func:`has_leading_cte`, because SQL Server cannot wrap a CTE query in a
+    derived table.
 
     A statement-level ``ORDER BY`` is stripped when the source carries no row
     limit: it cannot change *which* rows are profiled there, and T-SQL rejects
@@ -380,7 +383,7 @@ def validate_source(
     """
     verdict = basic_preflight(sql, params, dialect)
     if verdict is None:
-        verdict = read_only_violation(sql, dialect)
+        verdict = arbitrary_sql_violation(sql, dialect)
     if verdict is not None:
         return (None, [], verdict)
     parsed = sqlglot.parse_one(sql, read=dialect)

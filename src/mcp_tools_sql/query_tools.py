@@ -2,10 +2,16 @@
 
 from __future__ import annotations
 
+import logging
 import re
 from typing import TYPE_CHECKING
 
-from mcp_tools_sql.query_helpers import build_query_body, build_query_sig_params
+from mcp_tools_sql.backends.base import to_dialect
+from mcp_tools_sql.query_helpers import (
+    build_query_body,
+    build_query_sig_params,
+    read_only_rejection,
+)
 from mcp_tools_sql.tool_builder import build_tool_fn
 
 if TYPE_CHECKING:
@@ -13,6 +19,8 @@ if TYPE_CHECKING:
 
     from mcp_tools_sql.backends.registry import BackendRegistry
     from mcp_tools_sql.config.models import QueryConfig, ResolvedTargets
+
+logger = logging.getLogger(__name__)
 
 
 class QueryTools:
@@ -37,6 +45,11 @@ class QueryTools:
         Each tool binds the backend for its pinned ``(connection, database)``
         target, resolved once from the registry at registration time.
 
+        A query whose resolved SQL is not provably read-only is skipped with a
+        logged warning and registers no tool; the remaining queries register
+        normally. ``queries.*`` is the read channel, so this gate is
+        unconditional and independent of ``security.allow_updates``.
+
         Raises:
             ValueError: If a configured query name does not match the allowed
                 identifier pattern (``_NAME_RE``), or if a query pins a
@@ -52,6 +65,13 @@ class QueryTools:
                 config.connection or None, config.database or None
             )
             backend = self._registry.backend_for(target)
+            resolved_sql = config.resolve_sql(target.backend_name)
+            rejection = read_only_rejection(
+                resolved_sql, to_dialect(target.backend_name)
+            )
+            if rejection is not None:
+                logger.warning("Skipping query %r - %s", name, rejection)
+                continue
             sig_params = build_query_sig_params(config)
             body = build_query_body(
                 name,

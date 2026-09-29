@@ -9,24 +9,13 @@ from mcp_tools_sql.cli.parsers import WideHelpFormatter
 from mcp_tools_sql.verification import verify_all
 
 STATUS_SYMBOLS: dict[str, str] = {"ok": "[OK]", "err": "[ERR]", "warn": "[WARN]"}
-_LABEL_WIDTH = 28
-
-
-def _pad(text: str, width: int) -> str:
-    """Left-justify ``text`` to ``width`` (truncate if longer).
-
-    Returns:
-        The padded (or truncated) text, exactly ``width`` characters long.
-    """
-    if len(text) >= width:
-        return text[:width]
-    return text.ljust(width)
+_LABEL_WIDTH = 28  # minimum pad; longer labels are never truncated
 
 
 def _format_row(status: str, label: str, value: str = "", error: str = "") -> str:
     """Return one formatted row, e.g. ``[OK]  Python version  3.11.5``."""
     symbol = STATUS_SYMBOLS.get(status, status)
-    parts = [symbol, _pad(label, _LABEL_WIDTH)]
+    parts = [symbol, label.ljust(_LABEL_WIDTH)]
     if value:
         parts.append(value)
     if error:

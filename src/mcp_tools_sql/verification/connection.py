@@ -11,7 +11,7 @@ from typing import Any
 from mcp_tools_sql.backends.base import DatabaseBackend
 from mcp_tools_sql.backends.mssql import build_sanitized_connection_string
 from mcp_tools_sql.config.models import ResolvedTarget
-from mcp_tools_sql.verification._helpers import make_entry
+from mcp_tools_sql.verification._helpers import make_entry, make_warn_entry
 
 logger = logging.getLogger(__name__)
 
@@ -23,9 +23,31 @@ _CONTROL_CHAR_HINT = (
 )
 
 
+_MEMORY_PATH_HINT = (
+    "each connection to ':memory:' opens a new, empty database — configured "
+    "queries and schema reads return zero rows, while updates.* writes to a "
+    "separate connection you cannot read back. Point path at a file instead."
+)
+
+
 def _has_control_chars(value: str) -> bool:
     """Return True if ``value`` contains any ASCII control character."""
     return any(ord(c) < 32 for c in value)
+
+
+def _is_memory_path(path: str) -> bool:
+    """Return True when a sqlite ``path`` names an in-memory database.
+
+    Three spellings reach the same trap: the bare ``:memory:``, the URI form
+    ``file::memory:?cache=shared``, and the ``mode=memory`` URI parameter
+    (``file:x?mode=memory``). Matching only the bare form would let the other
+    two through as an ordinary ``ok`` row.
+
+    Returns:
+        True when ``path`` opens an in-memory database.
+    """
+    lowered = path.lower()
+    return ":memory:" in lowered or "mode=memory" in lowered
 
 
 def _required_str_entry(value: str, *, required_error: str) -> dict[str, Any]:
@@ -129,9 +151,12 @@ def verify_connection(
         )
 
     if connection.backend == "sqlite":
-        result["path"] = _required_str_entry(
-            connection.path, required_error="path must be set for sqlite"
-        )
+        if _is_memory_path(connection.path):
+            result["path"] = make_warn_entry(connection.path, _MEMORY_PATH_HINT)
+        else:
+            result["path"] = _required_str_entry(
+                connection.path, required_error="path must be set for sqlite"
+            )
     else:
         if connection.host and _has_control_chars(connection.host):
             result["host_port"] = make_entry(

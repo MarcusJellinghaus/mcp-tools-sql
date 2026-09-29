@@ -135,19 +135,36 @@ def test_values_root_rejected_by_allow_list(dialect: str) -> None:
         ("", None, "empty SQL"),
         ("   ", None, "empty SQL"),
         ("SELECT FROM WHERE", None, "ParseError"),
+        ("SELECT 'abc", None, "TokenError"),
+        ("SELECT 1 /* unterminated", None, "TokenError"),
+        ("SELECT [abc", None, "TokenError"),
         ("SELECT a FROM t WHERE b = :missing", None, "missing parameter"),
+        ("-- hi", None, "no statement found"),
+        ("/* hi */", None, "no statement found"),
+        (";", None, "no statement found"),
     ],
 )
 def test_preflight_verdicts_pass_through(
     sql: str, params: dict[str, Any] | None, fragment: str
 ) -> None:
-    """Multi-statement / empty / unparseable / unbound ``:name`` verdicts."""
+    """Multi-statement / empty / unparseable / untokenizable / unbound verdicts.
+
+    The ``TokenError`` rows matter on their own: sqlglot raises that sibling of
+    ``ParseError`` for an unterminated literal, comment or bracket, so a
+    narrower catch would surface an exception here instead of a verdict.
+
+    The ``no statement found`` rows are the mirror case: comment-only or
+    separator-only SQL parses cleanly to zero statements, so only the count
+    check stops the read-only gate's ``parse_one`` raising out of the tool.
+    """
     ref, notes, error = validate_source(sql, params, "sqlite")
 
     assert ref is None
     assert notes == []
     assert error is not None
     assert fragment in error
+    assert "\n" not in error
+    assert "\x1b" not in error
 
 
 def test_leading_cte_rejected_on_tsql() -> None:

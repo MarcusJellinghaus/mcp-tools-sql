@@ -189,6 +189,46 @@ def test_validate_where_rejects_write_smuggling() -> None:
     assert error is not None
 
 
+@pytest.mark.parametrize(
+    ("fragment", "function"),
+    [
+        ("id IN (SELECT a FROM OPENQUERY(srv, 'DELETE FROM t'))", "OPENQUERY"),
+        (
+            "id IN (SELECT a FROM OPENROWSET('SQLNCLI', 'srv', 'DELETE FROM t'))",
+            "OPENROWSET",
+        ),
+        (
+            "id IN (SELECT a FROM OPENDATASOURCE('SQLNCLI', 'S=s').db.dbo.t)",
+            "OPENDATASOURCE",
+        ),
+    ],
+)
+@pytest.mark.parametrize("dialect", ["sqlite", "tsql"])
+def test_validate_where_rejects_passthrough_source(
+    fragment: str, function: str, dialect: str
+) -> None:
+    """A predicate reaching a linked server is rejected: the far end is opaque."""
+    from mcp_tools_sql.summarize.sql import build_table_ref, validate_where
+
+    ref = build_table_ref("dbo", "t", dialect)
+    predicate, error = validate_where(fragment, ref, None, dialect)
+    assert predicate is None
+    assert error is not None
+    assert error.startswith("Not read-only.")
+    assert function in error
+
+
+@pytest.mark.parametrize("dialect", ["sqlite", "tsql"])
+def test_validate_where_accepts_column_named_openquery(dialect: str) -> None:
+    """A column merely *named* ``openquery`` is an identifier, not a call."""
+    from mcp_tools_sql.summarize.sql import build_table_ref, validate_where
+
+    ref = build_table_ref("dbo", "t", dialect)
+    predicate, error = validate_where("openquery = 1", ref, None, dialect)
+    assert error is None
+    assert predicate is not None
+
+
 def test_validate_where_rejects_statement_terminator() -> None:
     """A stacked statement is rejected before any query runs."""
     from mcp_tools_sql.summarize.sql import build_table_ref, validate_where
@@ -227,6 +267,55 @@ def test_validate_where_missing_param_verdict() -> None:
     assert predicate is None
     assert error is not None
     assert "missing parameter" in error.lower()
+
+
+@pytest.mark.parametrize(
+    "where",
+    [
+        "x = 'abc",  # unterminated string literal
+        "x = 1 /* unterminated",  # unterminated block comment
+        "x = [abc",  # unterminated bracket
+    ],
+)
+def test_validate_where_untokenizable_verdict(where: str) -> None:
+    """An unterminated literal, comment or bracket is a verdict, not a raise.
+
+    sqlglot raises ``TokenError`` for these -- a sibling of ``ParseError``, not
+    a subclass -- so a narrower catch in ``basic_preflight`` would let it
+    escape out of ``summarize``.
+    """
+    from mcp_tools_sql.summarize.sql import build_table_ref, validate_where
+
+    ref = build_table_ref("dbo", "t", "sqlite")
+    predicate, error = validate_where(where, ref, None, "sqlite")
+    assert predicate is None
+    assert error is not None
+    assert error.startswith("Invalid SQL. TokenError (SQL parsed as sqlite): ")
+
+
+@pytest.mark.parametrize(
+    "where",
+    [
+        "-- hi",  # line comment only
+        "/* hi */",  # block comment only
+        ";",  # separator only
+    ],
+)
+def test_validate_where_zero_statement_predicate_verdict(where: str) -> None:
+    """A comment-only or separator-only predicate is a verdict, not a raise.
+
+    Here the probe wrapper (``SELECT 1 FROM <t> WHERE <where>``) means the
+    predicate never reaches the parser on its own, so sqlglot reports the
+    empty ``WHERE`` as a ``ParseError``. What matters is that the tool still
+    answers with a verdict rather than letting an exception escape.
+    """
+    from mcp_tools_sql.summarize.sql import build_table_ref, validate_where
+
+    ref = build_table_ref("dbo", "t", "sqlite")
+    predicate, error = validate_where(where, ref, None, "sqlite")
+    assert predicate is None
+    assert error is not None
+    assert error.startswith("Invalid SQL. ParseError (SQL parsed as sqlite): ")
 
 
 def test_validate_where_against_a_derived_table_source() -> None:

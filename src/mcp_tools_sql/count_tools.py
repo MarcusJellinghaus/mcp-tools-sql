@@ -7,11 +7,15 @@ a plain number string.
 
 Security model (see ``pr_info/steps/summary.md``):
 
-- **Layer 1 (primary) — sqlglot AST.** :func:`read_only_violation` positively
-  proves the statement is read-only before anything executes.
+- **Layer 1 (primary) — sqlglot AST.** :func:`arbitrary_sql_violation` proves by
+  AST inspection that the statement is read-only before anything executes, and
+  rejects the T-SQL pass-through row-set functions (``OPENQUERY`` and friends)
+  by name. Those are the limit of the proof, not part of it: the statement they
+  carry runs on another server, so the AST cannot clear it.
 - **Layer 2 (backstop) — DB-enforced read-only.** The wrapped count runs through
   :meth:`DatabaseBackend.execute_readonly_query` (SQLite: a fresh
-  ``PRAGMA query_only=ON`` connection; MSSQL: a documented read-only login).
+  ``PRAGMA query_only=ON`` connection; MSSQL: a documented read-only login, so
+  on MSSQL layer 1 is the only enforcement inside this process).
 """
 
 from __future__ import annotations
@@ -28,10 +32,10 @@ from mcp_tools_sql.tool_builder import build_tool_fn
 from mcp_tools_sql.tool_logging import log_tool_call
 from mcp_tools_sql.utils.sql_placeholders import (
     LEADING_CTE_REJECTION,
+    arbitrary_sql_violation,
     basic_preflight,
     build_count_query,
     has_leading_cte,
-    read_only_violation,
 )
 
 try:
@@ -127,7 +131,7 @@ class CountTools:
                 verdict = basic_preflight(sql, params, dialect)
                 if verdict is not None:
                     return verdict
-                violation = read_only_violation(sql, dialect)
+                violation = arbitrary_sql_violation(sql, dialect)
                 if violation is not None:
                     return violation
                 if dialect == "tsql" and has_leading_cte(sql, dialect):

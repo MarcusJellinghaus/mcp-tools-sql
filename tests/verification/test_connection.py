@@ -78,6 +78,71 @@ def test_verify_connection_sqlite_missing_path() -> None:
         backend.close()
 
 
+def test_verify_connection_sqlite_memory_path_warns(ok_backend: MagicMock) -> None:
+    """path=':memory:' → path row warns but stays ok (must not suppress QUERIES)."""
+    config = ConnectionConfig(backend="sqlite", path=":memory:")
+    result = verify_connection(_target(config), ok_backend)
+    assert result["path"]["ok"] is True
+    assert result["path"]["warn"] is True
+    assert result["path"]["value"] == ":memory:"
+    assert "empty" in result["path"]["error"].lower()
+
+
+@pytest.mark.parametrize(
+    "path",
+    [
+        "file::memory:?cache=shared",
+        "file:x?mode=memory",
+        "file:x?MODE=MEMORY",
+    ],
+)
+def test_verify_connection_sqlite_memory_uri_warns(
+    ok_backend: MagicMock, path: str
+) -> None:
+    """The URI spellings are the same trap, so they warn too.
+
+    Matching only the bare ``:memory:`` would let these through as a plain
+    ``ok`` row while every connection still opens a new, empty database.
+    """
+    config = ConnectionConfig(backend="sqlite", path=path)
+    result = verify_connection(_target(config), ok_backend)
+    assert result["path"]["ok"] is True
+    assert result["path"]["warn"] is True
+    assert result["path"]["value"] == path
+    assert "empty" in result["path"]["error"].lower()
+
+
+def test_verify_connection_sqlite_memory_path_keeps_overall_ok() -> None:
+    """A ':memory:' path leaves ``overall_ok`` True when every other row passes."""
+    config = ConnectionConfig(backend="sqlite", path=":memory:")
+    backend = create_backend(config)
+    try:
+        result = verify_connection(_target(config), backend)
+        assert result["select_1"]["ok"] is True
+        assert result["overall_ok"] is True
+    finally:
+        backend.close()
+
+
+def test_verify_connection_sqlite_file_path_has_no_warn(tmp_path: Path) -> None:
+    """A normal file path → unchanged ok row with no ``warn`` key."""
+    db_path = tmp_path / "real.sqlite"
+    db_path.write_bytes(b"")
+    config = _sqlite_connection(db_path)
+    result = verify_connection(_target(config), MagicMock())
+    assert result["path"]["ok"] is True
+    assert "warn" not in result["path"]
+
+
+def test_verify_connection_sqlite_empty_path_still_fails() -> None:
+    """An empty path keeps the existing ok=False 'path must be set' row."""
+    config = ConnectionConfig(backend="sqlite", path="")
+    result = verify_connection(_target(config), MagicMock())
+    assert result["path"]["ok"] is False
+    assert "must be set" in result["path"]["error"]
+    assert "warn" not in result["path"]
+
+
 def test_verify_connection_none_backend_uses_probe_error() -> None:
     """A None backend (creation failed) → select_1 fails with the probe error."""
     conn = ConnectionConfig(

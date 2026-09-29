@@ -13,7 +13,6 @@ from mcp.shared.memory import create_connected_server_and_client_session
 from mcp_tools_sql.backends.mssql import MSSQLBackend
 from mcp_tools_sql.backends.sqlite import SQLiteBackend
 from mcp_tools_sql.config.models import ConnectionConfig
-from mcp_tools_sql.utils.sql_placeholders import basic_preflight
 from mcp_tools_sql.validation_tools import ValidationTools, _explain
 from tests.conftest import MSSQLTestEnv
 from tests.target_helpers import single_target
@@ -194,52 +193,66 @@ async def test_preflight_unparseable_sql_fail_closed(sqlite_db: Path) -> None:
     assert backend.explain.call_count == 0
 
 
-# ---------------------------------------------------------------------------
-# basic_preflight (shared helper) — direct unit tests
-# ---------------------------------------------------------------------------
+UNTOKENIZABLE = [
+    "SELECT 'abc",  # unterminated string literal
+    "SELECT 1 /* unterminated",  # unterminated block comment
+    "SELECT [abc",  # unterminated bracket
+]
 
 
-class TestBasicPreflight:
-    """Direct unit tests for the shared :func:`basic_preflight` helper."""
+@pytest.mark.asyncio
+@pytest.mark.parametrize("sql", UNTOKENIZABLE)
+async def test_preflight_untokenizable_is_a_verdict(sqlite_db: Path, sql: str) -> None:
+    """An unterminated literal, comment or bracket is a verdict, not a traceback.
 
-    def test_empty_sql(self) -> None:
-        assert (
-            basic_preflight("", None, "sqlite")
-            == "Invalid SQL. ValidationError: empty SQL"
-        )
+    sqlglot signals these with ``TokenError``, a *sibling* of ``ParseError``
+    rather than a subclass, so a narrower catch in ``basic_preflight`` would
+    let the exception escape out of the tool.
+    """
+    backend = _sqlite_backend(sqlite_db)
+    backend.explain = MagicMock()  # type: ignore[method-assign]
+    mcp = FastMCP("test-preflight-token-error")
+    ValidationTools(*single_target(backend)).register(mcp)
+    async with create_connected_server_and_client_session(
+        mcp, raise_exceptions=True
+    ) as client:
+        text = await _call_validate(client, sql)
+    assert text.startswith("Invalid SQL. TokenError (SQL parsed as sqlite): ")
+    assert backend.explain.call_count == 0
 
-    def test_whitespace_only_sql(self) -> None:
-        assert (
-            basic_preflight("  \n\t ", None, "sqlite")
-            == "Invalid SQL. ValidationError: empty SQL"
-        )
 
-    def test_multiple_statements(self) -> None:
-        assert (
-            basic_preflight("SELECT 1; SELECT 2", None, "sqlite")
-            == "Invalid SQL. ValidationError: multiple statements not supported"
-        )
+ZERO_STATEMENT = [
+    "-- hi",  # line comment only
+    "/* hi */",  # block comment only
+    ";",  # separator only
+]
 
-    def test_missing_param(self) -> None:
-        assert (
-            basic_preflight("SELECT :x", None, "sqlite")
-            == "Invalid parameters. ValidationError: missing parameter: x"
-        )
+NO_STATEMENT_VERDICT = (
+    "Invalid SQL. ValidationError: no statement found — "
+    "the SQL contains only comments or separators"
+)
 
-    def test_unparseable_returns_parse_error(self) -> None:
-        verdict = basic_preflight("SELECT FROM WHERE", None, "sqlite")
-        assert verdict is not None
-        assert verdict.startswith("Invalid SQL. ParseError (SQL parsed as ")
 
-    def test_valid_sql_passes(self) -> None:
-        assert basic_preflight("SELECT 1", None, "sqlite") is None
+@pytest.mark.asyncio
+@pytest.mark.parametrize("sql", ZERO_STATEMENT)
+async def test_preflight_zero_statements_is_a_verdict(
+    sqlite_db: Path, sql: str
+) -> None:
+    """SQL that tokenizes to no statement is a verdict, not a traceback.
 
-    def test_does_not_reject_session_keywords(self) -> None:
-        # USE/SET/DECLARE are NOT rejected here: the session-keyword check
-        # lives only in validate_sql's _preflight, layered on top.
-        assert basic_preflight("USE other_db", None, "tsql") is None
-        assert basic_preflight("SET QUOTED_IDENTIFIER ON", None, "tsql") is None
-        assert basic_preflight("DECLARE @x INT", None, "tsql") is None
+    A comment-only or separator-only input is neither empty nor unparseable,
+    so only the statement-count check catches it.
+    """
+    backend = _sqlite_backend(sqlite_db)
+    backend.explain = MagicMock()  # type: ignore[method-assign]
+    mcp = FastMCP("test-preflight-zero-statements")
+    ValidationTools(*single_target(backend)).register(mcp)
+    async with create_connected_server_and_client_session(
+        mcp, raise_exceptions=True
+    ) as client:
+        text = await _call_validate(client, sql)
+    assert text == NO_STATEMENT_VERDICT
+    assert backend.explain.call_count == 0
 
 
 # ---------------------------------------------------------------------------

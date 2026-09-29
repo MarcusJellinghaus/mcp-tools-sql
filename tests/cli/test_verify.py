@@ -398,6 +398,28 @@ def test_verify_full_run_with_queries_and_updates_returns_0(
 
 
 # ---------------------------------------------------------------------------
+# Row formatting
+# ---------------------------------------------------------------------------
+
+
+def test_format_row_keeps_long_label_intact() -> None:
+    """A label longer than the minimum pad is printed in full, value still separated."""
+    label = "mismatched_params.max_rows_default"
+    assert len(label) > verify_cmd._LABEL_WIDTH
+
+    row = verify_cmd._format_row("ok", label, "10")
+
+    assert row == f"[OK]  {label}  10"
+
+
+def test_format_row_pads_short_label_to_minimum_width() -> None:
+    """A short label is padded so the value column stays aligned."""
+    row = verify_cmd._format_row("ok", "sql", "EXPLAIN ok")
+
+    assert row == "[OK]  " + "sql".ljust(verify_cmd._LABEL_WIDTH) + "  EXPLAIN ok"
+
+
+# ---------------------------------------------------------------------------
 # CLI snapshot regression test for QUERIES + UPDATES sections
 # ---------------------------------------------------------------------------
 

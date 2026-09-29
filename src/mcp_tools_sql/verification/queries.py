@@ -5,11 +5,16 @@ from __future__ import annotations
 import datetime
 from typing import Any, cast
 
-from mcp_tools_sql.backends.base import DatabaseBackend
+from mcp_tools_sql.backends.base import DatabaseBackend, to_dialect
 from mcp_tools_sql.backends.registry import BackendRegistry
 from mcp_tools_sql.config.models import QueryConfig, QueryParamConfig, ResolvedTargets
-from mcp_tools_sql.query_helpers import extract_sql_params
-from mcp_tools_sql.verification._helpers import make_entry, make_skipped_entry
+from mcp_tools_sql.query_helpers import extract_sql_params, read_only_rejection
+from mcp_tools_sql.verification._helpers import (
+    make_entry,
+    make_skipped_entry,
+    make_skipped_not_read_only_entry,
+    make_warn_entry,
+)
 
 _VALID_PARAM_TYPES = {"str", "int", "float", "datetime"}
 _DUMMY_BY_TYPE: dict[str, Any] = {
@@ -91,6 +96,41 @@ def _positive_entry(field: str, value: int) -> dict[str, Any]:
     )
 
 
+def _read_only_rows(
+    name: str, qcfg: QueryConfig, pinned_backend: str
+) -> dict[str, Any]:
+    """Build one ``<name>.read_only[<backend>]`` row per declared variant.
+
+    The variant set is the pinned backend plus every declared
+    ``[queries.<name>.backends.*]`` key, pinned first and the rest in config
+    order. Each variant's own SQL is resolved and put through
+    :func:`read_only_rejection` — the same helper the startup gate uses, so the
+    row predicts what the server will do. A backend name that maps to no
+    sqlglot dialect is dead config: it warns rather than failing ``verify``
+    over SQL that never executes.
+
+    Returns:
+        Dict of read-only rows keyed by ``<name>.read_only[<backend>]``.
+    """
+    variants = [pinned_backend] + [k for k in qcfg.backends if k != pinned_backend]
+    rows: dict[str, Any] = {}
+    for variant in variants:
+        try:
+            dialect = to_dialect(variant)
+        except ValueError as exc:
+            rows[f"{name}.read_only[{variant}]"] = make_warn_entry(
+                "(unknown backend)", str(exc)
+            )
+            continue
+        rejection = read_only_rejection(qcfg.resolve_sql(variant), dialect)
+        rows[f"{name}.read_only[{variant}]"] = make_entry(
+            ok=rejection is None,
+            value="read-only" if rejection is None else "failed",
+            error=rejection or "",
+        )
+    return rows
+
+
 def verify_one_query(
     name: str,
     qcfg: QueryConfig,
@@ -104,19 +144,28 @@ def verify_one_query(
     that target's connection is reachable, EXPLAINs the SQL against the
     registry-owned backend. When the target is unreachable the ``<name>.sql``
     row is a skip row naming the connection (the static ``params`` /
-    ``max_rows_default`` / ``max_rows_hard`` checks always run). An
+    ``max_rows_default`` / ``max_rows_hard`` checks always run). A query whose
+    pinned variant is not provably read-only is never EXPLAINed at all: its
+    ``<name>.sql`` row is a ``(skipped)`` warn row, and the ``read_only`` row
+    carries the reason. An
     unresolvable pin (bad connection/database) yields error rows.
 
     Returns:
-        Four-row dict with keys ``<name>.sql``, ``<name>.params``,
-        ``<name>.max_rows_default``, ``<name>.max_rows_hard`` in that order.
-        No ``overall_ok``.
+        Dict with keys ``<name>.sql``, one ``<name>.read_only[<backend>]`` row
+        per declared backend variant, ``<name>.params``,
+        ``<name>.max_rows_default`` and ``<name>.max_rows_hard``, in that
+        order. An unresolvable pin yields a single un-suffixed
+        ``<name>.read_only`` row instead, since no variant set can be formed
+        without a target. No ``overall_ok``.
     """
     result: dict[str, Any] = {}
     try:
         target = targets.resolve_pinned(qcfg.connection or None, qcfg.database or None)
     except ValueError as exc:
         result[f"{name}.sql"] = make_entry(ok=False, value="failed", error=str(exc))
+        result[f"{name}.read_only"] = make_entry(
+            ok=False, value="(skipped)", error=str(exc)
+        )
         result[f"{name}.params"] = make_entry(
             ok=False, value="(skipped)", error=str(exc)
         )
@@ -130,7 +179,15 @@ def verify_one_query(
 
     sql = qcfg.resolve_sql(target.backend_name)
 
-    if reachable.get((target.connection, target.database), False):
+    # The read-only verdict is computed first so a rejected query is never
+    # EXPLAINed: the probe would send the operator SQL the gate refuses, and
+    # the row would report the database's complaint instead of the real reason.
+    read_only_rows = _read_only_rows(name, qcfg, target.backend_name)
+    pinned_row = read_only_rows[f"{name}.read_only[{target.backend_name}]"]
+
+    if not pinned_row["ok"]:
+        result[f"{name}.sql"] = make_skipped_not_read_only_entry()
+    elif reachable.get((target.connection, target.database), False):
         backend = registry.backend_for(target)
         ok, err = _check_sql_explain(sql, qcfg.params, target.backend_name, backend)
         result[f"{name}.sql"] = make_entry(
@@ -140,6 +197,8 @@ def verify_one_query(
         )
     else:
         result[f"{name}.sql"] = make_skipped_entry(target.connection)
+
+    result.update(read_only_rows)
 
     ok, err = _check_params_well_formed(sql, qcfg.params)
     result[f"{name}.params"] = make_entry(
@@ -171,9 +230,8 @@ def verify_queries(
     verdict.
 
     Returns:
-        Standard verifier result dict with four rows per query
-        (``<name>.sql``, ``<name>.params``, ``<name>.max_rows_default``,
-        ``<name>.max_rows_hard``) and an ``overall_ok`` flag.
+        Standard verifier result dict with the rows described by
+        :func:`verify_one_query` for each query, plus an ``overall_ok`` flag.
     """
     result: dict[str, Any] = {}
     for name, qcfg in queries.items():

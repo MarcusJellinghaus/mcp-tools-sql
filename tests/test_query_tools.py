@@ -14,21 +14,17 @@ from mcp.shared.memory import create_connected_server_and_client_session
 from mcp_tools_sql.backends.sqlite import SQLiteBackend
 from mcp_tools_sql.config.models import (
     BackendQueryConfig,
-    ConnectionConfig,
     QueryConfig,
     QueryParamConfig,
     ResolvedTargets,
 )
 from mcp_tools_sql.query_tools import QueryTools
-from tests.target_helpers import RecordingRegistry, make_target, single_target
-
-
-def _sqlite_backend(db_path: Path) -> SQLiteBackend:
-    """Return a connected SQLite backend for the given database path."""
-    backend = SQLiteBackend(ConnectionConfig(backend="sqlite", path=str(db_path)))
-    backend.connect()
-    return backend
-
+from tests.target_helpers import (
+    RecordingRegistry,
+    make_target,
+    single_target,
+    sqlite_backend,
+)
 
 # ---------------------------------------------------------------------------
 # Empty queries / name validation / prefix
@@ -38,7 +34,7 @@ def _sqlite_backend(db_path: Path) -> SQLiteBackend:
 @pytest.mark.asyncio
 async def test_empty_queries_is_noop(sqlite_db: Path) -> None:
     """QueryTools with no queries registers zero tools (no error)."""
-    backend = _sqlite_backend(sqlite_db)
+    backend = sqlite_backend(sqlite_db)
     mcp = FastMCP("test-empty-queries")
     QueryTools(*single_target(backend), {}).register(mcp)
 
@@ -52,7 +48,7 @@ async def test_empty_queries_is_noop(sqlite_db: Path) -> None:
 @pytest.mark.asyncio
 async def test_tool_name_is_prefixed(sqlite_db: Path) -> None:
     """Configured query 'customers' registers as 'query_customers'."""
-    backend = _sqlite_backend(sqlite_db)
+    backend = sqlite_backend(sqlite_db)
     queries = {
         "customers": QueryConfig(
             description="List customers",
@@ -74,7 +70,7 @@ async def test_tool_name_is_prefixed(sqlite_db: Path) -> None:
 
 def test_invalid_query_name_raises(sqlite_db: Path) -> None:
     """Invalid query name raises ValueError mentioning the offending name."""
-    backend = _sqlite_backend(sqlite_db)
+    backend = sqlite_backend(sqlite_db)
     queries = {
         "123-bad": QueryConfig(
             description="Bad name",
@@ -94,7 +90,7 @@ def test_invalid_query_name_raises(sqlite_db: Path) -> None:
 @pytest.mark.asyncio
 async def test_json_schema_generation(sqlite_db: Path) -> None:
     """Generated input schema has correct types, required entries, and max_rows."""
-    backend = _sqlite_backend(sqlite_db)
+    backend = sqlite_backend(sqlite_db)
     queries = {
         "orders": QueryConfig(
             description="Search orders",
@@ -161,7 +157,7 @@ async def test_json_schema_generation(sqlite_db: Path) -> None:
 @pytest.mark.asyncio
 async def test_register_and_call_via_mcp(sqlite_db: Path) -> None:
     """Round-trip: register a query tool and call it via MCP, verifying output."""
-    backend = _sqlite_backend(sqlite_db)
+    backend = sqlite_backend(sqlite_db)
     queries = {
         "customers_by_country": QueryConfig(
             description="Find customers by country",
@@ -198,7 +194,7 @@ async def test_register_and_call_via_mcp(sqlite_db: Path) -> None:
 @pytest.mark.asyncio
 async def test_parameterized_int_string_optional(sqlite_db: Path) -> None:
     """Each declared parameter type binds correctly when invoked via MCP."""
-    backend = _sqlite_backend(sqlite_db)
+    backend = sqlite_backend(sqlite_db)
     queries = {
         "orders_search": QueryConfig(
             description="Search orders by id/status",
@@ -249,7 +245,7 @@ async def test_parameterized_int_string_optional(sqlite_db: Path) -> None:
 @pytest.mark.asyncio
 async def test_max_rows_truncation_hint(sqlite_db: Path) -> None:
     """Truncation appends the query-tools specific hint text."""
-    backend = _sqlite_backend(sqlite_db)
+    backend = sqlite_backend(sqlite_db)
     queries = {
         "orders": QueryConfig(
             description="All orders",
@@ -279,7 +275,7 @@ async def test_max_rows_truncation_hint(sqlite_db: Path) -> None:
 @pytest.mark.asyncio
 async def test_max_rows_hard_clamp(sqlite_db: Path) -> None:
     """Requested max_rows above hard limit is clamped and a note appears."""
-    backend = _sqlite_backend(sqlite_db)
+    backend = sqlite_backend(sqlite_db)
     queries = {
         "orders": QueryConfig(
             description="All orders",
@@ -304,7 +300,7 @@ async def test_max_rows_hard_clamp(sqlite_db: Path) -> None:
 @pytest.mark.asyncio
 async def test_max_rows_below_one_rejected_by_schema(sqlite_db: Path) -> None:
     """max_rows below 1 is rejected by the tool schema, before the body runs."""
-    backend = _sqlite_backend(sqlite_db)
+    backend = sqlite_backend(sqlite_db)
     queries = {
         "orders": QueryConfig(
             description="All orders",
@@ -328,7 +324,7 @@ async def test_non_positive_max_rows_default_floored_in_schema(
     sqlite_db: Path,
 ) -> None:
     """A non-positive max_rows_default publishes a default of 1, not 0."""
-    backend = _sqlite_backend(sqlite_db)
+    backend = sqlite_backend(sqlite_db)
     queries = {
         "orders": QueryConfig(
             description="All orders",
@@ -350,6 +346,50 @@ async def test_non_positive_max_rows_default_floored_in_schema(
 
 
 # ---------------------------------------------------------------------------
+# Read-only execution path
+# ---------------------------------------------------------------------------
+
+
+@pytest.mark.asyncio
+async def test_query_tool_uses_execute_readonly_query(
+    sqlite_db: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """A configured query executes through execute_readonly_query only."""
+    backend = sqlite_backend(sqlite_db)
+
+    def forbidden(
+        sql: str, params: dict[str, Any] | None = None
+    ) -> list[dict[str, Any]]:
+        """Fail the test if the read path reaches the writable connection.
+
+        Raises:
+            AssertionError: Always.
+        """
+        msg = "read path must not call execute_query"
+        raise AssertionError(msg)
+
+    monkeypatch.setattr(backend, "execute_query", forbidden)
+
+    queries = {
+        "orders": QueryConfig(
+            description="All orders",
+            sql="SELECT id FROM orders",
+            backends={"sqlite": BackendQueryConfig(sql="SELECT id FROM orders")},
+        )
+    }
+    mcp = FastMCP("test-readonly-path")
+    QueryTools(*single_target(backend), queries).register(mcp)
+
+    async with create_connected_server_and_client_session(
+        mcp, raise_exceptions=True
+    ) as client:
+        result = await client.call_tool("query_orders", {})
+        text = result.content[0].text  # type: ignore[union-attr]
+
+    assert "id" in text
+
+
+# ---------------------------------------------------------------------------
 # SQL injection prevention
 # ---------------------------------------------------------------------------
 
@@ -359,16 +399,16 @@ async def test_params_passed_as_dict_not_interpolated(
     sqlite_db: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
     """Parameters reach the backend as a dict, not interpolated into the SQL string."""
-    backend = _sqlite_backend(sqlite_db)
+    backend = sqlite_backend(sqlite_db)
     captured: dict[str, Any] = {}
-    original = backend.execute_query
+    original = backend.execute_readonly_query
 
     def spy(sql: str, params: dict[str, Any] | None = None) -> list[dict[str, Any]]:
         captured["sql"] = sql
         captured["params"] = params
         return original(sql, params)
 
-    monkeypatch.setattr(backend, "execute_query", spy)
+    monkeypatch.setattr(backend, "execute_readonly_query", spy)
 
     queries = {
         "by_country": QueryConfig(
@@ -405,7 +445,7 @@ async def test_params_passed_as_dict_not_interpolated(
 @pytest.mark.asyncio
 async def test_missing_required_param_errors(sqlite_db: Path) -> None:
     """Calling without a required parameter yields a clear MCP error."""
-    backend = _sqlite_backend(sqlite_db)
+    backend = sqlite_backend(sqlite_db)
     queries = {
         "by_country": QueryConfig(
             description="By country",
@@ -434,7 +474,7 @@ async def test_missing_required_param_errors(sqlite_db: Path) -> None:
 @pytest.mark.asyncio
 async def test_per_backend_sql_override_applied(sqlite_db: Path) -> None:
     """When backends.sqlite is set, the override is what executes."""
-    backend = _sqlite_backend(sqlite_db)
+    backend = sqlite_backend(sqlite_db)
     queries = {
         "all_names": QueryConfig(
             description="Override test",
@@ -464,7 +504,7 @@ async def test_per_backend_sql_override_applied(sqlite_db: Path) -> None:
 @pytest.mark.asyncio
 async def test_filter_parameter(sqlite_db: Path) -> None:
     """Configured filter_column exposes a <col>_filter that narrows rows."""
-    backend = _sqlite_backend(sqlite_db)
+    backend = sqlite_backend(sqlite_db)
     queries = {
         "all_customers": QueryConfig(
             description="All customers",
@@ -506,15 +546,15 @@ async def test_query_tool_binds_datetime_param(
     conn.commit()
     conn.close()
 
-    backend = _sqlite_backend(db_path)
+    backend = sqlite_backend(db_path)
     captured: dict[str, Any] = {}
-    original = backend.execute_query
+    original = backend.execute_readonly_query
 
     def spy(sql: str, params: dict[str, Any] | None = None) -> list[dict[str, Any]]:
         captured["params"] = params
         return original(sql, params)
 
-    monkeypatch.setattr(backend, "execute_query", spy)
+    monkeypatch.setattr(backend, "execute_readonly_query", spy)
 
     queries = {
         "events_since": QueryConfig(
@@ -583,7 +623,7 @@ def _multi_target_registry(
 
 def test_unpinned_query_binds_default_target(sqlite_db: Path) -> None:
     """A query with no pinned fields binds to the default target's backend."""
-    backend = _sqlite_backend(sqlite_db)
+    backend = sqlite_backend(sqlite_db)
     registry, targets, by_key = _multi_target_registry(backend)
     queries = {"q": QueryConfig(description="", sql="SELECT 1 AS a")}
     mcp = FastMCP("test-pin-default")
@@ -595,7 +635,7 @@ def test_unpinned_query_binds_default_target(sqlite_db: Path) -> None:
 
 def test_query_pinned_to_connection_binds_that_backend(sqlite_db: Path) -> None:
     """A query pinned to a second connection binds to that connection's backend."""
-    backend = _sqlite_backend(sqlite_db)
+    backend = sqlite_backend(sqlite_db)
     registry, targets, by_key = _multi_target_registry(backend)
     queries = {
         "q": QueryConfig(description="", sql="SELECT 1 AS a", connection="second")
@@ -611,7 +651,7 @@ def test_query_pinned_to_database_resolves_default_connection(
     sqlite_db: Path,
 ) -> None:
     """A query pinned to ``database='hr'`` resolves ``(default_conn, hr)``."""
-    backend = _sqlite_backend(sqlite_db)
+    backend = sqlite_backend(sqlite_db)
     registry, targets, by_key = _multi_target_registry(backend)
     queries = {"q": QueryConfig(description="", sql="SELECT 1 AS a", database="hr")}
     mcp = FastMCP("test-pin-database")
@@ -625,7 +665,7 @@ def test_query_pinned_to_database_resolves_default_connection(
 
 def test_query_pinned_to_unknown_target_raises(sqlite_db: Path) -> None:
     """An invalid pinned target surfaces as ValueError at register()."""
-    backend = _sqlite_backend(sqlite_db)
+    backend = sqlite_backend(sqlite_db)
     registry, targets, _ = _multi_target_registry(backend)
     queries = {"q": QueryConfig(description="", sql="SELECT 1 AS a", connection="nope")}
     mcp = FastMCP("test-pin-invalid")

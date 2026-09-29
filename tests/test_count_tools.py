@@ -158,6 +158,53 @@ async def test_write_statements_rejected_and_not_executed(
     assert backend.execute_query("SELECT COUNT(*) AS n FROM customers") == [{"n": 2}]
 
 
+@pytest.mark.asyncio
+@pytest.mark.parametrize(
+    ("sql", "function"),
+    [
+        ("SELECT * FROM OPENQUERY(srv, 'DELETE FROM t')", "OPENQUERY"),
+        ("SELECT * FROM OPENROWSET('SQLNCLI', 'srv', 'DELETE FROM t')", "OPENROWSET"),
+        (
+            "SELECT * FROM OPENDATASOURCE('SQLNCLI', 'Server=s').db.dbo.t",
+            "OPENDATASOURCE",
+        ),
+    ],
+)
+@pytest.mark.parametrize("backend_name", ["sqlite", "mssql"])
+async def test_passthrough_source_rejected_without_execution(
+    sql: str, function: str, backend_name: str
+) -> None:
+    """A linked-server pass-through is rejected: the far end is opaque.
+
+    The count wrapper re-renders the statement from its AST, which preserves
+    the ``OPENQUERY(...)`` call, so the AST read-only proof alone would ship
+    the embedded write to the linked server.
+    """
+    backend = MagicMock()
+    mcp = FastMCP("test-count-passthrough")
+    CountTools(*single_target(backend, backend_name=backend_name)).register(mcp)
+    async with create_connected_server_and_client_session(
+        mcp, raise_exceptions=True
+    ) as client:
+        text = await _call_count(client, sql)
+    assert text.startswith("Not read-only.")
+    assert function in text
+    backend.execute_readonly_query.assert_not_called()
+
+
+@pytest.mark.asyncio
+async def test_column_named_openquery_is_not_rejected(sqlite_db: Path) -> None:
+    """A column merely *named* ``openquery`` is an identifier, not a call."""
+    backend = _sqlite_backend(sqlite_db)
+    mcp = FastMCP("test-count-openquery-column")
+    CountTools(*single_target(backend)).register(mcp)
+    async with create_connected_server_and_client_session(
+        mcp, raise_exceptions=True
+    ) as client:
+        text = await _call_count(client, "SELECT name AS openquery FROM customers")
+    assert text == "2"
+
+
 # ---------------------------------------------------------------------------
 # Pre-flight parity with validate_sql
 # ---------------------------------------------------------------------------
@@ -213,6 +260,66 @@ async def test_preflight_unparseable_fail_closed(sqlite_db: Path) -> None:
     ) as client:
         text = await _call_count(client, "SELECT FROM WHERE")
     assert text.startswith("Invalid SQL. ParseError (SQL parsed as ")
+
+
+UNTOKENIZABLE = [
+    "SELECT 'abc",  # unterminated string literal
+    "SELECT 1 /* unterminated",  # unterminated block comment
+    "SELECT [abc",  # unterminated bracket
+]
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("sql", UNTOKENIZABLE)
+async def test_preflight_untokenizable_is_a_verdict(sqlite_db: Path, sql: str) -> None:
+    """An unterminated literal, comment or bracket is a verdict, not a traceback.
+
+    sqlglot signals these with ``TokenError``, a *sibling* of ``ParseError``
+    rather than a subclass, so a narrower catch in ``basic_preflight`` would
+    let the exception escape out of the tool.
+    """
+    backend = _sqlite_backend(sqlite_db)
+    mcp = FastMCP("test-count-token-error")
+    CountTools(*single_target(backend)).register(mcp)
+    async with create_connected_server_and_client_session(
+        mcp, raise_exceptions=True
+    ) as client:
+        text = await _call_count(client, sql)
+    assert text.startswith("Invalid SQL. TokenError (SQL parsed as sqlite): ")
+    assert "\n" not in text
+    assert "\x1b" not in text
+
+
+ZERO_STATEMENT = [
+    "-- hi",  # line comment only
+    "/* hi */",  # block comment only
+    ";",  # separator only
+]
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("sql", ZERO_STATEMENT)
+async def test_preflight_zero_statements_is_a_verdict(
+    sqlite_db: Path, sql: str
+) -> None:
+    """SQL that tokenizes to no statement is a verdict, not a traceback.
+
+    A comment-only or separator-only input is neither empty nor unparseable,
+    so only the statement-count check catches it. Without it the read-only
+    gate's ``parse_one`` raises ``ParseError("No expression was parsed …")``
+    straight out of the tool.
+    """
+    backend = _sqlite_backend(sqlite_db)
+    mcp = FastMCP("test-count-zero-statements")
+    CountTools(*single_target(backend)).register(mcp)
+    async with create_connected_server_and_client_session(
+        mcp, raise_exceptions=True
+    ) as client:
+        text = await _call_count(client, sql)
+    assert text == (
+        "Invalid SQL. ValidationError: no statement found — "
+        "the SQL contains only comments or separators"
+    )
 
 
 # ---------------------------------------------------------------------------

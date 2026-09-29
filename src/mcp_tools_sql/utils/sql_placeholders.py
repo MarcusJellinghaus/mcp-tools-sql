@@ -15,8 +15,11 @@ It also hosts the shared, dialect-aware analysis helpers reused across the
 SQL-consuming tools: :func:`count_statements`,
 :func:`first_statement_kind`, :func:`has_leading_cte` (with its shared
 :data:`LEADING_CTE_REJECTION` message), and the shared :func:`basic_preflight`.
-sqlglot's :class:`~sqlglot.errors.ParseError` is re-exported so callers can
-implement the fail-closed parse contract without importing sqlglot directly.
+sqlglot's :class:`~sqlglot.errors.ParseError` and its base
+:class:`~sqlglot.errors.SqlglotError` are re-exported so callers can implement
+the fail-closed parse contract without importing sqlglot directly. Catch the
+base: sqlglot raises a sibling :class:`~sqlglot.errors.TokenError` -- not a
+``ParseError`` -- for an unterminated string literal, block comment or bracket.
 
 Note:
     Rendered SQL is produced by sqlglot's generator, not echoed verbatim
@@ -27,27 +30,53 @@ Note:
 from __future__ import annotations
 
 import math
+import re
 from datetime import date, datetime
 from decimal import Decimal
 from typing import Any, cast
 
 import sqlglot
 from sqlglot import exp
-from sqlglot.errors import ParseError
+from sqlglot.errors import ParseError, SqlglotError
 
 __all__ = [
     "LEADING_CTE_REJECTION",
     "ParseError",
+    "SqlglotError",
+    "arbitrary_sql_violation",
     "basic_preflight",
     "build_count_query",
     "count_statements",
     "extract_param_names",
     "first_statement_kind",
     "has_leading_cte",
+    "keyword_absorption_violation",
+    "passthrough_source_violation",
     "read_only_violation",
+    "single_line",
     "substitute_named_with_literals",
     "translate_named_to_qmark",
 ]
+
+_ANSI_ESCAPE_RE = re.compile(r"\x1b\[[0-9;]*[A-Za-z]")
+
+
+def single_line(text: str) -> str:
+    """Return ``text`` with ANSI escapes stripped and whitespace collapsed.
+
+    sqlglot's ``ParseError`` text carries the offending SQL on a second line,
+    underlined with ANSI escapes. Rejection and pre-flight messages are
+    rendered as one ``verify`` row, one tool verdict and one warning log line,
+    so neither the newline nor the terminal control codes survive.
+
+    The name is deliberately public: it is imported across modules, and a
+    leading underscore would make every such import a private-name access.
+
+    Returns:
+        The text as a single line, free of terminal control codes.
+    """
+    return " ".join(_ANSI_ESCAPE_RE.sub("", text).split())
+
 
 # Session-control statements rejected by callers that disallow session state.
 _SESSION_STATEMENT_KEYWORDS = frozenset({"USE", "SET", "DECLARE"})
@@ -76,6 +105,33 @@ _WRITE_NODES = (
 #   ``VALUES (...), (...)``   -> exp.Values
 # Any root NOT in this tuple is rejected -- never widen this to a catch-all.
 _READONLY_ROOTS = (exp.Select, exp.Union, exp.Values)
+
+# Statement keywords that sqlglot will absorb as a column alias when a second
+# statement is appended without a separator. See
+# :func:`keyword_absorption_violation` for why this blocklist exists at all.
+_ABSORBABLE_KEYWORDS: frozenset[str] = frozenset(
+    {
+        "DELETE",
+        "INSERT",
+        "UPDATE",
+        "MERGE",
+        "CREATE",
+        "DROP",
+        "ALTER",
+        "TRUNCATE",
+        "EXEC",
+        "EXECUTE",
+        "GRANT",
+        "REVOKE",
+    }
+)
+
+# T-SQL row-set functions that take a statement (or a whole data source) as a
+# string argument and run it elsewhere. See
+# :func:`passthrough_source_violation`.
+_PASSTHROUGH_FUNCTIONS: frozenset[str] = frozenset(
+    {"OPENQUERY", "OPENROWSET", "OPENDATASOURCE"}
+)
 
 # Shared rejection message for leading-CTE (``WITH``) queries under T-SQL.
 # Both consumers -- ``count_records`` and ``summarize_columns`` -- wrap the
@@ -309,10 +365,24 @@ def basic_preflight(
     """Run the shared, dialect-aware pre-flight checks on ``sql``.
 
     Applies the checks common to every SQL-consuming tool: empty SQL, the
-    fail-closed parse contract, multiple statements, and missing ``:name``
-    parameters. It deliberately does **not** apply any session-control
+    fail-closed parse contract, zero statements, multiple statements, and
+    missing ``:name`` parameters. It deliberately does **not** apply any
+    session-control
     (``USE``/``SET``/``DECLARE``) check -- callers that need that layer it on
     top (see :func:`mcp_tools_sql.validation_tools._preflight`).
+
+    The parse contract catches ``SqlglotError``, not just ``ParseError``: an
+    unterminated string literal, block comment or bracket raises a sibling
+    ``TokenError``, which would otherwise escape as an exception out of the
+    tool instead of the verdict every other malformed input produces. The
+    exception class is read off the raised exception so the verdict still
+    names ``ParseError`` when that is what happened.
+
+    The zero-statement check closes the other end of that contract: SQL that
+    is non-empty yet tokenizes to no statement at all (``-- hi``, ``/* hi */``,
+    ``;``) parses without error, so only a count check catches it. Without
+    this, the downstream gate's ``parse_one`` would raise
+    ``ParseError("No expression was parsed from …")`` out of the tool.
 
     Args:
         sql: The SQL text to validate.
@@ -327,8 +397,14 @@ def basic_preflight(
         return "Invalid SQL. ValidationError: empty SQL"
     try:
         statement_count = count_statements(sql, dialect)
-    except ParseError as exc:
-        return f"Invalid SQL. ParseError (SQL parsed as {dialect}): {exc}"
+    except SqlglotError as exc:
+        detail = single_line(str(exc))
+        return f"Invalid SQL. {type(exc).__name__} (SQL parsed as {dialect}): {detail}"
+    if statement_count == 0:
+        return (
+            "Invalid SQL. ValidationError: no statement found — "
+            "the SQL contains only comments or separators"
+        )
     if statement_count > 1:
         return "Invalid SQL. ValidationError: multiple statements not supported"
     missing = extract_param_names(sql, dialect) - (params or {}).keys()
@@ -370,8 +446,120 @@ def read_only_violation(sql: str, dialect: str) -> str | None:
     if any(select.args.get("into") for select in root.find_all(exp.Select)):
         return "Not read-only. SELECT ... INTO is not permitted."
     if not isinstance(root, _READONLY_ROOTS):
-        return "Not read-only. Only SELECT/WITH/VALUES queries can be counted."
+        return "Not read-only. Only SELECT/WITH/VALUES statements are permitted."
     return None
+
+
+def keyword_absorption_violation(sql: str, dialect: str) -> str | None:
+    r"""Return a rejection message when a statement keyword was parsed as an identifier.
+
+    This *blocklists* keywords, which is exactly what :func:`read_only_violation`
+    argues against: that gate positively proves a statement is read-only rather
+    than pattern-matching for dangerous words. This function is a deliberate
+    exception, justified only as a second layer *on top of* that AST proof and
+    never as a replacement for it.
+
+    The mechanism it covers: sqlglot does not truncate a separator-less batch,
+    it consumes the whole text and reinterprets the second statement's leading
+    write keyword as a column alias. ``SELECT 1\nDELETE FROM t`` parses as
+    ``SELECT 1 AS DELETE FROM t``, so the AST proof sees a clean single
+    ``SELECT`` -- and a statement-count check sees a single statement -- while
+    pyodbc still executes both statements against the database. An unquoted
+    identifier whose whole name is a statement keyword is therefore treated as
+    such an absorption, because no genuine query needs one.
+
+    Unparseable SQL propagates sqlglot's ``ParseError`` rather than returning a
+    verdict, exactly as :func:`read_only_violation` does: the shared verdict
+    wrapper owns the fail-closed contract.
+
+    Args:
+        sql: The SQL text to inspect.
+        dialect: The sqlglot dialect to parse under (``"sqlite"`` or ``"tsql"``).
+
+    Returns:
+        A concise rejection message when a statement keyword appears as an
+        unquoted identifier, or ``None`` when it does not.
+    """
+    root = sqlglot.parse_one(sql, read=dialect)
+    for node in root.find_all(exp.Identifier):
+        # A quoted identifier is a genuine column, whatever it is called.
+        if node.args.get("quoted"):
+            continue
+        name = node.name.upper()
+        if name in _ABSORBABLE_KEYWORDS:
+            return (
+                f"Not read-only. '{name}' appears where an identifier was "
+                "expected; this is how a second statement appended without a "
+                "separator is absorbed as a column alias."
+            )
+    return None
+
+
+def passthrough_source_violation(sql: str, dialect: str) -> str | None:
+    """Return a rejection message when a table source hands SQL to another server.
+
+    ``SELECT * FROM OPENQUERY(srv, 'DELETE FROM t')`` is a read-only statement
+    by every structural measure -- the root is a ``Select`` and the write lives
+    in a string literal -- yet SQL Server runs that literal on the linked
+    server. ``OPENROWSET`` and ``OPENDATASOURCE`` do the same. This is the
+    ``EXEC`` case in a different costume: the gate cannot inspect what the far
+    end will execute, so it cannot clear it, and there is no opt-out.
+
+    Like :func:`keyword_absorption_violation`, this is a name-based check layered
+    *on top of* the AST proof, never a replacement for it. A genuine column or
+    table merely named ``openquery`` is an identifier rather than a function
+    call, so it is unaffected.
+
+    Args:
+        sql: The SQL text to inspect.
+        dialect: The sqlglot dialect to parse under (``"sqlite"`` or ``"tsql"``).
+
+    Returns:
+        A concise rejection message when a pass-through row-set function is
+        called, or ``None`` when none is.
+    """
+    root = sqlglot.parse_one(sql, read=dialect)
+    for node in root.find_all(exp.Anonymous):
+        name = node.name.upper()
+        if name in _PASSTHROUGH_FUNCTIONS:
+            return (
+                f"Not read-only. {name} is not permitted: it passes SQL to "
+                "another server, which this gate cannot inspect."
+            )
+    return None
+
+
+def arbitrary_sql_violation(sql: str, dialect: str) -> str | None:
+    """Return a rejection message when caller-supplied ``sql`` is not read-only.
+
+    Composes the AST proof (:func:`read_only_violation`) with the pass-through
+    source guard (:func:`passthrough_source_violation`). It is the gate for the
+    tools that take arbitrary SQL straight from the caller -- ``count_records``
+    and ``summarize_columns`` -- where the AST proof alone is not enough: both
+    re-render the statement from its AST, which preserves an ``OPENQUERY(...)``
+    call and so still ships the embedded statement to the linked server.
+
+    The keyword-absorption guard is deliberately *not* composed in here. It is
+    the registration gate's extra layer over operator-authored config SQL, and
+    folding it in would change these tools' verdicts; callers that want it
+    compose it themselves (see
+    :func:`mcp_tools_sql.query_helpers.read_only_rejection`).
+
+    Unparseable SQL propagates sqlglot's error rather than returning a verdict,
+    exactly as the two composed functions do.
+
+    Args:
+        sql: The single SQL statement to inspect.
+        dialect: The sqlglot dialect to parse under (``"sqlite"`` or ``"tsql"``).
+
+    Returns:
+        A concise rejection message, or ``None`` when the statement passes both
+        gates.
+    """
+    verdict = read_only_violation(sql, dialect)
+    if verdict is None:
+        verdict = passthrough_source_violation(sql, dialect)
+    return verdict
 
 
 def has_leading_cte(sql: str, dialect: str) -> bool:

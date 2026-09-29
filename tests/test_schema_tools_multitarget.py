@@ -392,12 +392,12 @@ class _FanoutBackend(DatabaseBackend):
     def execute_readonly_query(
         self, sql: str, params: dict[str, Any] | None = None
     ) -> list[dict[str, Any]]:
-        """Unused in these tests.
+        """Delegate to :meth:`execute_query` — the read path calls this one.
 
-        Raises:
-            NotImplementedError: Always.
+        Returns:
+            Shallow copies of the seeded rows, or raises if configured.
         """
-        raise NotImplementedError
+        return self.execute_query(sql, params)
 
     def execute_readonly_query_with_columns(
         self, sql: str, params: dict[str, Any] | None = None
@@ -480,6 +480,52 @@ async def test_fanout_merges_rows_with_database_column_in_config_order() -> None
         ("default", "sales"),
         ("default", "hr"),
     ]
+
+
+class _ReadOnlyOnlyBackend(_FanoutBackend):
+    """A fan-out backend that only answers ``execute_readonly_query``."""
+
+    def execute_query(
+        self, sql: str, params: dict[str, Any] | None = None
+    ) -> list[dict[str, Any]]:
+        """Fail the test if the read path reaches the writable connection.
+
+        Raises:
+            AssertionError: Always.
+        """
+        msg = "read path must not call execute_query"
+        raise AssertionError(msg)
+
+    def execute_readonly_query(
+        self, sql: str, params: dict[str, Any] | None = None
+    ) -> list[dict[str, Any]]:
+        """Return fresh copies of the preset rows.
+
+        Returns:
+            Shallow copies of the seeded rows.
+        """
+        return [dict(r) for r in self._rows]
+
+
+@pytest.mark.asyncio
+async def test_fanout_uses_execute_readonly_query() -> None:
+    """`database='*'` fans out through execute_readonly_query only."""
+    registry = _fanout_registry(
+        _ReadOnlyOnlyBackend([{"name": "alice"}]),
+        _ReadOnlyOnlyBackend([{"name": "carol"}]),
+    )
+    body = build_schema_body(
+        "read_tables", _tables_config(), registry, _multi_targets(), ""
+    )
+
+    text = await body(database="*")
+
+    assert "alice" in text
+    assert "carol" in text
+    # No target folded an execute failure into an inline per-target error line.
+    assert "read path must not call execute_query" not in text
+    assert "sales:" not in text
+    assert "hr:" not in text
 
 
 @pytest.mark.asyncio

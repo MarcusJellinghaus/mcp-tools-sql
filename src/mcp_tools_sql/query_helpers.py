@@ -18,7 +18,14 @@ from pydantic import Field
 from mcp_tools_sql.formatting import MAX_ROWS_MIN, format_fanout_rows, format_rows
 from mcp_tools_sql.tool_logging import log_tool_call
 from mcp_tools_sql.utils.data_type_utility.type_mapping import resolve_python_type
-from mcp_tools_sql.utils.sql_placeholders import ParseError, extract_param_names
+from mcp_tools_sql.utils.sql_placeholders import (
+    SqlglotError,
+    extract_param_names,
+    keyword_absorption_violation,
+    passthrough_source_violation,
+    read_only_violation,
+    single_line,
+)
 
 if TYPE_CHECKING:
     from mcp_tools_sql.backends.base import DatabaseBackend
@@ -34,14 +41,57 @@ def extract_sql_params(sql: str) -> set[str]:
     is best-effort, and the dedicated EXPLAIN check owns the "is this valid
     SQL" verdict during verification.
 
+    ``SqlglotError`` is the base caught rather than ``ParseError``, because
+    sqlglot signals an unterminated string literal, block comment or bracket
+    with a sibling ``TokenError`` that ``ParseError`` does not cover.
+
     Returns:
         Set of parameter names found in the SQL string, or an empty set when
         ``sql`` cannot be parsed.
     """
     try:
         return extract_param_names(sql)
-    except ParseError:
+    except SqlglotError:
         return set()
+
+
+def read_only_rejection(sql: str, dialect: str) -> str | None:
+    """Return a rejection message when ``sql`` is not provably read-only.
+
+    Combines the AST proof (:func:`read_only_violation`), the keyword-absorption
+    guard (:func:`keyword_absorption_violation`), the pass-through source guard
+    (:func:`passthrough_source_violation`) and the fail-closed parse contract
+    into a single verdict.
+
+    The parse contract catches ``SqlglotError``, not just ``ParseError``: an
+    unterminated string literal, block comment or bracket raises a sibling
+    ``TokenError``. Letting that escape would abort server startup over one
+    unbalanced quote in one ``[queries.*]`` entry, and would crash ``verify``
+    instead of printing the row that makes the rejection discoverable.
+
+    It exists so the startup gate in :meth:`QueryTools.register` and the
+    ``verify`` read-only row cannot disagree: the verify row's job is to predict
+    what the server will do at startup, so both call this one implementation.
+
+    Args:
+        sql: The resolved SQL text of a configured query.
+        dialect: The sqlglot dialect to parse under. Callers map a backend name
+            with :func:`mcp_tools_sql.backends.base.to_dialect` themselves.
+
+    Returns:
+        A concise rejection message, or ``None`` when the statement is provably
+        read-only.
+    """
+    try:
+        verdict = read_only_violation(sql, dialect)
+        if verdict is None:
+            verdict = keyword_absorption_violation(sql, dialect)
+        if verdict is None:
+            verdict = passthrough_source_violation(sql, dialect)
+    except SqlglotError as exc:
+        detail = single_line(str(exc))
+        return f"Not read-only. SQL could not be parsed as {dialect}: {detail}"
+    return verdict
 
 
 def apply_filter(
@@ -194,6 +244,11 @@ async def execute_and_format(
     rows. Used by both ``build_query_body`` (pinned) and the runtime schema
     bodies so the common tail has a single home.
 
+    Execution goes through ``execute_readonly_query``, so the database itself
+    rejects a write that slipped past the registration gate. On SQLite that
+    means a fresh ``PRAGMA query_only = ON`` connection per call — under
+    ``database="*"``, one per target per call. Accepted cost.
+
     Returns:
         The formatted result text, with a max_rows cap note appended when the
         requested limit exceeded the hard limit or fell below the minimum. An
@@ -210,7 +265,7 @@ async def execute_and_format(
     stripped = {k: v for k, v in kwargs.items() if k in sql_params}
 
     async with log_tool_call(name, stripped, sql=resolved_sql) as rec:
-        rows = backend.execute_query(resolved_sql, stripped or None)
+        rows = backend.execute_readonly_query(resolved_sql, stripped or None)
         if filter_kwarg:
             rows = apply_filter(rows, config.filter_column, filter_pattern)
         rec.record(rows=len(rows), cols=len(rows[0]) if rows else 0)
@@ -371,7 +426,7 @@ def build_schema_body(
         async with log_tool_call(name, stripped, sql=resolved_sql) as rec:
             for target in fan_targets:
                 try:
-                    rows = registry.backend_for(target).execute_query(
+                    rows = registry.backend_for(target).execute_readonly_query(
                         resolved_sql, stripped or None
                     )
                     if filter_kwarg:
