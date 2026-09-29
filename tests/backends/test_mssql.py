@@ -539,6 +539,21 @@ class TestIsolatedConnection:
         kwargs = fake_pyodbc.connect.call_args.kwargs
         assert kwargs.get("autocommit") is True
 
+    @pytest.mark.parametrize("password", LEAKY_PASSWORDS)
+    def test_password_redacted_in_connect_error(
+        self, fake_pyodbc: Any, password: str
+    ) -> None:
+        """A failing isolated connect redacts the password like connect() does."""
+        fake_pyodbc.connect.side_effect = fake_pyodbc.OperationalError(
+            "08001", f"Login failed; PWD={_odbc_escape(password)}"
+        )
+        b = MSSQLBackend(_cfg(password=password))
+        with pytest.raises(fake_pyodbc.Error) as exc:
+            with b.get_isolated_connection():
+                pass
+        assert_no_leak(str(exc.value), password)
+        assert "***" in str(exc.value)
+
 
 class TestConcurrency:
     """Thread-safety tests for lazy-connect."""
@@ -582,12 +597,13 @@ class TestErrorSanitization:
 class TestConnectDebugLogging:
     """Tests that MSSQLBackend.connect() emits diagnostic debug logs."""
 
+    @pytest.mark.parametrize("password", LEAKY_PASSWORDS)
     def test_connect_logs_redacted_conn_string(
-        self, fake_pyodbc: Any, caplog: pytest.LogCaptureFixture
+        self, fake_pyodbc: Any, caplog: pytest.LogCaptureFixture, password: str
     ) -> None:
         """Successful connect → debug log contains the redacted conn string."""
         del fake_pyodbc  # only needed for module patching side effect
-        b = MSSQLBackend(_cfg(password="supersecret"))
+        b = MSSQLBackend(_cfg(password=password))
         with caplog.at_level("DEBUG", logger="mcp_tools_sql.backends.mssql"):
             b.connect()
         attempt_lines = [
@@ -597,7 +613,7 @@ class TestConnectDebugLogging:
         ]
         assert attempt_lines, "no attempt debug line emitted"
         for line in attempt_lines:
-            assert "supersecret" not in line
+            assert_no_leak(line, password)
             assert "PWD=***" in line
 
     def test_connect_failure_logs_exception_details(

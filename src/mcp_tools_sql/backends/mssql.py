@@ -114,17 +114,45 @@ class MSSQLBackend(DatabaseBackend):
         self._closed: bool = False
         self._connect_lock = threading.Lock()
 
+    def _open_connection(self) -> Any:
+        """Open a fresh pyodbc connection with the password redacted from errors.
+
+        The single connect path for this backend: it logs the attempt with a
+        sanitized connection string and, if pyodbc raises, redacts the password
+        from the error's ``args`` in place before re-raising the original
+        exception (type, sqlstate, and traceback preserved).
+
+        Returns:
+            The live pyodbc connection.
+
+        Raises:
+            pyodbc.Error: Re-raised after redacting the password from ``args``.
+        """
+        import pyodbc  # pylint: disable=import-error,import-outside-toplevel
+
+        conn_str = _build_connection_string(self._config)
+        logger.debug(
+            "MSSQL connect attempt: %s",
+            build_sanitized_connection_string(self._config),
+        )
+        try:
+            return pyodbc.connect(conn_str, autocommit=True)
+        except pyodbc.Error as exc:
+            exc.args = tuple(
+                _sanitize(a, self._config.password) if isinstance(a, str) else a
+                for a in exc.args
+            )
+            logger.debug("MSSQL connect failed: %s %r", type(exc).__name__, exc.args)
+            raise
+
     def connect(self) -> None:
         """Open a connection to SQL Server (lazy, idempotent, thread-safe).
 
-        If pyodbc raises during ``connect()``, the password is redacted from
-        the error's ``args`` in place and the original exception is re-raised
-        (preserving its type, sqlstate, and traceback).
-
         Raises:
             RuntimeError: If the backend was already closed.
-            pyodbc.Error: Re-raised after redacting the password from
-                ``args`` (type, sqlstate, and traceback preserved).
+            pyodbc.Error: Re-raised by :meth:`_open_connection` after redacting
+                the password from ``args`` (type, sqlstate, and traceback
+                preserved).
         """
         if self._connection is not None and not self._closed:
             return
@@ -134,24 +162,7 @@ class MSSQLBackend(DatabaseBackend):
                 raise RuntimeError(msg)
             if self._connection is not None:
                 return
-            import pyodbc  # pylint: disable=import-error,import-outside-toplevel
-
-            conn_str = _build_connection_string(self._config)
-            logger.debug(
-                "MSSQL connect attempt: %s",
-                _sanitize(conn_str, self._config.password),
-            )
-            try:
-                self._connection = pyodbc.connect(conn_str, autocommit=True)
-            except pyodbc.Error as exc:
-                exc.args = tuple(
-                    _sanitize(a, self._config.password) if isinstance(a, str) else a
-                    for a in exc.args
-                )
-                logger.debug(
-                    "MSSQL connect failed: %s %r", type(exc).__name__, exc.args
-                )
-                raise
+            self._connection = self._open_connection()
 
     def close(self) -> None:
         """Close the SQL Server connection (idempotent)."""
@@ -266,12 +277,20 @@ class MSSQLBackend(DatabaseBackend):
         """Yield a fresh pyodbc connection, closed on context exit.
 
         Builds a new connection from the same ``ConnectionConfig`` used by the
-        persistent connection. The fresh connection is closed on context exit
-        (success or exception). Callers MUST NOT close the yielded connection.
-        """
-        import pyodbc  # pylint: disable=import-error,import-outside-toplevel
+        persistent connection, via :meth:`_open_connection` — so it emits the
+        same connect-attempt debug line and carries the same password-redaction
+        guarantee for driver errors. The fresh connection is closed on context
+        exit (success or exception). Callers MUST NOT close the yielded
+        connection.
 
-        conn = pyodbc.connect(_build_connection_string(self._config), autocommit=True)
+        Yields:
+            The fresh pyodbc connection.
+
+        Raises:
+            pyodbc.Error: Re-raised by :meth:`_open_connection` after redacting
+                the password from ``args``.
+        """
+        conn = self._open_connection()
         try:
             yield conn
         finally:
