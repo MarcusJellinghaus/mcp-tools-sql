@@ -14,6 +14,7 @@ from mcp_tools_sql.backends.mssql import (
     MSSQLBackend,
     _build_connection_string,
     _odbc_escape,
+    _sanitize,
     build_sanitized_connection_string,
 )
 from mcp_tools_sql.config.models import ConnectionConfig
@@ -47,6 +48,15 @@ def _cfg(**kw: Any) -> ConnectionConfig:
     }
     base.update(kw)
     return ConnectionConfig(**base)
+
+
+LEAKY_PASSWORDS = ["plain", "a}b", "Sw0rd}", "{x}", "p;w", " sec "]
+
+
+def assert_no_leak(text: str, password: str) -> None:
+    """Assert neither the literal nor the ODBC-escaped password is in *text*."""
+    assert password not in text
+    assert _odbc_escape(password) not in text
 
 
 class TestOdbcEscape:
@@ -225,6 +235,28 @@ class TestConnectionStringBuilder:
             trusted_connection=True,
         )
         assert "Database={db;weird}" in _build_connection_string(c)
+
+
+class TestSanitize:
+    """Tests for `_sanitize` against driver text."""
+
+    @pytest.mark.parametrize("password", LEAKY_PASSWORDS)
+    def test_escaped_password_redacted(self, password: str) -> None:
+        msg = f"Login failed; PWD={_odbc_escape(password)}"
+        result = _sanitize(msg, password)
+        assert_no_leak(result, password)
+        assert "***" in result
+
+    @pytest.mark.parametrize("password", LEAKY_PASSWORDS)
+    def test_literal_password_redacted(self, password: str) -> None:
+        msg = f"Login failed for password '{password}'"
+        result = _sanitize(msg, password)
+        assert_no_leak(result, password)
+        assert "***" in result
+
+    def test_empty_password_leaves_message_unchanged(self) -> None:
+        msg = "Login failed; PWD="
+        assert _sanitize(msg, "") == msg
 
 
 class TestSanitizedConnectionString:

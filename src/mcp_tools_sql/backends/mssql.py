@@ -71,14 +71,21 @@ def _build_connection_string(config: ConnectionConfig) -> str:
 
 
 def _sanitize(msg: str, password: str) -> str:
-    """Redact the password from a connection-error message.
+    """Redact the password from driver text such as ``pyodbc.Error.args``.
+
+    Both the literal password and its ODBC-escaped form are redacted: a
+    password containing ``}`` reaches the driver doubled and braced, so the
+    literal alone does not match.
 
     Returns:
-        The message with any occurrence of ``password`` replaced by ``***``.
+        The message with every password-derived form replaced by ``***``.
     """
-    if password:
-        return msg.replace(password, "***")
-    return msg
+    if not password:
+        return msg
+    escaped = _odbc_escape(password)
+    if escaped != password:
+        msg = msg.replace(escaped, "***")
+    return msg.replace(password, "***")
 
 
 def build_sanitized_connection_string(config: ConnectionConfig) -> str:
