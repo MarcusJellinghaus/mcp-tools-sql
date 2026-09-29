@@ -8,11 +8,16 @@ from typing import TYPE_CHECKING
 import pytest
 from mcp.server.fastmcp import FastMCP
 from mcp.shared.memory import create_connected_server_and_client_session
+from sqlglot.errors import TokenError
 
 from mcp_tools_sql.config.models import QueryConfig
 from mcp_tools_sql.query_helpers import read_only_rejection
 from mcp_tools_sql.query_tools import QueryTools
-from mcp_tools_sql.utils.sql_placeholders import ParseError, read_only_violation
+from mcp_tools_sql.utils.sql_placeholders import (
+    ParseError,
+    SqlglotError,
+    read_only_violation,
+)
 from tests.target_helpers import single_target, sqlite_backend
 
 if TYPE_CHECKING:
@@ -145,6 +150,60 @@ async def test_passthrough_source_is_rejected(
     )
 
     assert await _registered_names(mcp) == set()
+
+
+_UNTOKENIZABLE = [
+    "SELECT 'abc",  # unterminated string literal
+    "SELECT 1 /* unterminated",  # unterminated block comment
+    "SELECT [abc",  # unterminated bracket
+]
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("sql", _UNTOKENIZABLE)
+@pytest.mark.parametrize("backend_name", ["sqlite", "mssql"])
+async def test_untokenizable_sql_is_skipped_not_raised(
+    sqlite_db: Path,
+    caplog: pytest.LogCaptureFixture,
+    sql: str,
+    backend_name: str,
+) -> None:
+    """An unterminated literal, comment or bracket is skipped, not fatal.
+
+    sqlglot signals these with ``TokenError``, a *sibling* of ``ParseError``
+    rather than a subclass, so a narrower catch would let one unbalanced quote
+    in one ``[queries.*]`` entry abort server startup.
+    """
+    backend = sqlite_backend(sqlite_db)
+    queries = {
+        "broken": QueryConfig(description="", sql=sql),
+        "listing": QueryConfig(description="", sql="SELECT id FROM orders"),
+    }
+    mcp = FastMCP("test-gate-token-error")
+
+    with caplog.at_level(logging.WARNING, logger="mcp_tools_sql.query_tools"):
+        QueryTools(
+            *single_target(backend, backend_name=backend_name), queries
+        ).register(mcp)
+
+    assert await _registered_names(mcp) == {"query_listing"}
+    assert any("broken" in rec.getMessage() for rec in caplog.records)
+
+
+@pytest.mark.parametrize("sql", _UNTOKENIZABLE)
+@pytest.mark.parametrize("dialect", ["sqlite", "tsql"])
+def test_token_error_is_a_rejection_message(sql: str, dialect: str) -> None:
+    """The premise: sqlglot raises ``TokenError``, and the gate turns it into text."""
+    assert issubclass(TokenError, SqlglotError)
+    assert not issubclass(TokenError, ParseError)
+    with pytest.raises(TokenError):
+        read_only_violation(sql, dialect)
+
+    message = read_only_rejection(sql, dialect)
+
+    assert message is not None
+    assert f"could not be parsed as {dialect}" in message
+    assert "\n" not in message
 
 
 def test_read_only_rejection_accepts_clean_select() -> None:

@@ -88,6 +88,30 @@ def test_verify_connection_sqlite_memory_path_warns(ok_backend: MagicMock) -> No
     assert "empty" in result["path"]["error"].lower()
 
 
+@pytest.mark.parametrize(
+    "path",
+    [
+        "file::memory:?cache=shared",
+        "file:x?mode=memory",
+        "file:x?MODE=MEMORY",
+    ],
+)
+def test_verify_connection_sqlite_memory_uri_warns(
+    ok_backend: MagicMock, path: str
+) -> None:
+    """The URI spellings are the same trap, so they warn too.
+
+    Matching only the bare ``:memory:`` would let these through as a plain
+    ``ok`` row while every connection still opens a new, empty database.
+    """
+    config = ConnectionConfig(backend="sqlite", path=path)
+    result = verify_connection(_target(config), ok_backend)
+    assert result["path"]["ok"] is True
+    assert result["path"]["warn"] is True
+    assert result["path"]["value"] == path
+    assert "empty" in result["path"]["error"].lower()
+
+
 def test_verify_connection_sqlite_memory_path_keeps_overall_ok() -> None:
     """A ':memory:' path leaves ``overall_ok`` True when every other row passes."""
     config = ConnectionConfig(backend="sqlite", path=":memory:")

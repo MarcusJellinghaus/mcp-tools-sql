@@ -8,8 +8,11 @@ max_rows_default = 10
 name = "id"
 type = "int"
 
+# A write statement: rejected by the AST gate with a repo-authored message.
+# Deliberately not a syntax error -- sqlglot's own ParseError text would then be
+# baked into the snapshot, and a sqlglot reword would break it for no reason.
 [queries.bad_sql]
-sql = "SELECT * FROMX badtable"
+sql = "DELETE FROM badtable"
 max_rows_default = 10
 
 [queries.mismatched_params]

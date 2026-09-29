@@ -189,6 +189,46 @@ def test_validate_where_rejects_write_smuggling() -> None:
     assert error is not None
 
 
+@pytest.mark.parametrize(
+    ("fragment", "function"),
+    [
+        ("id IN (SELECT a FROM OPENQUERY(srv, 'DELETE FROM t'))", "OPENQUERY"),
+        (
+            "id IN (SELECT a FROM OPENROWSET('SQLNCLI', 'srv', 'DELETE FROM t'))",
+            "OPENROWSET",
+        ),
+        (
+            "id IN (SELECT a FROM OPENDATASOURCE('SQLNCLI', 'S=s').db.dbo.t)",
+            "OPENDATASOURCE",
+        ),
+    ],
+)
+@pytest.mark.parametrize("dialect", ["sqlite", "tsql"])
+def test_validate_where_rejects_passthrough_source(
+    fragment: str, function: str, dialect: str
+) -> None:
+    """A predicate reaching a linked server is rejected: the far end is opaque."""
+    from mcp_tools_sql.summarize.sql import build_table_ref, validate_where
+
+    ref = build_table_ref("dbo", "t", dialect)
+    predicate, error = validate_where(fragment, ref, None, dialect)
+    assert predicate is None
+    assert error is not None
+    assert error.startswith("Not read-only.")
+    assert function in error
+
+
+@pytest.mark.parametrize("dialect", ["sqlite", "tsql"])
+def test_validate_where_accepts_column_named_openquery(dialect: str) -> None:
+    """A column merely *named* ``openquery`` is an identifier, not a call."""
+    from mcp_tools_sql.summarize.sql import build_table_ref, validate_where
+
+    ref = build_table_ref("dbo", "t", dialect)
+    predicate, error = validate_where("openquery = 1", ref, None, dialect)
+    assert error is None
+    assert predicate is not None
+
+
 def test_validate_where_rejects_statement_terminator() -> None:
     """A stacked statement is rejected before any query runs."""
     from mcp_tools_sql.summarize.sql import build_table_ref, validate_where

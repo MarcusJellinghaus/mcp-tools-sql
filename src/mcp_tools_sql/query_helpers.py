@@ -20,7 +20,7 @@ from mcp_tools_sql.formatting import MAX_ROWS_MIN, format_fanout_rows, format_ro
 from mcp_tools_sql.tool_logging import log_tool_call
 from mcp_tools_sql.utils.data_type_utility.type_mapping import resolve_python_type
 from mcp_tools_sql.utils.sql_placeholders import (
-    ParseError,
+    SqlglotError,
     extract_param_names,
     keyword_absorption_violation,
     passthrough_source_violation,
@@ -41,13 +41,17 @@ def extract_sql_params(sql: str) -> set[str]:
     is best-effort, and the dedicated EXPLAIN check owns the "is this valid
     SQL" verdict during verification.
 
+    ``SqlglotError`` is the base caught rather than ``ParseError``, because
+    sqlglot signals an unterminated string literal, block comment or bracket
+    with a sibling ``TokenError`` that ``ParseError`` does not cover.
+
     Returns:
         Set of parameter names found in the SQL string, or an empty set when
         ``sql`` cannot be parsed.
     """
     try:
         return extract_param_names(sql)
-    except ParseError:
+    except SqlglotError:
         return set()
 
 
@@ -72,8 +76,14 @@ def read_only_rejection(sql: str, dialect: str) -> str | None:
 
     Combines the AST proof (:func:`read_only_violation`), the keyword-absorption
     guard (:func:`keyword_absorption_violation`), the pass-through source guard
-    (:func:`passthrough_source_violation`) and the fail-closed ``ParseError``
-    contract into a single verdict.
+    (:func:`passthrough_source_violation`) and the fail-closed parse contract
+    into a single verdict.
+
+    The parse contract catches ``SqlglotError``, not just ``ParseError``: an
+    unterminated string literal, block comment or bracket raises a sibling
+    ``TokenError``. Letting that escape would abort server startup over one
+    unbalanced quote in one ``[queries.*]`` entry, and would crash ``verify``
+    instead of printing the row that makes the rejection discoverable.
 
     It exists so the startup gate in :meth:`QueryTools.register` and the
     ``verify`` read-only row cannot disagree: the verify row's job is to predict
@@ -94,7 +104,7 @@ def read_only_rejection(sql: str, dialect: str) -> str | None:
             verdict = keyword_absorption_violation(sql, dialect)
         if verdict is None:
             verdict = passthrough_source_violation(sql, dialect)
-    except ParseError as exc:
+    except SqlglotError as exc:
         detail = _single_line(str(exc))
         return f"Not read-only. SQL could not be parsed as {dialect}: {detail}"
     return verdict

@@ -19,6 +19,7 @@ from sqlglot import exp
 
 from mcp_tools_sql.utils.sql_placeholders import (
     LEADING_CTE_REJECTION,
+    arbitrary_sql_violation,
     build_count_query,
     extract_param_names,
     has_leading_cte,
@@ -498,6 +499,35 @@ class TestPassthroughSourceViolation:
     def test_unparseable_sql_propagates_parse_error(self) -> None:
         with pytest.raises(sqlglot.errors.ParseError):
             passthrough_source_violation("SELECT FROM WHERE )(", "sqlite")
+
+
+class TestArbitrarySqlViolation:
+    """Tests for the composed caller-facing gate ``arbitrary_sql_violation``."""
+
+    @pytest.mark.parametrize("dialect", ["sqlite", "tsql"])
+    def test_clean_select_accepted(self, dialect: str) -> None:
+        assert arbitrary_sql_violation("SELECT a FROM t", dialect) is None
+
+    @pytest.mark.parametrize("dialect", ["sqlite", "tsql"])
+    def test_write_rejected(self, dialect: str) -> None:
+        message = arbitrary_sql_violation("DELETE FROM t", dialect)
+        assert message is not None
+        assert "DELETE" in message
+
+    @pytest.mark.parametrize("sql", _PASSTHROUGH_SQL)
+    @pytest.mark.parametrize("dialect", ["sqlite", "tsql"])
+    def test_passthrough_rejected(self, sql: str, dialect: str) -> None:
+        assert arbitrary_sql_violation(sql, dialect) is not None
+
+    @pytest.mark.parametrize("dialect", ["sqlite", "tsql"])
+    def test_absorption_guard_is_not_composed_in(self, dialect: str) -> None:
+        # Decision 10 keeps these callers' verdicts unchanged: the absorption
+        # guard belongs to the registration gate, not to this composition.
+        assert arbitrary_sql_violation("SELECT 1\nDELETE FROM t", dialect) is None
+
+    def test_unparseable_sql_propagates_parse_error(self) -> None:
+        with pytest.raises(sqlglot.errors.ParseError):
+            arbitrary_sql_violation("SELECT FROM WHERE )(", "sqlite")
 
 
 class TestBuildCountQuery:

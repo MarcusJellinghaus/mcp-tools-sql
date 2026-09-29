@@ -35,6 +35,21 @@ def _has_control_chars(value: str) -> bool:
     return any(ord(c) < 32 for c in value)
 
 
+def _is_memory_path(path: str) -> bool:
+    """Return True when a sqlite ``path`` names an in-memory database.
+
+    Three spellings reach the same trap: the bare ``:memory:``, the URI form
+    ``file::memory:?cache=shared``, and the ``mode=memory`` URI parameter
+    (``file:x?mode=memory``). Matching only the bare form would let the other
+    two through as an ordinary ``ok`` row.
+
+    Returns:
+        True when ``path`` opens an in-memory database.
+    """
+    lowered = path.lower()
+    return ":memory:" in lowered or "mode=memory" in lowered
+
+
 def _required_str_entry(value: str, *, required_error: str) -> dict[str, Any]:
     """Build a make_entry for a required string field, with control-char check.
 
@@ -136,8 +151,8 @@ def verify_connection(
         )
 
     if connection.backend == "sqlite":
-        if connection.path == ":memory:":
-            result["path"] = make_warn_entry(":memory:", _MEMORY_PATH_HINT)
+        if _is_memory_path(connection.path):
+            result["path"] = make_warn_entry(connection.path, _MEMORY_PATH_HINT)
         else:
             result["path"] = _required_str_entry(
                 connection.path, required_error="path must be set for sqlite"

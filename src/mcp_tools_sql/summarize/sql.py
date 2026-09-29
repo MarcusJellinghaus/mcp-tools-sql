@@ -30,8 +30,8 @@ import sqlglot
 from sqlglot import exp
 
 from mcp_tools_sql.utils.sql_placeholders import (
+    arbitrary_sql_violation,
     basic_preflight,
-    read_only_violation,
 )
 
 Category = Literal["numeric", "temporal", "string", "boolean", "other"]
@@ -175,7 +175,7 @@ def validate_where(
     Reuses the exact gate ``count_records`` applies: the predicate is wrapped in
     a synthetic ``SELECT 1 FROM <table_ref> WHERE <where>`` probe, run
     through :func:`basic_preflight` (empty / multi-statement / parse /
-    unbound-``:name`` checks) and then :func:`read_only_violation`, and only on
+    unbound-``:name`` checks) and then :func:`arbitrary_sql_violation`, and only on
     success re-extracted from the *re-parsed* statement -- the user's text is
     never echoed back into a later query. A predicate that breaks out of the
     WHERE clause into a read-only set operation (``1=1 UNION SELECT ...``)
@@ -203,7 +203,7 @@ def validate_where(
     verdict = basic_preflight(probe, params, dialect)
     if verdict is not None:
         return (None, verdict)
-    verdict = read_only_violation(probe, dialect)
+    verdict = arbitrary_sql_violation(probe, dialect)
     if verdict is not None:
         return (None, verdict)
     parsed = sqlglot.parse_one(probe, read=dialect)

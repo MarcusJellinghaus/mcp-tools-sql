@@ -158,6 +158,53 @@ async def test_write_statements_rejected_and_not_executed(
     assert backend.execute_query("SELECT COUNT(*) AS n FROM customers") == [{"n": 2}]
 
 
+@pytest.mark.asyncio
+@pytest.mark.parametrize(
+    ("sql", "function"),
+    [
+        ("SELECT * FROM OPENQUERY(srv, 'DELETE FROM t')", "OPENQUERY"),
+        ("SELECT * FROM OPENROWSET('SQLNCLI', 'srv', 'DELETE FROM t')", "OPENROWSET"),
+        (
+            "SELECT * FROM OPENDATASOURCE('SQLNCLI', 'Server=s').db.dbo.t",
+            "OPENDATASOURCE",
+        ),
+    ],
+)
+@pytest.mark.parametrize("backend_name", ["sqlite", "mssql"])
+async def test_passthrough_source_rejected_without_execution(
+    sql: str, function: str, backend_name: str
+) -> None:
+    """A linked-server pass-through is rejected: the far end is opaque.
+
+    The count wrapper re-renders the statement from its AST, which preserves
+    the ``OPENQUERY(...)`` call, so the AST read-only proof alone would ship
+    the embedded write to the linked server.
+    """
+    backend = MagicMock()
+    mcp = FastMCP("test-count-passthrough")
+    CountTools(*single_target(backend, backend_name=backend_name)).register(mcp)
+    async with create_connected_server_and_client_session(
+        mcp, raise_exceptions=True
+    ) as client:
+        text = await _call_count(client, sql)
+    assert text.startswith("Not read-only.")
+    assert function in text
+    backend.execute_readonly_query.assert_not_called()
+
+
+@pytest.mark.asyncio
+async def test_column_named_openquery_is_not_rejected(sqlite_db: Path) -> None:
+    """A column merely *named* ``openquery`` is an identifier, not a call."""
+    backend = _sqlite_backend(sqlite_db)
+    mcp = FastMCP("test-count-openquery-column")
+    CountTools(*single_target(backend)).register(mcp)
+    async with create_connected_server_and_client_session(
+        mcp, raise_exceptions=True
+    ) as client:
+        text = await _call_count(client, "SELECT name AS openquery FROM customers")
+    assert text == "2"
+
+
 # ---------------------------------------------------------------------------
 # Pre-flight parity with validate_sql
 # ---------------------------------------------------------------------------

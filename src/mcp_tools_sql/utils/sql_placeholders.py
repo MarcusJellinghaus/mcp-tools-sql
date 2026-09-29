@@ -15,8 +15,11 @@ It also hosts the shared, dialect-aware analysis helpers reused across the
 SQL-consuming tools: :func:`count_statements`,
 :func:`first_statement_kind`, :func:`has_leading_cte` (with its shared
 :data:`LEADING_CTE_REJECTION` message), and the shared :func:`basic_preflight`.
-sqlglot's :class:`~sqlglot.errors.ParseError` is re-exported so callers can
-implement the fail-closed parse contract without importing sqlglot directly.
+sqlglot's :class:`~sqlglot.errors.ParseError` and its base
+:class:`~sqlglot.errors.SqlglotError` are re-exported so callers can implement
+the fail-closed parse contract without importing sqlglot directly. Catch the
+base: sqlglot raises a sibling :class:`~sqlglot.errors.TokenError` -- not a
+``ParseError`` -- for an unterminated string literal, block comment or bracket.
 
 Note:
     Rendered SQL is produced by sqlglot's generator, not echoed verbatim
@@ -33,11 +36,13 @@ from typing import Any, cast
 
 import sqlglot
 from sqlglot import exp
-from sqlglot.errors import ParseError
+from sqlglot.errors import ParseError, SqlglotError
 
 __all__ = [
     "LEADING_CTE_REJECTION",
     "ParseError",
+    "SqlglotError",
+    "arbitrary_sql_violation",
     "basic_preflight",
     "build_count_query",
     "count_statements",
@@ -480,6 +485,39 @@ def passthrough_source_violation(sql: str, dialect: str) -> str | None:
                 "another server, which this gate cannot inspect."
             )
     return None
+
+
+def arbitrary_sql_violation(sql: str, dialect: str) -> str | None:
+    """Return a rejection message when caller-supplied ``sql`` is not read-only.
+
+    Composes the AST proof (:func:`read_only_violation`) with the pass-through
+    source guard (:func:`passthrough_source_violation`). It is the gate for the
+    tools that take arbitrary SQL straight from the caller -- ``count_records``
+    and ``summarize_columns`` -- where the AST proof alone is not enough: both
+    re-render the statement from its AST, which preserves an ``OPENQUERY(...)``
+    call and so still ships the embedded statement to the linked server.
+
+    The keyword-absorption guard is deliberately *not* composed in here. It is
+    the registration gate's extra layer over operator-authored config SQL, and
+    folding it in would change these tools' verdicts; callers that want it
+    compose it themselves (see
+    :func:`mcp_tools_sql.query_helpers.read_only_rejection`).
+
+    Unparseable SQL propagates sqlglot's error rather than returning a verdict,
+    exactly as the two composed functions do.
+
+    Args:
+        sql: The single SQL statement to inspect.
+        dialect: The sqlglot dialect to parse under (``"sqlite"`` or ``"tsql"``).
+
+    Returns:
+        A concise rejection message, or ``None`` when the statement passes both
+        gates.
+    """
+    verdict = read_only_violation(sql, dialect)
+    if verdict is None:
+        verdict = passthrough_source_violation(sql, dialect)
+    return verdict
 
 
 def has_leading_cte(sql: str, dialect: str) -> bool:

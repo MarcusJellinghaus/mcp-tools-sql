@@ -2,6 +2,8 @@
 
 from __future__ import annotations
 
+import pytest
+
 from mcp_tools_sql.backends.mssql import MSSQLBackend
 from mcp_tools_sql.backends.registry import BackendRegistry
 from mcp_tools_sql.backends.sqlite import SQLiteBackend
@@ -418,6 +420,38 @@ def test_read_only_row_fails_for_delete(
     assert row["ok"] is False
     assert row["value"] == "failed"
     assert row["error"]
+    assert result["overall_ok"] is False
+
+
+@pytest.mark.parametrize(
+    "sql",
+    [
+        "SELECT 'abc",
+        "SELECT 1 /* unterminated",
+        "SELECT [abc",
+    ],
+)
+def test_read_only_row_fails_for_untokenizable_sql(
+    sqlite_targets: ResolvedTargets,
+    sqlite_registry: BackendRegistry,
+    all_reachable: dict[tuple[str, str], bool],
+    sql: str,
+) -> None:
+    """An unterminated literal, comment or bracket is a row, not a traceback.
+
+    sqlglot raises ``TokenError`` for these -- a sibling of ``ParseError``, not
+    a subclass -- so a narrower catch would kill ``verify`` outright.
+    """
+    queries = {
+        "broken": QueryConfig(sql=sql, params={}, max_rows_default=10),
+    }
+    result = verify_queries(queries, sqlite_targets, sqlite_registry, all_reachable)
+
+    row = result["broken.read_only[sqlite]"]
+    assert row["ok"] is False
+    assert row["value"] == "failed"
+    assert "could not be parsed as sqlite" in row["error"]
+    assert "\n" not in row["error"]
     assert result["overall_ok"] is False
 
 
