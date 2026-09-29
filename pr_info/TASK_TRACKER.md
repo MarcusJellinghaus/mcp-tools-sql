@@ -59,5 +59,5 @@ This tracks **Feature Implementation** consisting of multiple **Tasks**.
 
 ## Pull Request
 
-- [ ] Code review of the full branch diff
+- [x] Code review of the full branch diff
 - [ ] PR summary prepared
