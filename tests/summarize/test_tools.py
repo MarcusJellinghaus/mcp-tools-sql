@@ -21,6 +21,14 @@ from mcp.shared.memory import create_connected_server_and_client_session
 
 from mcp_tools_sql.config.models import ResolvedTargets
 from mcp_tools_sql.summarize import SummarizeTools
+from mcp_tools_sql.summarize.render import (
+    DISTINCT_GATE_ROWS,
+    ColumnProfile,
+    distinct_gate_note,
+)
+from mcp_tools_sql.summarize.source import TYPES_PROBED_NOTE
+from mcp_tools_sql.summarize.sql import ColumnMeta
+from mcp_tools_sql.summarize.tools import _DESCRIPTION, _counts_inconsistent
 from tests.summarize.tool_helpers import call_summarize as _call_summarize
 from tests.summarize.tool_helpers import client_for as _client_for
 from tests.summarize.tool_helpers import sqlite_backend as _sqlite_backend
@@ -322,12 +330,17 @@ async def test_multi_target_selectors_omit_star(profiling_db: Path) -> None:
 # ---------------------------------------------------------------------------
 
 
-def _fake_scalar_row(n_cols: int) -> dict[str, Any]:
-    """Build a synthetic scalar-pass result row for *n_cols* numeric columns."""
+def _fake_scalar_row(n_cols: int, include_distinct: bool = True) -> dict[str, Any]:
+    """Build a synthetic scalar-pass result row for *n_cols* numeric columns.
+
+    The ``__distinct`` alias is present only when *include_distinct*, mirroring
+    the real scalar pass: a gated call never asks for ``COUNT(DISTINCT)``.
+    """
     row: dict[str, Any] = {}
     for i in range(n_cols):
         row[f"c{i}__nonnull"] = 100
-        row[f"c{i}__distinct"] = 10
+        if include_distinct:
+            row[f"c{i}__distinct"] = 10
         row[f"c{i}__min"] = 1
         row[f"c{i}__max"] = 5
         row[f"c{i}__mean"] = 3.0
@@ -341,7 +354,6 @@ def _gate_backend(n_cols: int, row_count: int) -> tuple[MagicMock, dict[str, str
     """Return a MagicMock backend and a dict that captures the scalar SQL."""
     captured: dict[str, str] = {}
     metas = [{"name": f"n{i}", "type": "INTEGER", "ordinal": i} for i in range(n_cols)]
-    scalar_row = _fake_scalar_row(n_cols)
 
     def fake(sql: str, params: dict[str, Any] | None = None) -> list[dict[str, Any]]:
         if "pragma_table_info" in sql or "INFORMATION_SCHEMA" in sql:
@@ -350,7 +362,7 @@ def _gate_backend(n_cols: int, row_count: int) -> tuple[MagicMock, dict[str, str
             return [{"row_count": row_count}]
         if "c0__nonnull" in sql:
             captured["scalar_sql"] = sql
-            return [scalar_row]
+            return [_fake_scalar_row(n_cols, include_distinct="COUNT(DISTINCT" in sql)]
         return [{"value": 1, "freq": 5}]
 
     backend = MagicMock()
@@ -360,22 +372,105 @@ def _gate_backend(n_cols: int, row_count: int) -> tuple[MagicMock, dict[str, str
 
 @pytest.mark.asyncio
 async def test_distinct_gate_triage_omits_count_distinct() -> None:
-    """A triage call above the row gate builds the scalar SQL without distinct."""
+    """A triage call above the row gate omits distinct and says so in the footer."""
     backend, captured = _gate_backend(n_cols=16, row_count=2_000_000)
     async with _client_for(backend) as client:
         out = await _call_summarize(client, "main", "big")
     assert "null_pct" in out  # rendered triage
     assert "COUNT(DISTINCT" not in captured["scalar_sql"]
+    note = (
+        "distinct counts and value lists omitted: the source exceeds "
+        "1,000,000 rows. Narrow with where=, or use sql= with a row limit."
+    )
+    # The note reads as a pair with the columns= hint: one blank line between.
+    hint = "Narrow with columns= (≤ 15 columns) for the deep per-column view."
+    assert f"{hint}\n\n{note}" in out
 
 
 @pytest.mark.asyncio
-async def test_distinct_gate_deep_never_gated() -> None:
-    """A deep call is never gated: distinct is computed even above the row gate."""
+async def test_distinct_gate_applies_to_deep_view() -> None:
+    """A deep call above the row gate omits distinct, like triage does."""
     backend, captured = _gate_backend(n_cols=3, row_count=2_000_000)
     async with _client_for(backend) as client:
         out = await _call_summarize(client, "main", "big")
-    assert "(INTEGER, numeric)" in out  # rendered deep
+    assert "(INTEGER, numeric)" in out  # still the deep view
+    assert "COUNT(DISTINCT" not in captured["scalar_sql"]
+    assert "distinct —" in out
+    assert "distinct counts and value lists omitted" in out
+
+
+@pytest.mark.asyncio
+async def test_value_lists_skipped_above_the_gate() -> None:
+    """Above the gate no per-column value list is fetched, in either view."""
+    backend, _ = _gate_backend(n_cols=3, row_count=2_000_000)
+    async with _client_for(backend) as client:
+        out = await _call_summarize(client, "main", "big")
+    sqls = [call.args[0] for call in backend.execute_readonly_query.call_args_list]
+    # Metadata lookup, then exactly the count and scalar queries -- nothing more.
+    assert len(sqls) == 3
+    assert not any("GROUP BY" in sql for sql in sqls)
+    assert "top values:" not in out
+    assert "sample values" not in out
+
+
+@pytest.mark.asyncio
+async def test_value_lists_still_fetched_below_the_gate() -> None:
+    """A deep call at or below the gate keeps its per-column value lists."""
+    backend, captured = _gate_backend(n_cols=3, row_count=1_000_000)
+    async with _client_for(backend) as client:
+        out = await _call_summarize(client, "main", "big")
     assert "COUNT(DISTINCT" in captured["scalar_sql"]
+    assert "top values:" in out
+
+
+@pytest.mark.asyncio
+async def test_no_gate_note_below_the_gate() -> None:
+    """At the gate boundary the footer carries no gate note at all."""
+    backend, _ = _gate_backend(n_cols=3, row_count=DISTINCT_GATE_ROWS)
+    async with _client_for(backend) as client:
+        out = await _call_summarize(client, "main", "big")
+    assert distinct_gate_note() not in out
+
+
+@pytest.mark.asyncio
+async def test_no_clamp_note_above_the_gate() -> None:
+    """With no value list fetched, a clamped n is not reported as clamped."""
+    backend, _ = _gate_backend(n_cols=3, row_count=2_000_000)
+    async with _client_for(backend) as client:
+        out = await _call_summarize(client, "main", "big", n=999)
+    assert "Requested n=999" not in out
+
+
+@pytest.mark.asyncio
+async def test_no_clamp_note_in_the_triage_view() -> None:
+    """Triage builds no value list either, so a clamped n is not reported."""
+    backend, _ = _gate_backend(n_cols=16, row_count=1_000)
+    async with _client_for(backend) as client:
+        out = await _call_summarize(client, "main", "big", n=999)
+    assert "null_pct" in out  # rendered triage, below the gate
+    assert "Requested n=999" not in out
+
+
+def _gate_query_backend(row_count: int) -> MagicMock:
+    """Return a MagicMock backend for a ``sql=`` source above the row gate.
+
+    The ``sql`` path resolves its columns through the value probe, so this fake
+    answers ``execute_readonly_query_with_columns`` too -- which is what makes
+    the source contribute notes of its own for the footer-order assertion.
+    """
+    backend, _ = _gate_backend(n_cols=1, row_count=row_count)
+    backend.execute_readonly_query_with_columns.return_value = (["n0"], [(1,)])
+    return backend
+
+
+@pytest.mark.asyncio
+async def test_gate_note_precedes_source_notes() -> None:
+    """The gate note leads the footer, ahead of the source's own notes."""
+    backend = _gate_query_backend(row_count=2_000_000)
+    async with _client_for(backend) as client:
+        out = await _call_summarize(client, sql="SELECT n0 FROM big")
+    assert TYPES_PROBED_NOTE in out  # the probed source contributes notes
+    assert out.index(distinct_gate_note()) < out.index(TYPES_PROBED_NOTE)
 
 
 @pytest.mark.asyncio
@@ -440,3 +535,108 @@ async def test_source_build_failure_returns_message(
     async with _client_for(backend) as client:
         out = await _call_summarize(client, "main", "t")
     assert out.startswith(prefix)
+
+
+# ---------------------------------------------------------------------------
+# Tool description — cost advice
+# ---------------------------------------------------------------------------
+
+
+def test_description_advises_where_not_columns_for_cost() -> None:
+    """The cost advice points at where=/sql=, and never at columns=."""
+    assert "so narrow with columns= on expensive" not in _DESCRIPTION
+    assert "3+N" in _DESCRIPTION
+    cost_advice = _DESCRIPTION.split("To reduce cost,")[1]
+    assert "where=" in cost_advice
+    assert "sql=" in cost_advice
+    assert "1,000,000" in _DESCRIPTION
+    assert len(_DESCRIPTION) < 1_500
+
+
+# ---------------------------------------------------------------------------
+# _counts_inconsistent: cross-query count skew detection
+# ---------------------------------------------------------------------------
+
+
+def _profile(**overrides: Any) -> ColumnProfile:
+    """Build a consistent numeric profile, overridden field by field."""
+    fields: dict[str, Any] = {
+        "meta": ColumnMeta(
+            name="qty", declared_type="INTEGER", category="numeric", ordinal=0
+        ),
+        "rows": 100,
+        "non_null": 90,
+        "distinct": 10,
+        "stats": {"zero": 3, "neg": 2},
+        "values": None,
+        "value_kind": "none",
+    }
+    fields.update(overrides)
+    return ColumnProfile(**fields)
+
+
+def test_counts_inconsistent_non_null_over_rows() -> None:
+    """A non-null tally above the row count would make nulls negative."""
+    assert _counts_inconsistent(_profile(non_null=101))
+
+
+def test_counts_inconsistent_top_frequencies_over_rows() -> None:
+    """Shown frequencies above the row count would make the remainder negative."""
+    profile = _profile(
+        rows=100, values=[("a", 80), ("b", 30)], value_kind="top", distinct=5
+    )
+    assert _counts_inconsistent(profile)
+
+
+def test_counts_inconsistent_distinct_below_shown_values() -> None:
+    """Fewer distinct values than the top list shows drops the remainder line."""
+    profile = _profile(distinct=1, values=[("a", 5), ("b", 4)], value_kind="top")
+    assert _counts_inconsistent(profile)
+
+
+def test_counts_consistent_when_distinct_equals_shown_values() -> None:
+    """distinct == shown is a list that covered every value, not skew."""
+    profile = _profile(distinct=2, values=[("a", 5), ("b", 4)], value_kind="top")
+    assert not _counts_inconsistent(profile)
+
+
+def test_counts_inconsistent_sample_longer_than_distinct() -> None:
+    """A sample list longer than the distinct count cannot be right."""
+    profile = _profile(distinct=1, values=[("a",), ("b",)], value_kind="sample")
+    assert _counts_inconsistent(profile)
+
+
+def test_counts_consistent_sample_without_distinct_count() -> None:
+    """A gated-out distinct leaves the sample-length comparison undefined."""
+    profile = _profile(distinct=None, values=[("a",), ("b",)], value_kind="sample")
+    assert not _counts_inconsistent(profile)
+
+
+@pytest.mark.parametrize("stat", ["zero", "neg", "empty", "true", "false"])
+def test_counts_inconsistent_row_bounded_stat_over_rows(stat: str) -> None:
+    """Any row-bounded stat above the row count is skew, percentage or not."""
+    assert _counts_inconsistent(_profile(rows=100, stats={stat: 101}))
+
+
+def test_counts_consistent_normal_profile_is_clean() -> None:
+    """An ordinary profile answers False, so the note stays off by default."""
+    profile = _profile(values=[("a", 50), (None, 10)], value_kind="top")
+    assert not _counts_inconsistent(profile)
+
+
+@pytest.mark.asyncio
+async def test_skew_note_reaches_the_footer() -> None:
+    """A scalar non-null above the row count puts the note in the footer."""
+    backend, _ = _gate_backend(n_cols=1, row_count=50)  # fake nonnull is 100
+    async with _client_for(backend) as client:
+        out = await _call_summarize(client, "main", "big")
+    assert "Counts from separate queries disagree" in out
+
+
+@pytest.mark.asyncio
+async def test_no_skew_note_for_a_normal_profile() -> None:
+    """Consistent counts leave the footer without the skew note."""
+    backend, _ = _gate_backend(n_cols=1, row_count=1_000)
+    async with _client_for(backend) as client:
+        out = await _call_summarize(client, "main", "big")
+    assert "Counts from separate queries disagree" not in out

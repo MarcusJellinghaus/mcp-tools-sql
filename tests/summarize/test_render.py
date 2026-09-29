@@ -15,6 +15,7 @@ from mcp_tools_sql.summarize.render import (
     _fmt_pct,
     _truncate,
     column_cap_footer,
+    distinct_gate_note,
     empty_columns_message,
     empty_filter_message,
     empty_source_message,
@@ -337,7 +338,7 @@ def test_distinct_none_blanks_cell_and_omits_remainder() -> None:
 
 
 def test_sample_distinct_none_omits_of_clause() -> None:
-    """A sample list with distinct=None drops the ``of D`` clause."""
+    """A sample list with distinct=None names only the shown count."""
     profile = ColumnProfile(
         meta=_meta("code", "varchar", "string"),
         rows=2,
@@ -350,8 +351,9 @@ def test_sample_distinct_none_omits_of_clause() -> None:
 
     out = render_deep([profile])
 
-    assert "  sample values (2 distinct values):" in out
+    assert "  sample values (2 shown):" in out
     assert " of " not in out
+    assert "distinct values" not in out  # no unmeasured count is asserted
 
 
 def test_other_block_size_line_present_and_absent() -> None:
@@ -485,20 +487,20 @@ def test_sixteen_profiles_dispatch_to_triage() -> None:
     """> 15 columns render the compact triage table, not deep blocks."""
     profiles = [_string_profile(f"c{i}") for i in range(16)]
 
-    out = render_summary(profiles, total_columns=16, distinct_gated=False)
+    out = render_summary(profiles, total_columns=16)
 
     # Triage header row from format_rows; no per-value list, no deep header.
     assert "null_pct" in out
     assert "top values" not in out
     assert "(varchar, string)" not in out
-    assert out == render_triage(profiles, 16, False)
+    assert out == render_triage(profiles, 16)
 
 
 def test_fifteen_profiles_dispatch_to_deep() -> None:
     """At the threshold (15) the deep per-column blocks render."""
     profiles = [_string_profile(f"c{i}") for i in range(15)]
 
-    out = render_summary(profiles, total_columns=15, distinct_gated=False)
+    out = render_summary(profiles, total_columns=15)
 
     assert "(varchar, string)" in out
     assert "top values" in out
@@ -509,7 +511,7 @@ def test_single_column_renders_deep_not_special_tier() -> None:
     """A 1-column call renders the same deep block, not a focus tier."""
     profiles = [_string_profile("only")]
 
-    out = render_summary(profiles, total_columns=1, distinct_gated=False)
+    out = render_summary(profiles, total_columns=1)
 
     assert out == render_deep(profiles)
     assert "(varchar, string)" in out
@@ -517,7 +519,7 @@ def test_single_column_renders_deep_not_special_tier() -> None:
 
 def test_render_summary_empty_returns_guard_sentence() -> None:
     """An empty profile list returns the defensive NO_COLUMNS_TEXT sentence."""
-    out = render_summary([], total_columns=0, distinct_gated=False)
+    out = render_summary([], total_columns=0)
 
     assert out == NO_COLUMNS_TEXT
     assert out == "No columns to profile."
@@ -528,20 +530,20 @@ def test_triage_cap_footer_reports_unshown_columns() -> None:
     """total_columns > len(profiles) appends the cap footer."""
     profiles = [_string_profile(f"c{i}") for i in range(50)]
 
-    out = render_triage(profiles, total_columns=412, distinct_gated=False)
+    out = render_triage(profiles, total_columns=412)
 
     assert "Showing 50 of 412 columns. Use columns= to select others." in out
 
 
-def test_triage_gated_blanks_distinct_and_notes_reason() -> None:
-    """distinct_gated blanks every distinct cell and states the 1M-row reason."""
-    profiles = [_string_profile(f"c{i}", distinct=999) for i in range(16)]
+def test_distinct_gate_note_wording() -> None:
+    """The gate note states reason and recovery, and names no source kind."""
+    note = distinct_gate_note()
 
-    out = render_triage(profiles, total_columns=16, distinct_gated=True)
-
-    assert "distinct omitted: table exceeds 1,000,000 rows." in out
-    assert "999" not in out  # the gated distinct value never renders
-    assert "—" in out  # distinct cells blank to the em dash
+    assert note == (
+        "distinct counts and value lists omitted: the source exceeds "
+        "1,000,000 rows. Narrow with where=, or use sql= with a row limit."
+    )
+    assert "table" not in note
 
 
 def test_triage_shows_value_min_max_per_category() -> None:
@@ -573,9 +575,7 @@ def test_triage_shows_value_min_max_per_category() -> None:
     )
     string = _string_profile("label")
 
-    out = render_triage(
-        [numeric, temporal, string], total_columns=3, distinct_gated=False
-    )
+    out = render_triage([numeric, temporal, string], total_columns=3)
 
     assert "1,000,000" in out  # numeric value max, separator applied
     assert "2020-01-01" in out and "2024-12-31" in out  # temporal bounds verbatim
@@ -608,7 +608,7 @@ def test_triage_truncates_long_value_min_max() -> None:
         value_kind="none",
     )
 
-    out = render_triage([profile], total_columns=1, distinct_gated=False)
+    out = render_triage([profile], total_columns=1)
 
     assert "a" * 60 + "…" in out
     assert "z" * 60 + "…" in out
@@ -637,7 +637,7 @@ def test_triage_boolean_and_other_blank_absent_min_max() -> None:
         value_kind="none",
     )
 
-    out = render_triage([boolean, other], total_columns=2, distinct_gated=False)
+    out = render_triage([boolean, other], total_columns=2)
 
     assert "—" in out  # blanked min/max cells
     assert "None" not in out
@@ -655,7 +655,7 @@ def test_triage_ungated_none_distinct_blanks_without_literal_none() -> None:
         value_kind="none",
     )
 
-    out = render_triage([other], total_columns=1, distinct_gated=False)
+    out = render_triage([other], total_columns=1)
 
     assert "—" in out
     assert "None" not in out  # the literal None never reaches tabulate

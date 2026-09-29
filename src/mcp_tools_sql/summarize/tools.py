@@ -12,7 +12,8 @@ The per-call ``core`` resolves the profiling source (``summarize/source.py``)
 -- a persisted table from ``schema``+``table``, or an arbitrary read-only
 SELECT from ``sql``, never both -- and then runs the pipeline: column
 narrow/cap -> filtered ``COUNT(*)`` short-circuit -> single scalar-aggregate
-pass -> per-column value lists (deep view only) -> :func:`render_summary`.
+pass -> per-column value lists (deep view only, and only at or below the
+row-count gate) -> :func:`render_summary`.
 Source resolution runs a backend query of its own (the catalog lookup on the
 table path, the value probe on the ``sql`` path), so it sits *inside* the same
 exception tail as the rest: a source that parses but cannot be resolved by the
@@ -39,9 +40,11 @@ from mcp_tools_sql.summarize.render import (
     DISTINCT_GATE_ROWS,
     TRIAGE_THRESHOLD,
     ColumnProfile,
+    distinct_gate_note,
     empty_columns_message,
     empty_filter_message,
     empty_source_message,
+    inconsistent_counts_note,
     render_summary,
     unknown_columns_message,
 )
@@ -81,11 +84,15 @@ _DESCRIPTION = (
     "read-only where predicate; the predicate must use :name placeholders "
     "for values, bound via params (never inline literals). With sql, the "
     "where predicate is applied OUTSIDE the query, so it can filter computed "
-    "and aggregated columns. The source is executed once per profiled column "
-    "plus three times, so narrow with columns= on expensive queries. Returns "
-    "a formatted text block; sources wider than 15 profiled columns render a "
-    "compact one-line-per-column triage instead. n sets the value-list "
-    "length (default 20, clamped to 1..50)."
+    "and aggregated columns. Returns a formatted text block; sources wider "
+    "than 15 profiled columns render a compact one-line-per-column triage "
+    "instead. At 15 or fewer profiled columns you also get per-column value "
+    "lists, one extra execution of the source per column (3 queries become "
+    "3+N), so columns= trades breadth for depth rather than reducing cost. "
+    "To reduce cost, filter with where=, or profile a subset with sql= "
+    f"carrying its own row limit. Above {DISTINCT_GATE_ROWS:,} rows distinct "
+    "counts and value lists are omitted. n sets the value-list length "
+    "(default 20, clamped to 1..50)."
 )
 
 # One message for every way the source choice can be wrong -- both supplied,
@@ -264,6 +271,41 @@ def _split_stats(
     return (non_null, distinct, col_stats)
 
 
+# Stats counted by the scalar query but percentaged against ``rows`` from the
+# count query, so the same skew pushes them over their own denominator.
+_ROW_BOUNDED_STATS: tuple[str, ...] = ("zero", "neg", "empty", "true", "false")
+
+
+def _counts_inconsistent(p: ColumnProfile) -> bool:
+    """Whether a profile's counts disagree across the queries that produced them.
+
+    Read before rendering, once per profiled column; :func:`_run` appends
+    :func:`inconsistent_counts_note` when any column answers ``True``. Pure -- it
+    takes the assembled profile and returns a bool, so no flag travels out of a
+    renderer and the loop keeps no accumulator.
+
+    Args:
+        p: The assembled profile for one column.
+
+    Returns:
+        ``True`` when at least one count exceeds the total it is part of.
+    """
+    if p.non_null > p.rows:
+        return True
+    if any((p.stats.get(key) or 0) > p.rows for key in _ROW_BOUNDED_STATS):
+        return True
+    if p.values:
+        if p.value_kind == "top":
+            if sum(freq for _, freq in p.values) > p.rows:
+                return True
+            shown = len([value for value, _ in p.values if value is not None])
+            return p.distinct is not None and p.distinct < shown
+        # A sample list is distinct non-null values, so it cannot be longer than
+        # the distinct count; ``distinct is None`` leaves the comparison undefined.
+        return p.distinct is not None and len(p.values) > p.distinct
+    return False
+
+
 class SummarizeTools:
     """Registers the ``summarize_columns`` tool on an MCP server."""
 
@@ -413,7 +455,10 @@ def _run(
         return empty_source_message(source.label)
 
     view = "triage" if len(profiled) > TRIAGE_THRESHOLD else "deep"
-    include_distinct = view == "deep" or rows <= DISTINCT_GATE_ROWS
+    # One row-count gate, independent of the view: above it the source gets the
+    # count and scalar queries only -- no COUNT(DISTINCT), no per-column value
+    # lists. Narrowing with columns= cannot switch it back on.
+    include_distinct = rows <= DISTINCT_GATE_ROWS
     scalar_row = backend.execute_readonly_query(
         build_scalar_sql(
             profiled, table_ref, predicate, dialect, include_distinct=include_distinct
@@ -427,10 +472,17 @@ def _run(
         non_null, distinct, col_stats = _split_stats(scalar_row, idx)
         value_kind: Literal["top", "sample", "none"] = "none"
         values: list[tuple[Any, ...]] | None = None
-        if view == "deep" and meta.category != "other" and non_null > 0:
-            value_kind = (
-                "top" if distinct is not None and distinct < non_null else "sample"
-            )
+        if (
+            include_distinct
+            and view == "deep"
+            and meta.category != "other"
+            and non_null > 0
+        ):
+            # include_distinct plus a non-``other`` category means the scalar
+            # pass measured the distinct count, so the shape is a real choice
+            # between duplication ("top") and every value unique ("sample").
+            assert distinct is not None
+            value_kind = "top" if distinct < non_null else "sample"
             vl_rows = backend.execute_readonly_query(
                 build_value_list_sql(
                     meta, table_ref, predicate, clamped_n, dialect, kind=value_kind
@@ -452,14 +504,21 @@ def _run(
                 value_kind=value_kind,
             )
         )
-    summary = render_summary(
-        profiles, total_columns, distinct_gated=not include_distinct
-    )
-    # Call-level notes and the clamp note share one trailing block, so the
-    # renderers keep their signatures. A table source contributes no notes, so
-    # this is the clamp note alone -- exactly what it was before.
-    footer = [*source.notes]
-    if clamp_note:
+    summary = render_summary(profiles, total_columns)
+    # Every call-level note shares one trailing block, in a fixed order: the
+    # gate note, the skew note, then the source's own notes, then the clamp
+    # note. A table source contributes no notes of its own.
+    footer: list[str] = []
+    if not include_distinct:
+        footer.append(distinct_gate_note())
+    # One note per call however many columns skew; it names no columns.
+    if any(_counts_inconsistent(p) for p in profiles):
+        footer.append(inconsistent_counts_note())
+    footer.extend(source.notes)
+    # n only ever sets a value-list length, so the clamp is reported only when a
+    # value list was actually built -- above the gate, in the triage view, and
+    # for an ``other``-only source there is nothing it could have clamped.
+    if clamp_note and any(p.value_kind != "none" for p in profiles):
         footer.append(clamp_note)
     if footer:
         return f"{summary}\n\n" + "\n".join(footer)

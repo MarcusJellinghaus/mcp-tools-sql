@@ -407,6 +407,20 @@ async def test_wide_source_renders_triage_with_notes_after_footers(
 
 
 @pytest.mark.asyncio
+async def test_footer_order_source_notes_then_clamp_note(profiling_db: Path) -> None:
+    """source.notes precede the clamp note, which stays last.
+
+    The only case carrying both: a ``sql=`` source contributes the probe notes,
+    and ``n=999`` contributes the clamp note.
+    """
+    backend = sqlite_backend(profiling_db)
+    async with client_for(backend) as client:
+        out = await call_summarize(client, sql="SELECT qty FROM profile_me", n=999)
+    assert out.index(TYPES_PROBED_NOTE) < out.index("Requested n=999")
+    assert out.endswith("Requested n=999 exceeds the maximum 50; using 50.")
+
+
+@pytest.mark.asyncio
 async def test_table_path_output_is_unchanged(profiling_db: Path) -> None:
     """The ``schema``/``table`` path renders byte-identically -- no stray footer.
 

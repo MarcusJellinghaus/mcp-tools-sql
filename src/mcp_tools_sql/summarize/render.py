@@ -38,7 +38,8 @@ _VALUE_DISPLAY_CAP: int = 60
 _FLOAT_STAT_DECIMALS: int = 1
 
 # Blank cell rendered when a stat is absent (all-null min/max) or a distinct
-# count was gated out of triage (``ColumnProfile.distinct is None``).
+# count was gated out by the row gate, in either view
+# (``ColumnProfile.distinct is None``).
 _BLANK = "—"  # em dash
 
 # Column-count threshold: a call profiling *more* than this many columns renders
@@ -50,8 +51,9 @@ TRIAGE_THRESHOLD: int = 15
 # appends a footer directing the caller to ``columns=`` for any beyond the cap.
 COLUMN_CAP: int = 50
 
-# Row-count ceiling above which triage omits ``COUNT(DISTINCT)`` (too costly on a
-# large table); the distinct cells blank and the footer states the reason.
+# Row-count ceiling above which both views omit ``COUNT(DISTINCT)`` and the
+# per-column value lists (too costly on a large table); the distinct cells blank
+# and the footer states the reason.
 DISTINCT_GATE_ROWS: int = 1_000_000
 
 # Defensive guard returned by :func:`render_summary` for an unexpectedly empty
@@ -64,9 +66,9 @@ class ColumnProfile:
     """Fully-assembled profiling result for one column, ready to render.
 
     Built in ``tools.py`` from the metadata query, the scalar-aggregate pass,
-    and (deep view only) the per-column value-list query. Consumed by the
-    renderers here and in the triage view; the renderers never re-derive any
-    number from a backend.
+    and -- in either view, when the row gate allows it -- the per-column
+    value-list query. Consumed by the renderers here and in the triage view;
+    the renderers never re-derive any number from a backend.
 
     Attributes:
         meta: The column's metadata (declared casing / type / category /
@@ -76,7 +78,7 @@ class ColumnProfile:
         non_null: ``COUNT(c)`` -- non-null tally; ``nulls`` is ``rows -
             non_null``.
         distinct: ``COUNT(DISTINCT c)``, or ``None`` when the distinct count was
-            gated out (triage over a large table) or is inapplicable (``other``
+            gated out by the row gate, in either view, or is inapplicable (``other``
             / LOB columns). A ``None`` renders as a blank cell and suppresses the
             top-values remainder arithmetic.
         stats: Category-specific aggregates keyed by stat suffix (``min``,
@@ -88,7 +90,8 @@ class ColumnProfile:
             the SQL ``LIMIT`` / ``TOP``. ``None`` when no list was fetched.
         value_kind: ``"top"`` (frequency-ranked, has duplicates), ``"sample"``
             (distinct non-null values, every count 1), or ``"none"`` (no list:
-            all-NULL columns and every ``other`` / binary column).
+            all-NULL columns, every ``other`` / binary column, and every column
+            in a call gated out by the row gate).
     """
 
     meta: ColumnMeta
@@ -126,6 +129,22 @@ def _fmt_pct(part: int, whole: int) -> str:
     if whole == 0:
         return "(0.0%)"
     return f"({part / whole * 100:.1f}%)"
+
+
+def _clamp0(n: int) -> int:
+    """Floor a count at zero.
+
+    The profiling pipeline runs its count, scalar and value-list queries
+    separately with no snapshot, so a concurrent write between them can make a
+    difference of two counts negative (``rows`` from one query, ``non_null`` or
+    a frequency sum from another). Printing ``nulls -3`` would be worse than
+    printing ``0``; ``tools.py`` detects the same skew and appends a footer note
+    saying the counts disagreed.
+
+    Returns:
+        ``n``, or ``0`` when ``n`` is negative.
+    """
+    return max(0, n)
 
 
 def _truncate(value: Any) -> str:
@@ -321,7 +340,8 @@ def _render_values(p: ColumnProfile) -> list[str]:
     For a ``sample`` list: a header naming the shown count and (when known) the
     distinct total, then the values with no counts. The shown count is
     ``len(p.values)`` -- the rows the SQL actually returned, already capped --
-    never a requested ``n``.
+    never a requested ``n``. With ``distinct`` unknown the header names the shown
+    count alone, since there is no distinct total to name.
 
     Args:
         p: The profile whose value list to render.
@@ -343,7 +363,7 @@ def _render_values(p: ColumnProfile) -> list[str]:
             )
         if p.distinct is not None:
             rem_vals = p.distinct - shown_nonnull_distinct
-            rem_rows = rows - shown_rows
+            rem_rows = _clamp0(rows - shown_rows)
             if rem_vals > 0:
                 lines.append(
                     f"    … {_fmt_int(rem_vals)} other values, "
@@ -357,7 +377,7 @@ def _render_values(p: ColumnProfile) -> list[str]:
             f" distinct — every value unique):"
         )
     else:
-        header = f"  sample values ({_fmt_int(len(values))} distinct values):"
+        header = f"  sample values ({_fmt_int(len(values))} shown):"
     lines = [header]
     for row in values:
         lines.append(f"    {_truncate(row[0])}")
@@ -378,7 +398,7 @@ def _render_block(p: ColumnProfile) -> str:
         The block as a single newline-joined string (no trailing blank line).
     """
     meta = p.meta
-    nulls = p.rows - p.non_null
+    nulls = _clamp0(p.rows - p.non_null)
     note = f" — {meta.note}" if meta.note else ""
     lines = [f"{meta.name}  ({meta.declared_type}, {meta.category}{note})"]
     lines += _STAT_DISPATCH[meta.category](p, p.rows, nulls)
@@ -420,17 +440,15 @@ def _pct_cell(part: int, whole: int) -> str:
     return f"{part / whole * 100:.1f}%"
 
 
-def render_triage(
-    profiles: list[ColumnProfile], total_columns: int, distinct_gated: bool
-) -> str:
+def render_triage(profiles: list[ColumnProfile], total_columns: int) -> str:
     """Render the compact triage view: one tabular line per profiled column.
 
     Each column contributes a row with its name, declared type, null
     percentage, distinct count, and value min/max -- no value lists. The
-    ``distinct`` cell blanks to :data:`_BLANK` whenever it is unknown: the whole
-    view is gated (``distinct_gated``), or an individual profile carries
-    ``distinct is None`` (``other`` / LOB columns, which cannot be counted
-    distinctly). ``min`` / ``max`` blank the same way when the scalar pass did
+    ``distinct`` cell blanks to :data:`_BLANK` whenever the profile carries
+    ``distinct is None`` -- an ``other`` / LOB column, which cannot be counted
+    distinctly, or a call above the row gate, where the scalar pass never asked
+    for it. ``min`` / ``max`` blank the same way when the scalar pass did
     not compute them (boolean and other columns), and are truncated to
     :data:`_VALUE_DISPLAY_CAP` characters -- string value bounds surface only
     here, and one long value would pad every row of the table. The literal
@@ -438,9 +456,8 @@ def render_triage(
     through a blanking helper.
 
     Footers: a column-cap notice when ``total_columns`` exceeds the number of
-    profiles shown, a hint that a narrowed ``columns=`` call yields the deep
-    per-column view, and -- when gated -- the row-count reason distinct was
-    omitted.
+    profiles shown, and a hint that a narrowed ``columns=`` call yields the deep
+    per-column view.
 
     Args:
         profiles: The profiled columns, in output order (already capped).
@@ -448,21 +465,19 @@ def render_triage(
             -- the table's full profilable column count for an unfiltered call,
             or the requested count when ``columns=`` narrowed it (for the cap
             footer).
-        distinct_gated: Whether the distinct count was gated out for the whole
-            call (large table).
 
     Returns:
         The rendered triage view as a single string.
     """
     rows: list[dict[str, Any]] = []
     for p in profiles:
-        nulls = p.rows - p.non_null
+        nulls = _clamp0(p.rows - p.non_null)
         rows.append(
             {
                 "name": p.meta.name,
                 "type": p.meta.declared_type,
                 "null_pct": _pct_cell(nulls, p.rows),
-                "distinct": _BLANK if distinct_gated else _fmt_stat(p.distinct),
+                "distinct": _fmt_stat(p.distinct),
                 "min": _truncate(_fmt_stat(p.stats.get("min"))),
                 "max": _truncate(_fmt_stat(p.stats.get("max"))),
             }
@@ -476,16 +491,10 @@ def render_triage(
         f"Narrow with columns= (≤ {TRIAGE_THRESHOLD} columns) for the deep "
         "per-column view."
     )
-    if distinct_gated:
-        footers.append(
-            f"distinct omitted: table exceeds {_fmt_int(DISTINCT_GATE_ROWS)} rows."
-        )
     return table + "\n\n" + "\n".join(footers)
 
 
-def render_summary(
-    profiles: list[ColumnProfile], total_columns: int, distinct_gated: bool
-) -> str:
+def render_summary(profiles: list[ColumnProfile], total_columns: int) -> str:
     """Dispatch to the triage or deep renderer on the column-count threshold.
 
     More than :data:`TRIAGE_THRESHOLD` profiles render the compact triage view;
@@ -501,7 +510,6 @@ def render_summary(
             -- the table's full profilable column count for an unfiltered call,
             or the requested count when ``columns=`` narrowed it (triage cap
             footer).
-        distinct_gated: Whether the distinct count was gated out (triage).
 
     Returns:
         The rendered summary as a single string.
@@ -509,8 +517,48 @@ def render_summary(
     if not profiles:
         return NO_COLUMNS_TEXT
     if len(profiles) > TRIAGE_THRESHOLD:
-        return render_triage(profiles, total_columns, distinct_gated)
+        return render_triage(profiles, total_columns)
     return render_deep(profiles)
+
+
+def distinct_gate_note() -> str:
+    """Footer note for a source above the row gate.
+
+    One sentence carrying reason and recovery together: the reader who hits the
+    gate is looking at the footer, not at the tool description. Source-kind
+    neutral -- it says "source", not "table", because a ``sql=`` source hits the
+    same gate. Lives here, not in ``tools.py``, so :data:`DISTINCT_GATE_ROWS`
+    stays used in its own module and is read through :func:`_fmt_int` rather than
+    hardcoded.
+
+    Returns:
+        The distinct-gate footer note.
+    """
+    return (
+        f"distinct counts and value lists omitted: the source exceeds "
+        f"{_fmt_int(DISTINCT_GATE_ROWS)} rows. "
+        "Narrow with where=, or use sql= with a row limit."
+    )
+
+
+def inconsistent_counts_note() -> str:
+    """Footer note for a profile whose counts disagree with each other.
+
+    The pipeline runs its count, scalar and value-list queries separately with no
+    snapshot, so one query's total can land below another query's part -- a
+    concurrent write, or a ``sql=`` source that returns different rows each time
+    it is re-executed. ``render.py`` clamps the arithmetic at zero
+    (:func:`_clamp0`); this note is what tells the reader that a printed zero
+    remainder -- or an absent remainder line -- is that skew rather than the data.
+    Source-kind neutral in its wording, like :func:`distinct_gate_note`.
+
+    Returns:
+        The inconsistent-counts footer note.
+    """
+    return (
+        "Counts from separate queries disagree: the source did not return the "
+        "same rows to every query, so some totals above are approximate."
+    )
 
 
 def empty_source_message(label: str | None) -> str:
