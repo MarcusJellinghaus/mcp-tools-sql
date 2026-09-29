@@ -85,9 +85,14 @@ emit today — once per `validate_sql` call on MSSQL. Intended, not a regression
    `pyodbc.connect` has no handler.
 2. Extend `test_connect_logs_redacted_conn_string` (lines 536-552) to parametrize
    over `LEAKY_PASSWORDS` and assert `assert_no_leak(line, pw)` alongside the
-   existing `"PWD=***" in line`. As written today it uses `supersecret` and passes
-   against the unfixed code, so it certifies nothing.
-3. Confirm both fail, then extract `_open_connection` and wire up both call sites.
+   existing `"PWD=***" in line`. This is **green before this step**: step 1 made
+   `_sanitize` strip the escaped form, and the attempt log at `mssql.py:131-134`
+   already runs through `_sanitize`. Keep it as a regression guard for routing
+   the log through `build_sanitized_connection_string` — do not expect it to
+   fail, and do not weaken it to manufacture a failure.
+3. Confirm item 1 is red — it is the only red test in this step; the bare
+   `pyodbc.connect` in `get_isolated_connection` has no handler. Then extract
+   `_open_connection` and wire up both call sites.
 4. Update docstrings: `connect`'s `Raises:` block, and
    `get_isolated_connection`'s — it gains the redaction guarantee and the debug
    line.
@@ -120,7 +125,11 @@ Finally, delete `.scratch/` if any probe was written, and tick the step off in
 > In `tests/backends/test_mssql.py`, add a parametrized redaction test for a
 > failing `get_isolated_connection` to `TestIsolatedConnection`, and parametrize
 > `test_connect_logs_redacted_conn_string` over `LEAKY_PASSWORDS` with
-> `assert_no_leak`. Confirm both fail before implementing.
+> `assert_no_leak`. Only the isolated-connection test is red before you
+> implement — confirm that one fails. The attempt-log test is already green
+> because step 1 fixed `_sanitize`; it is a regression guard for routing the log
+> through `build_sanitized_connection_string`, so keep it green, do not weaken
+> it to force a failure.
 >
 > Do not touch `src/mcp_tools_sql/validation_tools.py` — the fix belongs in the
 > backend, which owns the credential.

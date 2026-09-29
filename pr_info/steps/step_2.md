@@ -6,6 +6,23 @@ See [summary.md](./summary.md) for context. Depends on step 1 (uses
 Scope: the display/report connection string. The connect-attempt log and the
 shared connect helper are step 3.
 
+**This step is a pure structural refactor — no behaviour changes, and no test
+is red.** Step 1 already closed the display-string leak:
+`build_sanitized_connection_string` is
+`_sanitize(_build_connection_string(config), password)`, and after step 1
+`_sanitize` strips `_odbc_escape(password)` — exactly the form the built string
+contains. The empty-password case also already renders bare `PWD=` today,
+because `_sanitize` short-circuits on an empty password.
+
+What this step changes is *how* the guarantee is obtained: the display string
+stops depending on the password surviving escaping as a recognisable substring,
+which is the fragile assumption that let the bug ship. The tests added here are
+therefore characterization tests — written first, green before and after, and
+they must stay green across the implementation swap. The empty-password case is
+a genuinely new *assertion* (nothing covers it today) but not new behaviour;
+without it the refactor could silently start emitting `PWD=***` for an unset
+credential.
+
 ## WHERE
 
 - `src/mcp_tools_sql/backends/mssql.py` — `build_sanitized_connection_string`
@@ -52,6 +69,11 @@ emitted at all and the result is identical to `_build_connection_string(config)`
 
 ## TDD
 
+Nothing here is red before the implementation change — see the note at the top
+of this file. Write the tests first anyway and confirm they are **green against
+the step-1 code**; that is what makes them a usable safety net for the swap. The
+red-first case for this defect is step 1's `TestSanitize::a}b`.
+
 1. **Rewrite** `test_rest_of_string_matches_raw` (lines 261-276). Its current
    `sanitized == raw.replace("secret", "***")` assertion *is* the substring
    assumption being removed — note it would stay green untouched, because
@@ -68,10 +90,13 @@ emitted at all and the result is identical to `_build_connection_string(config)`
 
    (This config has no semicolons inside any value, so splitting is safe.)
 2. Add a parametrized test over `LEAKY_PASSWORDS`: build the sanitized string,
-   assert `assert_no_leak(s, pw)` and `"PWD=***" in s`. The `a}b` case fails
-   against the current implementation — confirm that before implementing.
+   assert `assert_no_leak(s, pw)` and `"PWD=***" in s`. This is green against
+   the step-1 code for every case, `a}b` included — it pins the guarantee so the
+   swap to structural building cannot weaken it.
 3. Add `test_empty_password_renders_bare_pwd`: `_cfg(password="")` with
-   `trusted_connection=False` → `"PWD=" in s` and `"PWD=***" not in s`.
+   `trusted_connection=False` → `"PWD=" in s` and `"PWD=***" not in s`. Also
+   green today (`_sanitize` short-circuits on an empty password), but untested
+   until now, and the branch the new conditional has to reproduce.
 4. Apply the implementation change; update the docstring — it currently describes
    the replace-after-build behaviour, which is what is going away.
 5. Re-run; all green. `test_password_replaced_with_stars` and
@@ -97,7 +122,11 @@ Commit: tests + implementation together.
 > In `tests/backends/test_mssql.py`, rewrite `test_rest_of_string_matches_raw` as
 > a split-and-compare, add a parametrized leak test over `LEAKY_PASSWORDS` using
 > `assert_no_leak`, and add an empty-password test asserting a bare `PWD=`.
-> Confirm the `a}b` case fails before implementing.
+>
+> This step is a refactor: no test is red beforehand, because step 1 already
+> closed the leak by value-based means. Write the tests first and confirm they
+> are green against the step-1 code, then swap the implementation and confirm
+> they are still green.
 >
 > Do **not** change `_build_connection_string`'s signature — that would force
 > edits to ~14 test call sites for no benefit. Do not touch `connect` or

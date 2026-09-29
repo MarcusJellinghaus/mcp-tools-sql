@@ -96,12 +96,34 @@ No new modules, packages, or folders. No public signature changes:
 Three steps, one commit each, each independently green.
 
 1. **[step_1.md](./step_1.md)** — `_sanitize` also redacts the ODBC-escaped
-   password form. Introduces the shared test helper.
+   password form. Introduces the shared test helper. *Behaviour change; red
+   first.*
 2. **[step_2.md](./step_2.md)** — `build_sanitized_connection_string` builds
-   structurally from a placeholder config.
+   structurally from a placeholder config. *Refactor; no red test.*
 3. **[step_3.md](./step_3.md)** — `_open_connection()` shared by both connect
    sites; routes the attempt log through the structural builder and gives
-   `get_isolated_connection` the redacting handler.
+   `get_isolated_connection` the redacting handler. *Behaviour change; red
+   first.*
 
-Order matters: step 3's attempt-log assertion depends on step 2's structural
-builder, and both later steps use the helper added in step 1.
+Order matters, but not for the reason the shape of the plan suggests. Step 1 is
+first because it is what actually closes defect 1 everywhere: all three uses of
+the substring redaction — the display string, the attempt log, and the driver
+error text — go through `_sanitize`, so teaching it the escaped form fixes the
+leak at every one of them in a single commit. That is also why it is the only
+step with a red test for defect 1.
+
+Steps 2 and 3 then depend on step 1 rather than on each other for correctness:
+
+- Step 2 is a refactor. It replaces a value-based guarantee with a structural
+  one so the display string no longer relies on the password surviving escaping
+  as a recognisable substring. Nothing is red; its tests are characterization
+  tests that must be green before and after.
+- Step 3 carries the second defect (`get_isolated_connection` connecting bare),
+  which is independent of steps 1 and 2 and is the one red test in that step.
+  Its attempt-log assertion is already green after step 1. Step 3 is placed last
+  only so that when `_open_connection` routes the attempt log through
+  `build_sanitized_connection_string`, that function is already structural —
+  otherwise the log's guarantee would silently revert to substring-based.
+
+Both later steps use the `LEAKY_PASSWORDS` / `assert_no_leak` helper added in
+step 1, which is the one hard ordering constraint.
