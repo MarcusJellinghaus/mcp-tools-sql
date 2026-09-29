@@ -65,3 +65,25 @@ def make_skipped_entry(connection: str) -> dict[str, Any]:
     entry = make_entry(ok=True, value=f"skipped (connection {connection} unreachable)")
     entry["warn"] = True
     return entry
+
+
+def make_skipped_not_read_only_entry() -> dict[str, Any]:
+    """Build a WARN entry for an EXPLAIN skipped because the query is rejected.
+
+    The ``<name>.sql`` EXPLAIN probe would otherwise send the database operator
+    the very SQL the read-only gate is about to refuse, and report the
+    database's complaint about it rather than the real reason the query is bad.
+    Rendered as ``[WARN]`` for the same reason as :func:`make_skipped_entry`:
+    the query's own ``read_only`` row already records the error, so this row
+    must not flip the exit code a second time.
+
+    Returns:
+        A verifier entry dict with ``warn`` set.
+    """
+    entry = make_entry(
+        ok=True,
+        value="(skipped)",
+        error="not read-only; see the read_only row",
+    )
+    entry["warn"] = True
+    return entry

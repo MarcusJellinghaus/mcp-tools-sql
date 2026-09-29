@@ -269,6 +269,30 @@ def test_validate_where_missing_param_verdict() -> None:
     assert "missing parameter" in error.lower()
 
 
+@pytest.mark.parametrize(
+    "where",
+    [
+        "x = 'abc",  # unterminated string literal
+        "x = 1 /* unterminated",  # unterminated block comment
+        "x = [abc",  # unterminated bracket
+    ],
+)
+def test_validate_where_untokenizable_verdict(where: str) -> None:
+    """An unterminated literal, comment or bracket is a verdict, not a raise.
+
+    sqlglot raises ``TokenError`` for these -- a sibling of ``ParseError``, not
+    a subclass -- so a narrower catch in ``basic_preflight`` would let it
+    escape out of ``summarize``.
+    """
+    from mcp_tools_sql.summarize.sql import build_table_ref, validate_where
+
+    ref = build_table_ref("dbo", "t", "sqlite")
+    predicate, error = validate_where(where, ref, None, "sqlite")
+    assert predicate is None
+    assert error is not None
+    assert error.startswith("Invalid SQL. TokenError (SQL parsed as sqlite): ")
+
+
 def test_validate_where_against_a_derived_table_source() -> None:
     """A subquery ref builds the probe from the rendered derived table.
 

@@ -30,6 +30,7 @@ Note:
 from __future__ import annotations
 
 import math
+import re
 from datetime import date, datetime
 from decimal import Decimal
 from typing import Any, cast
@@ -52,9 +53,30 @@ __all__ = [
     "keyword_absorption_violation",
     "passthrough_source_violation",
     "read_only_violation",
+    "single_line",
     "substitute_named_with_literals",
     "translate_named_to_qmark",
 ]
+
+_ANSI_ESCAPE_RE = re.compile(r"\x1b\[[0-9;]*[A-Za-z]")
+
+
+def single_line(text: str) -> str:
+    """Return ``text`` with ANSI escapes stripped and whitespace collapsed.
+
+    sqlglot's ``ParseError`` text carries the offending SQL on a second line,
+    underlined with ANSI escapes. Rejection and pre-flight messages are
+    rendered as one ``verify`` row, one tool verdict and one warning log line,
+    so neither the newline nor the terminal control codes survive.
+
+    The name is deliberately public: it is imported across modules, and a
+    leading underscore would make every such import a private-name access.
+
+    Returns:
+        The text as a single line, free of terminal control codes.
+    """
+    return " ".join(_ANSI_ESCAPE_RE.sub("", text).split())
+
 
 # Session-control statements rejected by callers that disallow session state.
 _SESSION_STATEMENT_KEYWORDS = frozenset({"USE", "SET", "DECLARE"})
@@ -348,6 +370,13 @@ def basic_preflight(
     (``USE``/``SET``/``DECLARE``) check -- callers that need that layer it on
     top (see :func:`mcp_tools_sql.validation_tools._preflight`).
 
+    The parse contract catches ``SqlglotError``, not just ``ParseError``: an
+    unterminated string literal, block comment or bracket raises a sibling
+    ``TokenError``, which would otherwise escape as an exception out of the
+    tool instead of the verdict every other malformed input produces. The
+    exception class is read off the raised exception so the verdict still
+    names ``ParseError`` when that is what happened.
+
     Args:
         sql: The SQL text to validate.
         params: Bound values for ``:name`` placeholders, or ``None``.
@@ -361,8 +390,9 @@ def basic_preflight(
         return "Invalid SQL. ValidationError: empty SQL"
     try:
         statement_count = count_statements(sql, dialect)
-    except ParseError as exc:
-        return f"Invalid SQL. ParseError (SQL parsed as {dialect}): {exc}"
+    except SqlglotError as exc:
+        detail = single_line(str(exc))
+        return f"Invalid SQL. {type(exc).__name__} (SQL parsed as {dialect}): {detail}"
     if statement_count > 1:
         return "Invalid SQL. ValidationError: multiple statements not supported"
     missing = extract_param_names(sql, dialect) - (params or {}).keys()

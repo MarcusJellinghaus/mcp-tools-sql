@@ -12,6 +12,7 @@ from mcp_tools_sql.query_helpers import extract_sql_params, read_only_rejection
 from mcp_tools_sql.verification._helpers import (
     make_entry,
     make_skipped_entry,
+    make_skipped_not_read_only_entry,
     make_warn_entry,
 )
 
@@ -143,7 +144,10 @@ def verify_one_query(
     that target's connection is reachable, EXPLAINs the SQL against the
     registry-owned backend. When the target is unreachable the ``<name>.sql``
     row is a skip row naming the connection (the static ``params`` /
-    ``max_rows_default`` / ``max_rows_hard`` checks always run). An
+    ``max_rows_default`` / ``max_rows_hard`` checks always run). A query whose
+    pinned variant is not provably read-only is never EXPLAINed at all: its
+    ``<name>.sql`` row is a ``(skipped)`` warn row, and the ``read_only`` row
+    carries the reason. An
     unresolvable pin (bad connection/database) yields error rows.
 
     Returns:
@@ -175,7 +179,15 @@ def verify_one_query(
 
     sql = qcfg.resolve_sql(target.backend_name)
 
-    if reachable.get((target.connection, target.database), False):
+    # The read-only verdict is computed first so a rejected query is never
+    # EXPLAINed: the probe would send the operator SQL the gate refuses, and
+    # the row would report the database's complaint instead of the real reason.
+    read_only_rows = _read_only_rows(name, qcfg, target.backend_name)
+    pinned_row = read_only_rows[f"{name}.read_only[{target.backend_name}]"]
+
+    if not pinned_row["ok"]:
+        result[f"{name}.sql"] = make_skipped_not_read_only_entry()
+    elif reachable.get((target.connection, target.database), False):
         backend = registry.backend_for(target)
         ok, err = _check_sql_explain(sql, qcfg.params, target.backend_name, backend)
         result[f"{name}.sql"] = make_entry(
@@ -186,7 +198,7 @@ def verify_one_query(
     else:
         result[f"{name}.sql"] = make_skipped_entry(target.connection)
 
-    result.update(_read_only_rows(name, qcfg, target.backend_name))
+    result.update(read_only_rows)
 
     ok, err = _check_params_well_formed(sql, qcfg.params)
     result[f"{name}.params"] = make_entry(

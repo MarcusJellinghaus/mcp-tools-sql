@@ -2,6 +2,8 @@
 
 from __future__ import annotations
 
+from unittest.mock import MagicMock
+
 import pytest
 
 from mcp_tools_sql.backends.mssql import MSSQLBackend
@@ -49,10 +51,15 @@ def test_verify_queries_detects_invalid_sql(
     sqlite_registry: BackendRegistry,
     all_reachable: dict[tuple[str, str], bool],
 ) -> None:
-    """Issue test (xii): bad SQL → ``<name>.sql`` row ok=False with sqlite error."""
+    """Issue test (xii): bad SQL → ``<name>.sql`` row ok=False with sqlite error.
+
+    The SQL is read-only and parseable, so it reaches EXPLAIN; only the table
+    is missing. A statement the gate rejects never gets EXPLAINed at all --
+    see :func:`test_sql_row_skipped_when_query_is_not_read_only`.
+    """
     queries = {
         "broken": QueryConfig(
-            sql="SELECT * FROMX badtable",
+            sql="SELECT * FROM badtable",
             params={},
             max_rows_default=10,
         ),
@@ -453,6 +460,68 @@ def test_read_only_row_fails_for_untokenizable_sql(
     assert "could not be parsed as sqlite" in row["error"]
     assert "\n" not in row["error"]
     assert result["overall_ok"] is False
+
+
+@pytest.mark.parametrize(
+    "sql",
+    [
+        "DELETE FROM customers",  # rejected by the AST gate
+        "SELECT * FROMX badtable",  # rejected by the fail-closed parse contract
+        "SELECT 'abc",  # rejected by the fail-closed parse contract (TokenError)
+    ],
+)
+def test_sql_row_skipped_when_query_is_not_read_only(
+    sqlite_backend: SQLiteBackend,
+    sqlite_targets: ResolvedTargets,
+    all_reachable: dict[tuple[str, str], bool],
+    sql: str,
+) -> None:
+    """A rejected query is never EXPLAINed; its ``.sql`` row is ``(skipped)``.
+
+    EXPLAINing it would send the database operator the very SQL the gate
+    refuses and report the database's complaint about it, which is actively
+    misleading about why the query is bad.
+    """
+    explain = MagicMock(wraps=sqlite_backend.explain)
+    sqlite_backend.explain = explain  # type: ignore[method-assign]
+    queries = {"wipe": QueryConfig(sql=sql, params={}, max_rows_default=10)}
+
+    result = verify_queries(
+        queries, sqlite_targets, StubRegistry(sqlite_backend), all_reachable
+    )
+
+    assert explain.call_count == 0
+    row = result["wipe.sql"]
+    assert row["value"] == "(skipped)"
+    assert row.get("warn") is True
+    assert row["ok"] is True
+    # The read_only row, not the skipped .sql row, carries the reason and the
+    # failing exit code.
+    assert result["wipe.read_only[sqlite]"]["ok"] is False
+    assert result["overall_ok"] is False
+
+
+def test_sql_row_explained_when_query_is_read_only(
+    sqlite_backend: SQLiteBackend,
+    sqlite_targets: ResolvedTargets,
+    all_reachable: dict[tuple[str, str], bool],
+) -> None:
+    """A read-only query still reaches EXPLAIN -- the skip is not blanket."""
+    explain = MagicMock(wraps=sqlite_backend.explain)
+    sqlite_backend.explain = explain  # type: ignore[method-assign]
+    queries = {
+        "fine": QueryConfig(
+            sql="SELECT * FROM customers", params={}, max_rows_default=10
+        )
+    }
+
+    result = verify_queries(
+        queries, sqlite_targets, StubRegistry(sqlite_backend), all_reachable
+    )
+
+    assert explain.call_count == 1
+    assert result["fine.sql"]["value"] == "EXPLAIN ok"
+    assert result["overall_ok"] is True
 
 
 def test_read_only_row_per_backend_variant(

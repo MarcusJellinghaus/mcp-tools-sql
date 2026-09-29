@@ -9,7 +9,6 @@ a sibling-to-sibling dependency.
 from __future__ import annotations
 
 import inspect
-import re
 from collections.abc import Awaitable, Callable
 from fnmatch import fnmatch
 from typing import TYPE_CHECKING, Annotated, Any, Literal, Optional, cast
@@ -25,6 +24,7 @@ from mcp_tools_sql.utils.sql_placeholders import (
     keyword_absorption_violation,
     passthrough_source_violation,
     read_only_violation,
+    single_line,
 )
 
 if TYPE_CHECKING:
@@ -53,22 +53,6 @@ def extract_sql_params(sql: str) -> set[str]:
         return extract_param_names(sql)
     except SqlglotError:
         return set()
-
-
-_ANSI_ESCAPE_RE = re.compile(r"\x1b\[[0-9;]*[A-Za-z]")
-
-
-def _single_line(text: str) -> str:
-    """Return ``text`` with ANSI escapes stripped and whitespace collapsed.
-
-    sqlglot's ``ParseError`` text carries the offending SQL on a second line,
-    underlined with ANSI escapes. Rejection messages are rendered as one
-    ``verify`` row and logged as one warning line, so neither survives.
-
-    Returns:
-        The text as a single line, free of terminal control codes.
-    """
-    return " ".join(_ANSI_ESCAPE_RE.sub("", text).split())
 
 
 def read_only_rejection(sql: str, dialect: str) -> str | None:
@@ -105,7 +89,7 @@ def read_only_rejection(sql: str, dialect: str) -> str | None:
         if verdict is None:
             verdict = passthrough_source_violation(sql, dialect)
     except SqlglotError as exc:
-        detail = _single_line(str(exc))
+        detail = single_line(str(exc))
         return f"Not read-only. SQL could not be parsed as {dialect}: {detail}"
     return verdict
 

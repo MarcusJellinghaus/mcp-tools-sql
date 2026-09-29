@@ -4,7 +4,7 @@
 [OK]  get_user.params               well-formed
 [OK]  get_user.max_rows_default     10
 [OK]  get_user.max_rows_hard        10
-[ERR]  bad_sql.sql                   failed  - no such table: badtable
+[WARN]  bad_sql.sql                   (skipped)  - not read-only; see the read_only row
 [ERR]  bad_sql.read_only[sqlite]     failed  - Not read-only. DELETE statements are not permitted.
 [OK]  bad_sql.params                well-formed
 [OK]  bad_sql.max_rows_default      10

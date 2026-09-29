@@ -262,6 +262,34 @@ async def test_preflight_unparseable_fail_closed(sqlite_db: Path) -> None:
     assert text.startswith("Invalid SQL. ParseError (SQL parsed as ")
 
 
+UNTOKENIZABLE = [
+    "SELECT 'abc",  # unterminated string literal
+    "SELECT 1 /* unterminated",  # unterminated block comment
+    "SELECT [abc",  # unterminated bracket
+]
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("sql", UNTOKENIZABLE)
+async def test_preflight_untokenizable_is_a_verdict(sqlite_db: Path, sql: str) -> None:
+    """An unterminated literal, comment or bracket is a verdict, not a traceback.
+
+    sqlglot signals these with ``TokenError``, a *sibling* of ``ParseError``
+    rather than a subclass, so a narrower catch in ``basic_preflight`` would
+    let the exception escape out of the tool.
+    """
+    backend = _sqlite_backend(sqlite_db)
+    mcp = FastMCP("test-count-token-error")
+    CountTools(*single_target(backend)).register(mcp)
+    async with create_connected_server_and_client_session(
+        mcp, raise_exceptions=True
+    ) as client:
+        text = await _call_count(client, sql)
+    assert text.startswith("Invalid SQL. TokenError (SQL parsed as sqlite): ")
+    assert "\n" not in text
+    assert "\x1b" not in text
+
+
 # ---------------------------------------------------------------------------
 # Deterministic MSSQL leading-WITH handling (MagicMock backend, no real DB)
 # ---------------------------------------------------------------------------

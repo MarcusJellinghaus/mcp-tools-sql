@@ -7,13 +7,19 @@ from typing import Any
 from unittest.mock import MagicMock
 
 import pytest
+import sqlglot
 from mcp.server.fastmcp import FastMCP
 from mcp.shared.memory import create_connected_server_and_client_session
+from sqlglot.errors import TokenError
 
 from mcp_tools_sql.backends.mssql import MSSQLBackend
 from mcp_tools_sql.backends.sqlite import SQLiteBackend
 from mcp_tools_sql.config.models import ConnectionConfig
-from mcp_tools_sql.utils.sql_placeholders import basic_preflight
+from mcp_tools_sql.utils.sql_placeholders import (
+    ParseError,
+    basic_preflight,
+    single_line,
+)
 from mcp_tools_sql.validation_tools import ValidationTools, _explain
 from tests.conftest import MSSQLTestEnv
 from tests.target_helpers import single_target
@@ -194,6 +200,34 @@ async def test_preflight_unparseable_sql_fail_closed(sqlite_db: Path) -> None:
     assert backend.explain.call_count == 0
 
 
+UNTOKENIZABLE = [
+    "SELECT 'abc",  # unterminated string literal
+    "SELECT 1 /* unterminated",  # unterminated block comment
+    "SELECT [abc",  # unterminated bracket
+]
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("sql", UNTOKENIZABLE)
+async def test_preflight_untokenizable_is_a_verdict(sqlite_db: Path, sql: str) -> None:
+    """An unterminated literal, comment or bracket is a verdict, not a traceback.
+
+    sqlglot signals these with ``TokenError``, a *sibling* of ``ParseError``
+    rather than a subclass, so a narrower catch in ``basic_preflight`` would
+    let the exception escape out of the tool.
+    """
+    backend = _sqlite_backend(sqlite_db)
+    backend.explain = MagicMock()  # type: ignore[method-assign]
+    mcp = FastMCP("test-preflight-token-error")
+    ValidationTools(*single_target(backend)).register(mcp)
+    async with create_connected_server_and_client_session(
+        mcp, raise_exceptions=True
+    ) as client:
+        text = await _call_validate(client, sql)
+    assert text.startswith("Invalid SQL. TokenError (SQL parsed as sqlite): ")
+    assert backend.explain.call_count == 0
+
+
 # ---------------------------------------------------------------------------
 # basic_preflight (shared helper) — direct unit tests
 # ---------------------------------------------------------------------------
@@ -230,6 +264,42 @@ class TestBasicPreflight:
         verdict = basic_preflight("SELECT FROM WHERE", None, "sqlite")
         assert verdict is not None
         assert verdict.startswith("Invalid SQL. ParseError (SQL parsed as ")
+
+    def test_verdict_is_one_line_without_escapes(self) -> None:
+        """sqlglot's multi-line, ANSI-underlined error text is flattened.
+
+        A verdict is returned as one tool result line, so neither the newline
+        nor the terminal control codes sqlglot emits may survive.
+        """
+        with pytest.raises(ParseError) as excinfo:
+            sqlglot.parse("SELECT FROM WHERE", read="sqlite")
+        raw = str(excinfo.value)
+        assert "\n" in raw
+        assert "\x1b" in raw
+
+        verdict = basic_preflight("SELECT FROM WHERE", None, "sqlite")
+        assert verdict is not None
+        assert "\n" not in verdict
+        assert "\x1b" not in verdict
+        assert single_line(raw) in verdict
+
+    @pytest.mark.parametrize("sql", UNTOKENIZABLE)
+    @pytest.mark.parametrize("dialect", ["sqlite", "tsql"])
+    def test_untokenizable_returns_token_error(self, sql: str, dialect: str) -> None:
+        """``TokenError`` is caught too, and names itself in the verdict.
+
+        ``TokenError`` is a sibling of ``ParseError``, not a subclass, so the
+        narrower catch let it escape. The class name is read off the raised
+        exception, which is why the verdict says ``TokenError`` here and
+        ``ParseError`` above.
+        """
+        with pytest.raises(TokenError) as excinfo:
+            sqlglot.parse(sql, read=dialect)
+        verdict = basic_preflight(sql, None, dialect)
+        assert verdict == (
+            f"Invalid SQL. TokenError (SQL parsed as {dialect}): "
+            f"{single_line(str(excinfo.value))}"
+        )
 
     def test_valid_sql_passes(self) -> None:
         assert basic_preflight("SELECT 1", None, "sqlite") is None
