@@ -58,7 +58,8 @@ def run(args: argparse.Namespace) -> int:
         name_parser = _build_name_parser([t.name for t in tools])
         ns = name_parser.parse_args(tool_argv)
         tool = server.mcp._tool_manager.get_tool(ns.name)  # noqa: SLF001
-        assert tool is not None
+        if tool is None:
+            raise RuntimeError(f"tool {ns.name!r} vanished between listing and lookup")
         if ns.rest and ns.rest[0] in _HELP_TOKENS:
             print(render_tool_detail(tool))
             return 0
