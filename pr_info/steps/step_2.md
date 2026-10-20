@@ -72,11 +72,20 @@ parse call to `parse_known_args`, dispatch `command == "tool"` to
      the first token, so `rest`'s first element is never the very first
      token of the whole list). Use `cli.parsers.HelpHintArgumentParser`
      so an unknown name exits 2 with the existing usage-hint convention.
-  6. If `not ns.rest or ns.rest[0] in ("--help", "-h")`: print
-     `render_tool_detail(tool)`, return 0.
-  7. Otherwise: this is where step 5 wires in the actual invocation. For
-     this step, raise `NotImplementedError` — unreachable in this step's
-     own tests, since no test yet passes real tool arguments past a name.
+  6. If `ns.rest` is non-empty and `ns.rest[0] in ("--help", "-h")`: print
+     `render_tool_detail(tool)`, return 0. An **empty** `ns.rest` (bare
+     `tool <name>`, no further tokens) is *not* treated as a help request —
+     it falls through to step 7, so a zero-required-parameter tool (e.g.
+     `read_tables`) can be invoked with no flags at all. The per-tool
+     argparser built in step 5 is what actually decides whether zero
+     arguments are valid for a given tool: it runs the tool when every
+     parameter is optional, or raises an ordinary missing-argument
+     `argparse` error (exit 2) when a required parameter was omitted.
+  7. Otherwise (including an empty `ns.rest`): this is where step 5 wires in
+     the actual invocation. For this step, raise `NotImplementedError` —
+     unreachable in this step's own tests, since none of them reach this
+     branch (they only exercise the overview, `--help` paths, and the
+     unknown-name error).
 - `main.py`:
   - `tool.add_subparser(subparsers)` registers `subparsers.add_parser("tool",
     add_help=False, help="List and call MCP tools directly (bypasses the MCP
@@ -109,9 +118,9 @@ tool.run(args):
         name_parser = build_name_parser([t.name for t in tools])
         ns = name_parser.parse_args(tool_argv)   # unknown name -> SystemExit(2)
         tool = server.mcp._tool_manager.get_tool(ns.name)
-        if not ns.rest or ns.rest[0] in ("--help", "-h"):
+        if ns.rest and ns.rest[0] in ("--help", "-h"):
             print(render_tool_detail(tool)); return 0
-        raise NotImplementedError  # wired in step 5
+        raise NotImplementedError  # wired in step 5 (empty ns.rest included)
     finally:
         server.close()
 ```

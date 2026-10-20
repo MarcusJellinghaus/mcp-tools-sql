@@ -37,9 +37,15 @@ return exit_code
 - `parser.parse_args(ns.rest)` (not `parse_known_args`) — a genuinely bad
   per-tool flag is an ordinary `argparse` usage error here, exit 2,
   propagating via the normal uncaught-`SystemExit` path `main.py` already
-  relies on for every other subcommand.
+  relies on for every other subcommand. This also covers an **empty**
+  `ns.rest`: `parser.parse_args([])` runs the tool when every parameter is
+  optional (e.g. `tool read_tables` with no further flags), or raises the
+  same missing-argument error (exit 2) a required flag would if `ns.rest`
+  were non-empty but incomplete.
 - Nothing else in `tool.py` changes — the overview/detail/unknown-name
-  branches from step 2 are untouched.
+  branches from step 2 are untouched. Per step 2's branch logic, this tail
+  is reached whenever `ns.rest` does not start with `--help`/`-h` —
+  including when `ns.rest` is empty.
 
 ## ALGORITHM
 
@@ -47,7 +53,8 @@ return exit_code
 from step 2's `ALGORITHM` block.)
 
 ```
-... (name resolved, ns.rest is non-empty and not --help/-h) ...
+... (name resolved; ns.rest does not start with --help/-h — it may be
+    empty, e.g. a zero-required-parameter tool called with no flags) ...
 parser = build_tool_argparser(tool, prog=f"mcp-tools-sql tool {ns.name}")
 tool_ns = parser.parse_args(ns.rest)
 kwargs = build_kwargs(tool_ns)
