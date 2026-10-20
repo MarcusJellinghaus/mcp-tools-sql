@@ -53,7 +53,15 @@ def build_tool_server(args: argparse.Namespace) -> tuple[ToolServer, Path]: ...
   currently reads from local variables (`targets.default.backend_name`,
   `qcfg.connection`, `len(targets.connection_names)`,
   `len(targets.database_names)`) from `server.targets` / `server.config`
-  instead, plus the returned `qpath`.
+  instead, plus the returned `qpath`. The sixth value, `builtin_tools=%d`
+  (`n_builtin = len(load_default_queries()) + len(PROGRAMMATIC_BUILTIN_TOOLS)`),
+  is computed exactly as it is today — this call is independent of
+  `server.config`/`server.targets`/`qpath` and cannot be derived from them,
+  and it cannot be read off `server.mcp` either: `build_tool_server` returns
+  an *unregistered* server (see test 2 below), so no tools exist on it yet
+  at the point the log line fires. `run_server` keeps calling
+  `load_default_queries()` and referencing `PROGRAMMATIC_BUILTIN_TOOLS`
+  directly for this one value, same imports as today.
 - `run_server`'s `finally` block changes from `registry.close_all()` to
   `server.close()`. Behaviourally identical — `close()` just delegates.
 - `create_server`, `ToolServer.__init__`, `_register_builtin_tools`, and
@@ -75,7 +83,9 @@ build_tool_server(args):
 run_server(args):
     server, qpath = build_tool_server(args)   # raises ValueError/OSError same as today
     try:
-        log the same INFO line as today, sourced from server.targets/server.config/qpath
+        n_builtin = len(load_default_queries()) + len(PROGRAMMATIC_BUILTIN_TOOLS)
+        log the same INFO line as today (backend/connection/connections/databases
+            from server.targets/server.config, query_config=qpath, builtin_tools=n_builtin)
         server.run()                           # register_all() + mcp.run(stdio)
     finally:
         server.close()
