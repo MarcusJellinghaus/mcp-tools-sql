@@ -36,7 +36,7 @@ This tracks **Feature Implementation** consisting of multiple **Tasks**.
 ### Step 3: dynamic per-tool argument parser (`tool_args.py`)
 - [x] Implementation (tests + production code)
 - [x] Quality checks: pylint, pytest, mypy — fix all issues
-- [ ] Commit message prepared
+- [x] Commit message prepared
 
 ### Step 4: exit-code classifier and dispatch wrapper (`tool_dispatch.py`)
 - [ ] Implementation (tests + production code)
