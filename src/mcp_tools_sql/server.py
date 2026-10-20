@@ -63,6 +63,16 @@ class ToolServer:
         """Expose FastMCP instance (for testing)."""
         return self._mcp
 
+    @property
+    def config(self) -> QueryFileConfig:
+        """Expose the query file config passed to the constructor."""
+        return self._config
+
+    @property
+    def targets(self) -> ResolvedTargets:
+        """Expose the resolved targets passed to the constructor."""
+        return self._targets
+
     def _register_builtin_tools(self) -> None:
         """Register schema-exploration tools from default_queries.toml and built-in validation tools."""
         SchemaTools(self._registry, self._targets).register(self._mcp)
@@ -85,11 +95,19 @@ class ToolServer:
                 self._mcp
             )
 
-    def run(self) -> None:
-        """Start the MCP server event loop."""
+    def register_all(self) -> None:
+        """Register every builtin and configured tool."""
         self._register_builtin_tools()
         self._register_configured_tools()
+
+    def run(self) -> None:
+        """Start the MCP server event loop."""
+        self.register_all()
         self._mcp.run(transport="stdio")
+
+    def close(self) -> None:
+        """Close every backend connection held by the registry."""
+        self._registry.close_all()
 
 
 def create_server(
@@ -111,6 +129,21 @@ def create_server(
     )
 
 
+def build_tool_server(args: argparse.Namespace) -> tuple[ToolServer, Path]:
+    """Discover and load configs, then construct an unregistered ToolServer.
+
+    Returns:
+        The constructed server and the resolved query config path.
+    """
+    qpath = discover_query_config(args.config, project_dir=Path.cwd())
+    qcfg = load_query_config(qpath)
+    dbcfg = load_database_config(args.database_config)
+    targets = resolve_targets(qcfg, dbcfg)
+    registry = BackendRegistry()
+    server = ToolServer(qcfg, targets, registry, dbcfg.security.allow_updates)
+    return server, qpath
+
+
 def run_server(args: argparse.Namespace) -> None:
     """Wire configs, registry and tool server together, then run.
 
@@ -119,25 +152,21 @@ def run_server(args: argparse.Namespace) -> None:
     construct the tool server, and invoke its event loop. Raises
     ``ValueError`` / ``OSError`` on pre-``mcp.run()`` configuration failures
     and propagates ``KeyboardInterrupt`` from the event loop.
-    ``registry.close_all()`` always runs via ``finally``.
+    ``server.close()`` always runs via ``finally``.
     """
-    qpath = discover_query_config(args.config, project_dir=Path.cwd())
-    qcfg = load_query_config(qpath)
-    dbcfg = load_database_config(args.database_config)
-    targets = resolve_targets(qcfg, dbcfg)
-    registry = BackendRegistry()
+    server, qpath = build_tool_server(args)
     try:
         n_builtin = len(load_default_queries()) + len(PROGRAMMATIC_BUILTIN_TOOLS)
         logger.info(
             "starting MCP server backend=%s connection=%s "
             "connections=%d databases=%d query_config=%s builtin_tools=%d",
-            targets.default.backend_name,
-            qcfg.connection,
-            len(targets.connection_names),
-            len(targets.database_names),
+            server.targets.default.backend_name,
+            server.config.connection,
+            len(server.targets.connection_names),
+            len(server.targets.database_names),
             qpath,
             n_builtin,
         )
-        ToolServer(qcfg, targets, registry, dbcfg.security.allow_updates).run()
+        server.run()
     finally:
-        registry.close_all()
+        server.close()

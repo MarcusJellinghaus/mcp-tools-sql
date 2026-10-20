@@ -551,3 +551,92 @@ def test_run_server_reads_allow_updates_from_database_config(
 
     run_server(args)
     assert recorded["allow_updates"] is False
+
+
+@pytest.mark.asyncio
+async def test_register_all_registers_builtin_and_configured_tools(
+    tmp_path: Path,
+) -> None:
+    """`register_all()` registers both a builtin and a configured tool."""
+    from mcp.shared.memory import create_connected_server_and_client_session
+
+    args = _write_sqlite_configs(tmp_path)
+    qcfg = load_query_config(args.config)
+    dbcfg = load_database_config(args.database_config)
+    targets = resolve_targets(qcfg, dbcfg)
+    registry = BackendRegistry()
+    server = ToolServer(qcfg, targets, registry, allow_updates=True)
+    server.register_all()
+
+    try:
+        async with create_connected_server_and_client_session(
+            server.mcp, raise_exceptions=True
+        ) as client:
+            result = await client.list_tools()
+            names = {t.name for t in result.tools}
+            assert "read_tables" in names
+            assert "validate_sql" in names
+    finally:
+        registry.close_all()
+
+
+def test_build_tool_server_returns_unregistered_server(tmp_path: Path) -> None:
+    """`build_tool_server` returns a server with no tools registered yet."""
+    from mcp_tools_sql.server import build_tool_server
+
+    args = _write_sqlite_configs(tmp_path)
+    server, qpath = build_tool_server(args)
+
+    assert (
+        server.mcp._tool_manager.list_tools() == []
+    )  # pylint: disable=protected-access
+    assert qpath == args.config
+
+    server.register_all()
+    assert (
+        server.mcp._tool_manager.list_tools() != []
+    )  # pylint: disable=protected-access
+
+    server.close()
+
+
+def test_close_delegates_to_registry_close_all(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """`ToolServer.close()` calls `registry.close_all()` exactly once."""
+    args = _write_sqlite_configs(tmp_path)
+    qcfg = load_query_config(args.config)
+    dbcfg = load_database_config(args.database_config)
+    targets = resolve_targets(qcfg, dbcfg)
+    registry = BackendRegistry()
+    server = ToolServer(qcfg, targets, registry, allow_updates=False)
+
+    close_called = {"n": 0}
+    original_close_all = BackendRegistry.close_all
+
+    def counting_close_all(self: BackendRegistry) -> None:
+        close_called["n"] += 1
+        original_close_all(self)
+
+    monkeypatch.setattr(BackendRegistry, "close_all", counting_close_all)
+
+    server.close()
+    assert close_called["n"] == 1
+
+
+def test_config_and_targets_properties_expose_constructor_values(
+    tmp_path: Path,
+) -> None:
+    """`server.config`/`server.targets` return the exact constructor values."""
+    args = _write_sqlite_configs(tmp_path)
+    qcfg = load_query_config(args.config)
+    dbcfg = load_database_config(args.database_config)
+    targets = resolve_targets(qcfg, dbcfg)
+    registry = BackendRegistry()
+    server = ToolServer(qcfg, targets, registry, allow_updates=False)
+
+    try:
+        assert server.config is qcfg
+        assert server.targets is targets
+    finally:
+        registry.close_all()
