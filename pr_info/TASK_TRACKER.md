@@ -31,7 +31,7 @@ This tracks **Feature Implementation** consisting of multiple **Tasks**.
 ### Step 2: `tool` subcommand skeleton — discovery surface
 - [x] Implementation (tests + production code)
 - [x] Quality checks: pylint, pytest, mypy — fix all issues
-- [ ] Commit message prepared
+- [x] Commit message prepared
 
 ### Step 3: dynamic per-tool argument parser (`tool_args.py`)
 - [ ] Implementation (tests + production code)
