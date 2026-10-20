@@ -55,10 +55,16 @@ def build_kwargs(ns: argparse.Namespace) -> dict[str, Any]: ...
     what the tool's own default value is (including the `_UNSET` sentinel —
     this module never imports or inspects `_UNSET`).
   - Flag name is `f"--{param.name}"`.
-- `build_kwargs(ns)` returns `dict(vars(ns))` as-is: because every flag uses
+- `build_kwargs(ns)` starts from `dict(vars(ns))`: because every flag uses
   `default=argparse.SUPPRESS`, an omitted flag is simply absent from `ns`,
   so the dict already contains exactly the keys the caller passed — no
-  `_UNSET` bookkeeping needed in this module.
+  `_UNSET` bookkeeping needed in this module. One key needs a follow-up
+  conversion: `--param` uses `action="append"` with `type=_parse_kv`, so
+  `ns.params` (when present) is a `list[tuple[str, str]]`, not a dict. After
+  building the base dict, if `"params"` is present, replace it with
+  `dict(kwargs["params"])`. `columns` needs no such step — `--column` already
+  appends plain strings via `type=str`, so `ns.columns` is already the
+  `list[str]` the tool expects.
 
 ## ALGORITHM
 
@@ -76,15 +82,18 @@ build_tool_argparser(tool, prog):
     return parser
 
 build_kwargs(ns):
-    return dict(vars(ns))
+    kwargs = dict(vars(ns))
+    if "params" in kwargs:
+        kwargs["params"] = dict(kwargs["params"])  # list[(k, v)] -> dict
+    return kwargs
 ```
 
 ## DATA
 
 `build_kwargs` returns a plain `dict[str, Any]` — scalar values, a `dict`
-for `params` (list of `(k, v)` tuples from `--param` is converted to
-`dict(...)` here, since `action="append"` with a 2-tuple `type=` yields a
-list of tuples), and a `list[str]` for `columns`.
+for `params` (converted from the `list[tuple[str, str]]` that `--param`'s
+`action="append"` produces, per the explicit conversion step in `HOW`/
+`ALGORITHM` above), and a `list[str]` for `columns` (no conversion needed).
 
 ## Tests (write first)
 
