@@ -42,6 +42,10 @@ def run(args: argparse.Namespace) -> int:
 
     Returns:
         Process exit code.
+
+    Raises:
+        RuntimeError: If the tool vanishes between listing and lookup
+            (defensive guard, not expected in practice).
     """
     try:
         server, _qpath = build_tool_server(args)
