@@ -25,8 +25,8 @@ This tracks **Feature Implementation** consisting of multiple **Tasks**.
 
 ### Step 1: Split tool registration from the stdio transport in `server.py`
 - [x] Implementation (tests + production code)
-- [ ] Quality checks: pylint, pytest, mypy — fix all issues
-- [ ] Commit message prepared
+- [x] Quality checks: pylint, pytest, mypy — fix all issues
+- [x] Commit message prepared
 
 ### Step 2: `tool` subcommand skeleton — discovery surface
 - [ ] Implementation (tests + production code)
