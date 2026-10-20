@@ -3,8 +3,11 @@
 from __future__ import annotations
 
 import argparse
+import asyncio
 import sys
 
+from mcp_tools_sql.cli.commands.tool_args import build_kwargs, build_tool_argparser
+from mcp_tools_sql.cli.commands.tool_dispatch import invoke_tool
 from mcp_tools_sql.cli.commands.tool_help import render_overview, render_tool_detail
 from mcp_tools_sql.cli.parsers import HelpHintArgumentParser
 from mcp_tools_sql.server import build_tool_server
@@ -55,10 +58,15 @@ def run(args: argparse.Namespace) -> int:
         name_parser = _build_name_parser([t.name for t in tools])
         ns = name_parser.parse_args(tool_argv)
         tool = server.mcp._tool_manager.get_tool(ns.name)  # noqa: SLF001
+        assert tool is not None
         if ns.rest and ns.rest[0] in _HELP_TOKENS:
-            assert tool is not None
             print(render_tool_detail(tool))
             return 0
-        raise NotImplementedError("tool invocation is wired in step 5")
+        parser = build_tool_argparser(tool, prog=f"mcp-tools-sql tool {ns.name}")
+        tool_ns = parser.parse_args(ns.rest)
+        kwargs = build_kwargs(tool_ns)
+        exit_code, output = asyncio.run(invoke_tool(tool, kwargs))
+        print(output)
+        return exit_code
     finally:
         server.close()
