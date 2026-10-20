@@ -108,6 +108,17 @@ plus shared argparse helpers (`HelpHintArgumentParser`, `WideHelpFormatter`) in
 `server` — `main` dispatches to either `cli` (for `init`/`verify`) or `server`
 (for the default MCP-server command).
 
+The `tool` subcommand (`cli/commands/tool.py`) adds a new `cli.commands →
+server` edge: it calls `build_tool_server()` to construct the same
+`ToolServer`, then `register_all()` to populate it, exactly as `run_server`
+does — so the CLI's tool list is guaranteed to match what the MCP server
+would register, and `close()` releases backend connections in both paths.
+Because the legal tool names (and each tool's own flags) aren't known until
+config loads, argument parsing is two-phase: `main.py`'s top-level parser
+uses `parse_known_args` and leaves everything after the `tool` token
+unparsed, and `tool.py` then builds a per-tool `argparse.ArgumentParser` at
+runtime from that tool's `inspect.Signature`.
+
 ### Verification Layer (`mcp_tools_sql.verification`)
 
 The verification engine was extracted from `cli/commands/verify.py` in

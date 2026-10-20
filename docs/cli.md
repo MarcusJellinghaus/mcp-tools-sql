@@ -302,6 +302,82 @@ $ mcp-tools-sql verify
 5 checks passed, 0 warnings, 1 errors
 ```
 
+### `tool` — list and call MCP tools directly
+
+```text
+mcp-tools-sql tool
+mcp-tools-sql tool --help
+mcp-tools-sql tool <name> --help
+mcp-tools-sql tool <name> [--flag value ...]
+```
+
+Lists, describes, and invokes every tool the current config would register
+with the MCP server — schema introspection, `query_*`, `update_*`,
+`validate_sql`, `count_records`, `summarize_columns`, `read_databases` —
+without an MCP client or LLM. Supply `--config` and `--database-config` on
+the top-level `mcp-tools-sql` command, as with `verify`.
+
+Bare `tool` and `tool --help` are the same code path: both print the full
+tool listing (one `name  description` line per tool, sorted by name)
+followed by the exit codes table below, and both exit 0 — there is no
+separate `--list` flag.
+
+`tool <name> --help` prints that tool's docstring plus one block per
+parameter (required/optional, type, choices, default, description), read
+from the tool's own JSON schema — the same detail pydantic validates
+against. An unrecognized tool name exits 2 with a usage hint on stderr,
+like any other argparse error.
+
+#### Flags
+
+One scalar `--<param>` flag is generated per parameter of the tool's Python
+signature, required when the parameter has no default. Two parameter names
+get a repeatable flag instead of a scalar one:
+
+| Flag | Tools | Behaviour |
+|------|-------|-----------|
+| `--param KEY=VALUE` | `validate_sql`, `count_records`, `summarize_columns` | Repeatable. Binds `KEY` to the SQL placeholder `:KEY`. Values are passed through as plain strings — no JSON parsing, no type inference. |
+| `--column NAME` | `summarize_columns` | Repeatable. One `--column` per column to profile. |
+
+For `update_*` tools, an omitted optional-field flag leaves that column
+unchanged. Every `update_*` flag is a plain scalar, so there is no way from
+this CLI to pass an explicit `None` for an optional field — passing the flag
+always sets a value, and only omitting it leaves the column untouched.
+
+#### Exit codes
+
+| Code | Meaning |
+|------|---------|
+| 0 | Success |
+| 1 | Config/connection error (bad config, can't reach DB — including a connection failure discovered lazily mid-call) |
+| 2 | Argparse parse error (unknown flag, unknown tool name, missing required flag) |
+| 3 | Tool rejected the call (pydantic `Field` validation, or a body-level `KeyError`/`TypeError`/`ValueError`) |
+| 4 | Backend/SQL execution error (query ran, database returned an error) |
+
+`validate_sql`, `count_records`, `summarize_columns` never raise — these
+three always exit 0 and print their returned text as-is.
+
+#### Example — schema introspection
+
+```text
+$ mcp-tools-sql tool read_tables --schema main
+... table listing ...
+```
+
+#### Example — configured update
+
+```text
+$ mcp-tools-sql tool update_set_name --id 1 --name Alice
+Updated 1 row in customers where id=1.
+```
+
+#### Example — `validate_sql` with bind params
+
+```text
+$ mcp-tools-sql tool validate_sql --sql "SELECT 1 WHERE :id = :id" --param id=5
+Valid.
+```
+
 ### `help` and `--version`
 
 - `mcp-tools-sql help` is equivalent to `mcp-tools-sql --help`: it
