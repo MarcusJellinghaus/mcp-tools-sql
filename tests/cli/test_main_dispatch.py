@@ -11,6 +11,7 @@ from typing import Any
 import pytest
 
 from mcp_tools_sql.cli.commands import init as init_cmd
+from mcp_tools_sql.cli.commands import tool as tool_cmd
 from mcp_tools_sql.cli.commands import verify as verify_cmd
 from mcp_tools_sql.main import (
     _build_parser,
@@ -314,3 +315,30 @@ def test_init_subparser_rejects_unknown_backend() -> None:
     parser = _build_parser()
     with pytest.raises(SystemExit):
         parser.parse_args(["init", "--backend", "bogus"])
+
+
+def test_dispatch_tool_calls_tool_run(monkeypatch: pytest.MonkeyPatch) -> None:
+    """`mcp-tools-sql tool foo --help` dispatches to tool.run with tool_argv set."""
+    captured: dict[str, Any] = {}
+
+    def fake_run(args: argparse.Namespace) -> int:
+        captured["args"] = args
+        return 0
+
+    monkeypatch.setattr(tool_cmd, "run", fake_run)
+
+    rc = main(["tool", "foo", "--help"])
+    assert rc == 0
+    assert captured["args"].command == "tool"
+    assert captured["args"].tool_argv == ["foo", "--help"]
+
+
+def test_init_bogus_backend_via_main_still_exits_2(
+    capsys: pytest.CaptureFixture[str],
+) -> None:
+    """`main(["init", "--backend", "bogus"])` still exits 2 (non-`tool` regression)."""
+    with pytest.raises(SystemExit) as exc_info:
+        main(["init", "--backend", "bogus"])
+    assert exc_info.value.code == 2
+    captured = capsys.readouterr()
+    assert "Traceback" not in captured.err

@@ -9,7 +9,7 @@ from datetime import datetime
 from pathlib import Path
 
 from mcp_tools_sql import __version__
-from mcp_tools_sql.cli.commands import init, verify
+from mcp_tools_sql.cli.commands import init, tool, verify
 from mcp_tools_sql.cli.parsers import HelpHintArgumentParser, WideHelpFormatter
 from mcp_tools_sql.server import run_server
 from mcp_tools_sql.utils.log_utils import OUTPUT, setup_logging
@@ -87,6 +87,7 @@ def _build_parser() -> argparse.ArgumentParser:
     subparsers.add_parser("server", help="Start the MCP server (default).")
     init.add_subparser(subparsers)
     verify.add_subparser(subparsers)
+    tool.add_subparser(subparsers)
 
     return parser
 
@@ -132,7 +133,9 @@ def main(argv: list[str] | None = None) -> int:
         Process exit code.
     """
     parser = _build_parser()
-    args = parser.parse_args(argv if argv is not None else sys.argv[1:])
+    args, extras = parser.parse_known_args(argv if argv is not None else sys.argv[1:])
+    if (args.command or "server") != "tool" and extras:
+        parser.error("unrecognized arguments: " + " ".join(extras))
 
     if args.command == "help" or args.help:
         parser.print_help()
@@ -157,6 +160,9 @@ def main(argv: list[str] | None = None) -> int:
         return init.run(args)
     if command == "verify":
         return verify.run(args)
+    if command == "tool":
+        args.tool_argv = extras
+        return tool.run(args)
 
     parser.print_help()
     return 1
