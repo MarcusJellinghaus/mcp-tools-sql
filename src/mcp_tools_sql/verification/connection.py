@@ -99,7 +99,7 @@ def _check_kerberos_ticket() -> tuple[bool, str, str]:
     """
     try:
         proc = subprocess.run(
-            ["klist", "-s"],
+            ["klist", "-s"],  # noqa: S607 - klist is resolved via PATH on purpose
             check=False,
             capture_output=True,
             timeout=5,

@@ -119,7 +119,7 @@ def _build_update_body(
         if not field_values:
             raise ValueError(f"update {name!r}: at least one field value required")
         set_clause = ", ".join(f"{col}=:{col}" for col in field_values)
-        sql = f"UPDATE {qualified} SET {set_clause} " f"WHERE {key_field}=:{key_field}"
+        sql = f"UPDATE {qualified} SET {set_clause} WHERE {key_field}=:{key_field}"  # noqa: S608 - table, column and key names come from validated config; values are bound :name params
         params = {**field_values, key_field: key_value}
         async with log_tool_call(name, params, sql=sql) as rec:
             affected = backend.execute_update(sql, params)

@@ -53,9 +53,9 @@ This tracks **Feature Implementation** consisting of multiple **Tasks**.
 
 ### Step 6: Enable `S` with tests carve-out and justified src noqa — [step_6.md](./steps/step_6.md)
 
-- [ ] Implementation: select `S`, tests per-file ignore, inline `noqa: S608` ×2 and `noqa: S607` with reasons
-- [ ] Quality checks: ruff, pylint, pytest, mypy — fix all issues
-- [ ] Commit message prepared
+- [x] Implementation: select `S`, tests per-file ignore, inline `noqa: S608` ×2 and `noqa: S607` with reasons
+- [x] Quality checks: ruff, pylint, pytest, mypy — fix all issues
+- [x] Commit message prepared
 
 ### Step 7: Enable `UP`; accept `types.UnionType` in tool CLI unwrapping — [step_7.md](./steps/step_7.md)
 

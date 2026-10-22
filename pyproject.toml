@@ -141,6 +141,7 @@ select = [
     "E",
     "F",
     "C4", "B",
+    "S",
     # PLW1510 only: the PL prefix would re-enable pylint's disabled R category (PLR09xx).
     "PLW1510",
 ]
@@ -152,7 +153,10 @@ ignore = [
 ]
 
 [tool.ruff.lint.per-file-ignores]
-"tests/**/*.py" = ["D", "DOC", "SIM117"]
+# tests: assert is the pytest idiom (S101); S105/S106/S108 fire on fake
+# credentials and "/tmp/..." literals used as test data, never opened;
+# S608: DDL/DML fixtures build SQL from strings on purpose.
+"tests/**/*.py" = ["D", "DOC", "SIM117", "S101", "S105", "S106", "S108", "S608"]
 
 [tool.ruff.lint.pydocstyle]
 convention = "google"
