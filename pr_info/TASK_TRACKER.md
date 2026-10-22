@@ -65,9 +65,9 @@ This tracks **Feature Implementation** consisting of multiple **Tasks**.
 
 ### Step 8: CI — rename `ruff-docstrings` job to `ruff` and check `tools/` — [step_8.md](./steps/step_8.md)
 
-- [ ] Implementation: update `.github/workflows/ci.yml` matrix entry
-- [ ] Quality checks: ruff, pylint, pytest, mypy — fix all issues
-- [ ] Commit message prepared
+- [x] Implementation: update `.github/workflows/ci.yml` matrix entry
+- [x] Quality checks: ruff, pylint, pytest, mypy — fix all issues
+- [x] Commit message prepared
 
 ## Pull Request
 
