@@ -171,8 +171,9 @@ failure as an error.
 | `required` | `true` | |
 
 `[queries.<name>.backends.<backend>]` — `sql` override for one backend
-(`sqlite` or `mssql`). Useful when one config serves several backends. Any
-other key is dead config and `verify` warns.
+(`sqlite`, or `mssql` with `pyodbc` as an alias). Useful when one config
+serves several backends. Any other backend key is dead config and `verify`
+warns.
 
 ### `[updates.<name>]` → tool `update_<name>`
 
@@ -265,11 +266,11 @@ Routing has two axes: a **connection** (server + backend + credentials) and,
 within it, a **database** (catalog). Single-target installs see no extra
 parameters.
 
-- **Conditional parameters.** A `connection` parameter appears on the built-in
-  schema tools when more than one connection is configured. A `database`
-  parameter and the `read_databases` tool appear when more than one
-  `(connection, database)` target exists. Both parameters only accept the
-  configured names.
+- **Conditional parameters.** A `connection` parameter appears on every
+  built-in tool when more than one connection is configured. A `database`
+  parameter (on every built-in tool) and the `read_databases` tool appear when
+  more than one `(connection, database)` target exists. Both parameters only
+  accept the configured names.
 - **Fan-out.** The four `read_*` tools accept `database = "*"` to run across
   every database of the selected connection. Merged rows gain a `_database`
   column. There is no `connection = "*"`.
@@ -277,8 +278,7 @@ parameters.
   database, so a caller can find the legal `connection`/`database` values.
 - **Pinned tools.** `query_*` and `update_*` tools resolve their target at
   registration (from their own `connection`/`database`, else the file default)
-  and take no runtime target parameters. `validate_sql` and `count_records`
-  keep a runtime `database` parameter.
+  and take no runtime target parameters. Built-in tools are never pinned.
 
 `databases` can also be a table carrying descriptions:
 
