@@ -56,9 +56,9 @@ refers to.
 
 | Key | Backends | Default | Meaning |
 |-----|----------|---------|---------|
-| `backend` | all | `"sqlite"` | `"sqlite"` or `"mssql"`. `"postgresql"` passes config validation but has no backend implementation yet — the server rejects it when connecting. |
+| `backend` | all | `"sqlite"` | `"sqlite"` or `"mssql"`. `"postgresql"` passes config validation but has no backend implementation yet — server and `tool` startup fail with `Unsupported backend` when a configured query or update targets it (backends are created during tool registration); otherwise the first built-in tool call fails. |
 | `description` | all | `""` | Shown by the `read_databases` tool. |
-| `path` | sqlite | `""` | Database file. `":memory:"` opens a new, empty database on every connection (`verify` warns). |
+| `path` | sqlite | `""` | Database file; relative paths resolve from the working directory. `":memory:"` opens a new, empty database on every connection (`verify` warns). |
 | `host` | mssql | `""` | `"server"` or a named instance `"server\\instance"` — see [MSSQL host and port](#mssql-host-and-port). |
 | `port` | mssql | unset | Only for a fixed non-default TCP port. |
 | `databases` | mssql | `[]` | Catalogs this connection routes to — see [Multiple databases](#multiple-connections-and-databases). |
@@ -156,9 +156,11 @@ reports it.
 | `filter_column` | `""` | Adds a `<column>_filter` parameter: a case-insensitive glob applied to that column of the result. |
 | `connection`, `database` | `""` | Pin the tool to one target. Pinned tools take no runtime `connection`/`database` parameter. |
 
-**Read-only gate.** At registration every query's SQL — including each
-`backends` override — is proved read-only. A query that fails is not
-registered and the server logs a warning; `verify` reports it as an error.
+**Read-only gate.** At registration the SQL that will run on the tool's
+backend — its `backends.<backend>` override if present, else `sql` — is
+proved read-only. A query that fails is not registered and the server logs a
+warning. `verify` additionally checks every `backends` override and reports a
+failure as an error.
 
 `[queries.<name>.params.<param>]` — one table per bind parameter:
 

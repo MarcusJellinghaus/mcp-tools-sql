@@ -153,7 +153,9 @@ One connection can reach several catalogs; see
 #### Example — postgresql
 
 > PostgreSQL has no backend implementation yet: `init` scaffolds the config
-> and it validates, but connecting fails with `Unsupported backend`.
+> and it validates, but server and `tool` startup fail with
+> `Unsupported backend` once a configured query or update targets it
+> (backends are created during tool registration).
 
 ```text
 $ mcp-tools-sql init --backend postgresql --pyproject

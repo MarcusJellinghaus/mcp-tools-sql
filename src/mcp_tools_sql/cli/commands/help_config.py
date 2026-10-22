@@ -3,12 +3,47 @@
 Written for humans and for LLMs driving the CLI: everything needed to go
 from nothing to a working server, without reading the docs.
 `tests/cli/test_help_config.py` fails when a config model field is missing
-here, so keep this text in step with `mcp_tools_sql.config.models`.
+here, or when an example stops loading, so keep this text in step with
+`mcp_tools_sql.config.models`.
 """
 
 from __future__ import annotations
 
-CONFIG_GUIDE = """\
+import textwrap
+
+DATABASE_CONFIG_EXAMPLE = """\
+[connections.default]
+backend = "mssql"
+host = "sqlhost"
+databases = ["sales"]
+trusted_connection = true
+trust_server_certificate = true
+"""
+
+QUERY_CONFIG_EXAMPLE = """\
+connection = "default"
+
+[queries.orders_by_customer]
+description = "Orders for one customer, newest first"
+sql = "SELECT id, placed_at, total FROM orders WHERE customer_id = :customer_id ORDER BY placed_at DESC"
+
+[queries.orders_by_customer.params.customer_id]
+type = "int"
+description = "Customer id"
+
+[updates.set_order_status]
+description = "Change an order's status"
+table = "orders"
+
+[updates.set_order_status.key]
+field = "id"
+
+[[updates.set_order_status.fields]]
+field = "status"
+description = "New status"
+"""
+
+_GUIDE_INTRO = """\
 mcp-tools-sql configuration
 ===========================
 
@@ -73,12 +108,9 @@ Database config (~/.mcp-tools-sql/config.toml)
 access. The login's own grants are the permission boundary.
 
 Example:
-  [connections.default]
-  backend = "mssql"
-  host = "sqlhost"
-  databases = ["sales"]
-  trusted_connection = true
-  trust_server_certificate = true
+"""
+
+_GUIDE_PROJECT = """\
 
 Project query config (mcp-tools-sql.toml)
 -----------------------------------------
@@ -113,26 +145,9 @@ Project query config (mcp-tools-sql.toml)
     required                  default false; omitted fields stay unchanged
 
 Example:
-  connection = "default"
+"""
 
-  [queries.orders_by_customer]
-  description = "Orders for one customer, newest first"
-  sql = "SELECT id, placed_at, total FROM orders WHERE customer_id = :customer_id ORDER BY placed_at DESC"
-
-  [queries.orders_by_customer.params.customer_id]
-  type = "int"
-  description = "Customer id"
-
-  [updates.set_order_status]
-  description = "Change an order's status"
-  table = "orders"
-
-  [updates.set_order_status.key]
-  field = "id"
-
-  [[updates.set_order_status.fields]]
-  field = "status"
-  description = "New status"
+_GUIDE_OUTRO = """\
 
 Built-in tools (no config needed): read_schemas, read_tables, read_columns,
 read_relations, validate_sql, count_records, summarize_columns. With more
@@ -141,8 +156,17 @@ parameters and read_databases is added.
 
 Wiring into an MCP client: run `mcp-tools-sql` (no subcommand) as a stdio
 server, preferably with an absolute --config path, because the client
-decides the working directory. Example .mcp.json entry:
+decides the working directory (a relative sqlite `path` resolves from it
+too). Example .mcp.json entry:
   "sql": {"command": "mcp-tools-sql",
           "args": ["--config", "/abs/path/mcp-tools-sql.toml"],
           "env": {"MSSQL_PASSWORD": "${MSSQL_PASSWORD}"}}
 """
+
+CONFIG_GUIDE = (
+    _GUIDE_INTRO
+    + textwrap.indent(DATABASE_CONFIG_EXAMPLE, "  ")
+    + _GUIDE_PROJECT
+    + textwrap.indent(QUERY_CONFIG_EXAMPLE, "  ")
+    + _GUIDE_OUTRO
+)

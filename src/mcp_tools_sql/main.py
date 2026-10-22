@@ -76,7 +76,7 @@ def _build_parser() -> argparse.ArgumentParser:
         "--log-level",
         choices=["DEBUG", "INFO", "OUTPUT", "WARNING", "ERROR"],
         default=None,
-        help="Set the logging level (default: INFO for server, OUTPUT for init/verify)",
+        help="Set the logging level (default: INFO for server, OUTPUT otherwise)",
     )
     parser.add_argument(
         "--log-file",

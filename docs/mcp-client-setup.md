@@ -10,7 +10,9 @@ terminal — clients usually hide a server's startup errors.
 
 - **Pass an absolute `--config`.** Config discovery uses the working directory,
   and the client decides what that is. Without `--config`, the server only
-  works if the client starts it in the project directory.
+  works if the client starts it in the project directory. A relative sqlite
+  `path` in the database config also resolves from the client's working
+  directory, so use an absolute path there too.
 - **Pass passwords through the environment.** Reference them in the database
   config as `password = "${MSSQL_PASSWORD}"` and set the variable in the
   client's `env` block (or the environment the client inherits).
