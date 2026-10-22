@@ -211,7 +211,7 @@ class MSSQLBackend(DatabaseBackend):
         try:
             cursor.execute(sql_q, args)
             columns = [d[0] for d in cursor.description]
-            return [dict(zip(columns, row)) for row in cursor.fetchall()]
+            return [dict(zip(columns, row, strict=True)) for row in cursor.fetchall()]
         finally:
             cursor.close()
 

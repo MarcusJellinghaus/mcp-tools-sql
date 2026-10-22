@@ -35,9 +35,9 @@ This tracks **Feature Implementation** consisting of multiple **Tasks**.
 
 ### Step 3: Enable `B` and fix bugbear findings — [step_3.md](./steps/step_3.md)
 
-- [ ] Implementation: `B017` narrowed `pytest.raises`, `B905` `zip(strict=True)`, `B009` plain attribute access
-- [ ] Quality checks: ruff, pylint, pytest, mypy — fix all issues
-- [ ] Commit message prepared
+- [x] Implementation: `B017` narrowed `pytest.raises`, `B905` `zip(strict=True)`, `B009` plain attribute access
+- [x] Quality checks: ruff, pylint, pytest, mypy — fix all issues
+- [x] Commit message prepared
 
 ### Step 4: Replace backend connection asserts with explicit `RuntimeError` — [step_4.md](./steps/step_4.md)
 

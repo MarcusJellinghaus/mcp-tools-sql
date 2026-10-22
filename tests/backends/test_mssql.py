@@ -379,7 +379,7 @@ class TestMSSQLIntegration:
             dict_rows = b.execute_readonly_query(sql)
         assert columns == ["id", "name"]
         assert rows == [(1, "Bank A"), (2, "Bank B")]
-        assert [dict(zip(columns, row)) for row in rows] == dict_rows
+        assert [dict(zip(columns, row, strict=True)) for row in rows] == dict_rows
 
     def test_readonly_with_columns_keeps_duplicate_names(
         self, mssql_db: MSSQLTestEnv

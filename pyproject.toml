@@ -140,7 +140,7 @@ select = [
     "SIM905",
     "E",
     "F",
-    "C4",
+    "C4", "B",
     # PLW1510 only: the PL prefix would re-enable pylint's disabled R category (PLR09xx).
     "PLW1510",
 ]
