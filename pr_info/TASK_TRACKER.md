@@ -41,9 +41,9 @@ This tracks **Feature Implementation** consisting of multiple **Tasks**.
 
 ### Step 4: Replace backend connection asserts with explicit `RuntimeError` — [step_4.md](./steps/step_4.md)
 
-- [ ] Implementation: `SQLiteBackend._require_connection()` + 4 callers; MSSQL `_ensure_connected` assert → raise with `Raises:` docstring
-- [ ] Quality checks: ruff, pylint, pytest, mypy — fix all issues
-- [ ] Commit message prepared
+- [x] Implementation: `SQLiteBackend._require_connection()` + 4 callers; MSSQL `_ensure_connected` assert → raise with `Raises:` docstring
+- [x] Quality checks: ruff, pylint, pytest, mypy — fix all issues
+- [x] Commit message prepared
 
 ### Step 5: Replace asserts in `update_tools` and `summarize` — [step_5.md](./steps/step_5.md)
 
