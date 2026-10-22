@@ -472,16 +472,10 @@ def _run(
         non_null, distinct, col_stats = _split_stats(scalar_row, idx)
         value_kind: Literal["top", "sample", "none"] = "none"
         values: list[tuple[Any, ...]] | None = None
-        if (
-            include_distinct
-            and view == "deep"
-            and meta.category != "other"
-            and non_null > 0
-        ):
-            # include_distinct plus a non-``other`` category means the scalar
-            # pass measured the distinct count, so the shape is a real choice
-            # between duplication ("top") and every value unique ("sample").
-            assert distinct is not None
+        if view == "deep" and distinct is not None and non_null > 0:
+            # ``distinct`` is measured only under the row gate and for non-``other``
+            # columns, so the shape is a real choice between duplication ("top")
+            # and every value unique ("sample").
             value_kind = "top" if distinct < non_null else "sample"
             vl_rows = backend.execute_readonly_query(
                 build_value_list_sql(

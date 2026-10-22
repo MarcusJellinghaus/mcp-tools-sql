@@ -47,9 +47,9 @@ This tracks **Feature Implementation** consisting of multiple **Tasks**.
 
 ### Step 5: Replace asserts in `update_tools` and `summarize` — [step_5.md](./steps/step_5.md)
 
-- [ ] Implementation: builders raise `ValueError` with `Raises:` docstrings; summarize condition tests `distinct is not None`
-- [ ] Quality checks: ruff, pylint, pytest, mypy — fix all issues
-- [ ] Commit message prepared
+- [x] Implementation: builders raise `ValueError` with `Raises:` docstrings; summarize condition tests `distinct is not None`
+- [x] Quality checks: ruff, pylint, pytest, mypy — fix all issues
+- [x] Commit message prepared
 
 ### Step 6: Enable `S` with tests carve-out and justified src noqa — [step_6.md](./steps/step_6.md)
 

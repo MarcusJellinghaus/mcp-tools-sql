@@ -43,8 +43,13 @@ def _build_update_sig_params(config: UpdateConfig) -> list[inspect.Parameter]:
     Returns:
         The ordered list of ``inspect.Parameter`` objects describing the
         tool's public signature.
+
+    Raises:
+        ValueError: If ``config.key`` is missing.
     """
-    assert config.key is not None
+    if config.key is None:
+        msg = "update config requires a key field"
+        raise ValueError(msg)
     sig_params: list[inspect.Parameter] = []
 
     key_type = resolve_python_type(config.key.type)
@@ -96,8 +101,13 @@ def _build_update_body(
     Returns:
         An async callable that executes the UPDATE and returns the
         formatted result string.
+
+    Raises:
+        ValueError: If ``config.key`` is missing.
     """
-    assert config.key is not None
+    if config.key is None:
+        msg = "update config requires a key field"
+        raise ValueError(msg)
     key_field = config.key.field
     field_names = [f.field for f in config.fields]
 
