@@ -29,9 +29,9 @@ This tracks **Feature Implementation** consisting of multiple **Tasks**.
 
 ### Step 2: Enable already-clean groups (F, E, C4, ANN, SIM, SIM905, PLW1510) — [step_2.md](./steps/step_2.md)
 
-- [ ] Implementation: extend `select`/`ignore`, tests per-file ignore adds `SIM117`
-- [ ] Quality checks: ruff, pylint, pytest, mypy — fix all issues
-- [ ] Commit message prepared
+- [x] Implementation: extend `select`/`ignore`, tests per-file ignore adds `SIM117`
+- [x] Quality checks: ruff, pylint, pytest, mypy — fix all issues
+- [x] Commit message prepared
 
 ### Step 3: Enable `B` and fix bugbear findings — [step_3.md](./steps/step_3.md)
 

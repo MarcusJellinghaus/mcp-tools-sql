@@ -125,21 +125,34 @@ line-length = 88
 
 [tool.ruff.lint]
 # preview needed for DOC rules (pydoclint)
+#
+# TRY, EM, PL (except PLW1510) rejected — see mcp_coder #1172, #1181.
 preview = true
 explicit-preview-rules = true   # preview rules fire only when selected by exact code
 select = [
     "D",
+    "ANN",
     # DOC rules are preview-only; with explicit-preview-rules they must be
     # listed by exact code — a bare "DOC" prefix silently enforces nothing.
     "DOC201", "DOC202", "DOC402", "DOC403", "DOC501", "DOC502",
+    "SIM",
+    # SIM905 is preview-only; see explicit-preview-rules note above.
+    "SIM905",
+    "E",
+    "F",
+    "C4",
+    # PLW1510 only: the PL prefix would re-enable pylint's disabled R category (PLR09xx).
+    "PLW1510",
 ]
 ignore = [
     "D104",  # missing docstring in __init__.py (low value)
     "D107",  # missing docstring in __init__ method (redundant with class docstring)
+    "ANN401",  # Any is correct at library/CLI boundaries; mypy strict covers the rest
+    "E501",  # line length is owned by the formatter (black); not re-checked here
 ]
 
 [tool.ruff.lint.per-file-ignores]
-"tests/**/*.py" = ["D", "DOC"]
+"tests/**/*.py" = ["D", "DOC", "SIM117"]
 
 [tool.ruff.lint.pydocstyle]
 convention = "google"
