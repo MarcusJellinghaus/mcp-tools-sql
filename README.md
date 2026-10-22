@@ -1,7 +1,5 @@
 # mcp-tools-sql
 
-> **Status: Under active development — not yet functional.**
-
 An MCP server for safe, configurable SQL database access. Exposes schema introspection, user-defined SELECT queries, and structured UPDATE operations as MCP tools for LLM-assisted workflows.
 
 ## Key Ideas
@@ -11,7 +9,8 @@ An MCP server for safe, configurable SQL database access. Exposes schema introsp
 - **Schema discovery**: Built-in tools to explore schemas, tables, columns, and foreign key relations.
 - **Structured updates**: UPDATE operations are defined as table + key + fields, not raw SQL. The server generates the SQL.
 - **Split config**: Query definitions live in the project repo (safe to commit). Credentials live in the user's home directory (never committed).
-- **Multi-backend**: MS SQL Server (primary), PostgreSQL, SQLite.
+- **Multi-backend**: MS SQL Server (primary) and SQLite. PostgreSQL is planned:
+  its config is accepted, but there is no backend implementation yet.
 
 ## Architecture
 
@@ -35,7 +34,6 @@ See [docs/architecture/architecture.md](docs/architecture/architecture.md) for d
 ```bash
 pip install mcp-tools-sql              # core + SQLite
 pip install mcp-tools-sql[mssql]       # + SQL Server support
-pip install mcp-tools-sql[postgresql]  # + PostgreSQL support
 ```
 
 ## Quick Start
@@ -53,12 +51,25 @@ mcp-tools-sql init --backend sqlite
 # Validate environment, configs, dependencies, and connectivity
 mcp-tools-sql verify
 
+# Try the tools without an MCP client
+mcp-tools-sql tool
+mcp-tools-sql tool read_tables --help
+
 # Start MCP server
 mcp-tools-sql --config mcp-tools-sql.toml
 ```
 
-See [docs/cli.md](docs/cli.md) for the full CLI reference (all flags,
-example output, exit codes).
+`mcp-tools-sql help config` prints a complete guide to both config files —
+enough for an LLM driving the CLI to set the server up on its own.
+
+## Documentation
+
+| Doc | Covers |
+|-----|--------|
+| [docs/configuration.md](docs/configuration.md) | Both config files: discovery, every key, examples, multiple databases |
+| [docs/mcp-client-setup.md](docs/mcp-client-setup.md) | Wiring the server into Claude Code, Claude Desktop and other MCP clients |
+| [docs/cli.md](docs/cli.md) | Every command and flag, example output, exit codes |
+| [docs/architecture/architecture.md](docs/architecture/architecture.md) | Internals |
 
 ## Logging
 
@@ -84,34 +95,16 @@ Two config files:
 | `mcp-tools-sql.toml` | Query/update definitions | Project dir (committed) |
 | `~/.mcp-tools-sql/config.toml` | Database connections + credentials | User home (never committed) |
 
-The `--config` flag overrides the project query config path; the
-`--database-config` flag overrides the database config path.
+The query config may instead live in `[tool.mcp-tools-sql]` of the project's
+`pyproject.toml`. `--config` and `--database-config` override both paths.
 
-### Multiple connections and databases
-
-Routing has two axes: a **connection** (server + backend + credentials) and,
-within it, one or more **databases** (catalogs). A connection lists its catalogs
-with `databases` and picks a default with `default_database`:
-
-| Key | Purpose |
-|-----|---------|
-| `[connections.<name>]` | One connection (server + backend + credentials). Add more blocks for more servers/backends. |
-| `databases` | Catalogs this connection routes to, e.g. `["sales", "hr"]` (PostgreSQL: exactly one; legacy `database = "..."` still works). |
-| `default_database` | Catalog used when the caller omits `database`. |
-
-Single-connection, single-database installs behave exactly as before. When more
-than one target exists, the built-in schema tools gain `connection` / `database`
-parameters (plus `database = "*"` fan-out across a connection's catalogs) and a
-`read_databases` tool lists the routable targets. `[queries.*]` / `[updates.*]`
-may pin a `connection` / `database`. See
-[docs/cli.md](docs/cli.md#the-two-axis-model-fan-out-and-pinned-targets) for the
-full model.
+One connection can route to several databases (catalogs), and several
+connections can be configured side by side. See
+[docs/configuration.md](docs/configuration.md) for every key.
 
 > **Note:** `databases` is a routing/discovery list, **not** an authorization
 > boundary — a connection still reaches any catalog its login is granted. Grant
 > least privilege with per-connection database credentials at the server.
-
-See the [planning document](mcp-tools-sql.md) for full details.
 
 ## License
 

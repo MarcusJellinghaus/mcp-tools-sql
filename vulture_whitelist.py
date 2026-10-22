@@ -78,6 +78,7 @@ _.model_config
 # =============================================================================
 _._default_max_rows_hard
 _._normalise_databases
+_._param_names_from_keys
 _._validate_databases
 
 # `cls` in @model_validator(mode="before") classmethods is required by the

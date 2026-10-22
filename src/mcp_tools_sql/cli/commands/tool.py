@@ -51,6 +51,11 @@ def run(args: argparse.Namespace) -> int:
         server, _qpath = build_tool_server(args)
     except (ValueError, OSError) as exc:
         print(f"Error: {exc}", file=sys.stderr)
+        print(
+            "The tool list depends on the config. Run 'mcp-tools-sql help config' "
+            "to set it up, then 'mcp-tools-sql verify'.",
+            file=sys.stderr,
+        )
         return 1
     try:
         server.register_all()

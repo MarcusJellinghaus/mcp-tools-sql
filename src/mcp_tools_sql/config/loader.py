@@ -16,6 +16,7 @@ from mcp_tools_sql.config.models import (
 )
 from mcp_tools_sql.utils.user_app_data import get_user_app_data_dir
 
+PYPROJECT_TABLE = "mcp-tools-sql"
 _SENSITIVE_KEYS = {"password"}
 _logger = logging.getLogger(__name__)
 _VAR_RE = re.compile(r"\$\{([^}]+)\}")
@@ -89,6 +90,37 @@ def _read_toml(path: Path) -> dict[str, object]:
         raise ValueError(f"Cannot read {path}: {exc}") from exc
 
 
+def _pyproject_table(data: dict[str, object]) -> dict[str, object] | None:
+    """Return the ``[tool.mcp-tools-sql]`` table of parsed pyproject data, or None."""
+    tool = data.get("tool")
+    if not isinstance(tool, dict):
+        return None
+    table = tool.get(PYPROJECT_TABLE)
+    return table if isinstance(table, dict) else None
+
+
+def read_query_config_data(path: Path) -> dict[str, object]:
+    """Read the raw query config mapping from ``path``.
+
+    A ``pyproject.toml`` path yields its ``[tool.mcp-tools-sql]`` table; any
+    other path is read as a standalone query config.
+
+    Returns:
+        The parsed query config mapping.
+
+    Raises:
+        ValueError: If the file cannot be read, is invalid TOML, or is a
+            ``pyproject.toml`` without a ``[tool.mcp-tools-sql]`` table.
+    """
+    data = _read_toml(path)
+    if path.name != "pyproject.toml":
+        return data
+    table = _pyproject_table(data)
+    if table is None:
+        raise ValueError(f"No [tool.{PYPROJECT_TABLE}] table in {path}")
+    return table
+
+
 def load_query_config(path: Path) -> QueryFileConfig:
     """Load and validate the project query configuration file.
 
@@ -102,7 +134,7 @@ def load_query_config(path: Path) -> QueryFileConfig:
         msg = f"Cannot read {path}: file does not exist"
         raise ValueError(msg)
 
-    data = _read_toml(path)
+    data = read_query_config_data(path)
 
     sensitive = _has_sensitive_keys(data)
     if sensitive:
@@ -194,7 +226,8 @@ def discover_query_config(
     Discovery chain:
     1. Explicit --config flag path
     2. mcp-tools-sql.toml in project_dir
-    3. Raise ValueError with guidance
+    3. pyproject.toml in project_dir, if it has a [tool.mcp-tools-sql] table
+    4. Raise ValueError with guidance
 
     Returns:
         Path to the discovered query config file.
@@ -210,8 +243,13 @@ def discover_query_config(
     candidate = project_dir / "mcp-tools-sql.toml"
     if candidate.exists():
         return candidate
+    pyproject = project_dir / "pyproject.toml"
+    if pyproject.exists() and _pyproject_table(_read_toml(pyproject)) is not None:
+        return pyproject
     msg = (
-        f"No mcp-tools-sql.toml found in {project_dir}. "
-        "Use --config or create the file."
+        f"No mcp-tools-sql.toml (or [tool.{PYPROJECT_TABLE}] in pyproject.toml) "
+        f"found in {project_dir}. Use --config or run "
+        "'mcp-tools-sql init --backend <backend>'. "
+        "See 'mcp-tools-sql help config'."
     )
     raise ValueError(msg)

@@ -132,7 +132,7 @@ class ConnectionConfig(BaseModel):
 class QueryParamConfig(BaseModel):
     """Definition of a single query parameter."""
 
-    name: str
+    name: str = ""  # always set from the params table key
     type: str = "str"  # str | int | float | datetime
     description: str = ""
     required: bool = True
@@ -156,6 +156,26 @@ class QueryConfig(BaseModel):
     backends: dict[str, BackendQueryConfig] = {}
     connection: str = ""  # pinned connection name (optional)
     database: str = ""  # pinned database name (optional)
+
+    @model_validator(mode="before")
+    @classmethod
+    def _param_names_from_keys(cls, data: Any) -> Any:
+        """Set each param's ``name`` to its key in the ``params`` table.
+
+        The key is authoritative: the SQL binds ``:<key>``, so an explicit
+        ``name`` that differs from it is overwritten.
+
+        Returns:
+            The input data with every param name set to its key.
+        """
+        if not isinstance(data, dict):
+            return data
+        params = data.get("params")
+        if isinstance(params, dict):
+            for key, param in params.items():
+                if isinstance(param, dict):
+                    param["name"] = key
+        return data
 
     @model_validator(mode="after")
     def _default_max_rows_hard(self) -> Self:

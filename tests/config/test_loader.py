@@ -438,3 +438,55 @@ class TestDiscoverQueryConfig:
         """ValueError with guidance when no config exists."""
         with pytest.raises(ValueError, match="mcp-tools-sql.toml"):
             discover_query_config(config_flag=None, project_dir=tmp_path)
+
+    def test_pyproject_table_discovered(self, tmp_path: Path) -> None:
+        """Falls back to pyproject.toml when it has [tool.mcp-tools-sql]."""
+        pyproject = tmp_path / "pyproject.toml"
+        pyproject.write_text('[tool.mcp-tools-sql]\nconnection = "default"\n')
+
+        result = discover_query_config(config_flag=None, project_dir=tmp_path)
+
+        assert result == pyproject
+
+    def test_pyproject_without_table_not_discovered(self, tmp_path: Path) -> None:
+        """A pyproject.toml lacking the table is skipped."""
+        (tmp_path / "pyproject.toml").write_text('[project]\nname = "x"\n')
+
+        with pytest.raises(ValueError, match="help config"):
+            discover_query_config(config_flag=None, project_dir=tmp_path)
+
+    def test_standalone_file_wins_over_pyproject(self, tmp_path: Path) -> None:
+        """mcp-tools-sql.toml takes precedence over pyproject.toml."""
+        standalone = tmp_path / "mcp-tools-sql.toml"
+        standalone.write_text("")
+        (tmp_path / "pyproject.toml").write_text("[tool.mcp-tools-sql]\n")
+
+        result = discover_query_config(config_flag=None, project_dir=tmp_path)
+
+        assert result == standalone
+
+
+class TestPyprojectQueryConfig:
+    """Tests for loading the query config from pyproject.toml."""
+
+    def test_loads_tool_table(self, tmp_path: Path) -> None:
+        """Only the [tool.mcp-tools-sql] table is read as the query config."""
+        pyproject = tmp_path / "pyproject.toml"
+        pyproject.write_text(
+            '[project]\nname = "demo"\n\n'
+            '[tool.mcp-tools-sql]\nconnection = "default"\n\n'
+            '[tool.mcp-tools-sql.queries.q]\nsql = "SELECT 1"\n'
+        )
+
+        cfg = load_query_config(pyproject)
+
+        assert cfg.connection == "default"
+        assert cfg.queries["q"].sql == "SELECT 1"
+
+    def test_missing_table_raises(self, tmp_path: Path) -> None:
+        """An explicit pyproject.toml without the table raises ValueError."""
+        pyproject = tmp_path / "pyproject.toml"
+        pyproject.write_text('[project]\nname = "demo"\n')
+
+        with pytest.raises(ValueError, match=r"\[tool.mcp-tools-sql\]"):
+            load_query_config(pyproject)
