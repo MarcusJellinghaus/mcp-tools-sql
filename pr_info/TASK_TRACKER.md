@@ -21,6 +21,55 @@ This tracks **Feature Implementation** consisting of multiple **Tasks**.
 
 ## Tasks
 
-<!-- Tasks populated from pr_info/steps/ by prepare_task_tracker -->
+### Step 1: Gate preview rules behind `explicit-preview-rules` — [step_1.md](./steps/step_1.md)
+
+- [ ] Implementation: `pyproject.toml` gate + exact DOC codes; DOC501 `.scratch/` probe confirms DOC still enforces, then delete `.scratch/`
+- [ ] Quality checks: ruff, pylint, pytest, mypy — fix all issues
+- [ ] Commit message prepared
+
+### Step 2: Enable already-clean groups (F, E, C4, ANN, SIM, SIM905, PLW1510) — [step_2.md](./steps/step_2.md)
+
+- [ ] Implementation: extend `select`/`ignore`, tests per-file ignore adds `SIM117`
+- [ ] Quality checks: ruff, pylint, pytest, mypy — fix all issues
+- [ ] Commit message prepared
+
+### Step 3: Enable `B` and fix bugbear findings — [step_3.md](./steps/step_3.md)
+
+- [ ] Implementation: `B017` narrowed `pytest.raises`, `B905` `zip(strict=True)`, `B009` plain attribute access
+- [ ] Quality checks: ruff, pylint, pytest, mypy — fix all issues
+- [ ] Commit message prepared
+
+### Step 4: Replace backend connection asserts with explicit `RuntimeError` — [step_4.md](./steps/step_4.md)
+
+- [ ] Implementation: `SQLiteBackend._require_connection()` + 4 callers; MSSQL `_ensure_connected` assert → raise with `Raises:` docstring
+- [ ] Quality checks: ruff, pylint, pytest, mypy — fix all issues
+- [ ] Commit message prepared
+
+### Step 5: Replace asserts in `update_tools` and `summarize` — [step_5.md](./steps/step_5.md)
+
+- [ ] Implementation: builders raise `ValueError` with `Raises:` docstrings; summarize condition tests `distinct is not None`
+- [ ] Quality checks: ruff, pylint, pytest, mypy — fix all issues
+- [ ] Commit message prepared
+
+### Step 6: Enable `S` with tests carve-out and justified src noqa — [step_6.md](./steps/step_6.md)
+
+- [ ] Implementation: select `S`, tests per-file ignore, inline `noqa: S608` ×2 and `noqa: S607` with reasons
+- [ ] Quality checks: ruff, pylint, pytest, mypy — fix all issues
+- [ ] Commit message prepared
+
+### Step 7: Enable `UP`; accept `types.UnionType` in tool CLI unwrapping — [step_7.md](./steps/step_7.md)
+
+- [ ] Implementation: schema probe baseline, failing unit test, `_unwrap_annotation` fix, `UP` conversion + stale `noqa: UP007` removal, probe re-run byte-identical, delete `.scratch/`
+- [ ] Quality checks: ruff, pylint, pytest, mypy — fix all issues
+- [ ] Commit message prepared
+
+### Step 8: CI — rename `ruff-docstrings` job to `ruff` and check `tools/` — [step_8.md](./steps/step_8.md)
+
+- [ ] Implementation: update `.github/workflows/ci.yml` matrix entry
+- [ ] Quality checks: ruff, pylint, pytest, mypy — fix all issues
+- [ ] Commit message prepared
 
 ## Pull Request
+
+- [ ] PR review: review full branch diff against `main`, address findings
+- [ ] PR summary prepared (note for Marcus: swap required status check `ruff-docstrings` → `ruff` before merge)
