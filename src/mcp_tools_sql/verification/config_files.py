@@ -8,10 +8,10 @@ from typing import Any
 
 from mcp_tools_sql.config.loader import (
     _has_sensitive_keys,
-    _read_toml,
     discover_query_config,
     load_database_config,
     load_query_config,
+    read_query_config_data,
 )
 from mcp_tools_sql.config.models import DatabaseConfig, QueryFileConfig
 from mcp_tools_sql.utils.user_app_data import get_user_app_data_dir
@@ -53,7 +53,7 @@ def verify_config_files(
             result["query_config_parse"] = make_entry(ok=False, error=str(exc))
 
         try:
-            data = _read_toml(resolved_query)
+            data = read_query_config_data(resolved_query)
             found = _has_sensitive_keys(data)
         except ValueError:
             found = []

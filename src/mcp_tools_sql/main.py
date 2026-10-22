@@ -10,12 +10,23 @@ from pathlib import Path
 
 from mcp_tools_sql import __version__
 from mcp_tools_sql.cli.commands import init, tool, verify
+from mcp_tools_sql.cli.commands.help_config import CONFIG_GUIDE
 from mcp_tools_sql.cli.parsers import HelpHintArgumentParser, WideHelpFormatter
 from mcp_tools_sql.server import run_server
 from mcp_tools_sql.utils.log_utils import OUTPUT, setup_logging
 from mcp_tools_sql.utils.user_app_data import get_user_app_data_dir
 
 logger = logging.getLogger(__name__)
+
+_EPILOG = """\
+With no command, runs the MCP server over stdio.
+
+Getting started:
+  mcp-tools-sql help config                  how to write the two config files
+  mcp-tools-sql init --backend sqlite|mssql  write starter config files
+  mcp-tools-sql verify                       check configs and connectivity
+  mcp-tools-sql tool                         list and call tools directly
+"""
 
 
 def _build_parser() -> argparse.ArgumentParser:
@@ -27,6 +38,7 @@ def _build_parser() -> argparse.ArgumentParser:
     parser = HelpHintArgumentParser(
         prog="mcp-tools-sql",
         description="MCP server for safe, configurable SQL database access.",
+        epilog=_EPILOG,
         formatter_class=WideHelpFormatter,
         add_help=False,
     )
@@ -47,8 +59,8 @@ def _build_parser() -> argparse.ArgumentParser:
         type=Path,
         default=None,
         help=(
-            "Path to project query config (default: auto-discovered via "
-            "mcp-tools-sql.toml in the working directory)"
+            "Path to project query config (default: ./mcp-tools-sql.toml, "
+            "else [tool.mcp-tools-sql] in ./pyproject.toml)"
         ),
     )
     parser.add_argument(
@@ -83,7 +95,10 @@ def _build_parser() -> argparse.ArgumentParser:
 
     subparsers = parser.add_subparsers(dest="command")
 
-    subparsers.add_parser("help", help=argparse.SUPPRESS)
+    help_parser = subparsers.add_parser(
+        "help", help="Show this help, or `help config` for the config file guide"
+    )
+    help_parser.add_argument("topic", nargs="?", choices=["config"])
     subparsers.add_parser("server", help="Start the MCP server (default).")
     init.add_subparser(subparsers)
     verify.add_subparser(subparsers)
@@ -137,6 +152,9 @@ def main(argv: list[str] | None = None) -> int:
     if (args.command or "server") != "tool" and extras:
         parser.error("unrecognized arguments: " + " ".join(extras))
 
+    if args.command == "help" and args.topic == "config":
+        print(CONFIG_GUIDE, end="")
+        return 0
     if args.command == "help" or args.help:
         parser.print_help()
         return 0

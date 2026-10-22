@@ -4,6 +4,11 @@
 **Date**: 2026-04-21
 **Author**: Marcus Jellinghaus
 
+> **Historical design document — not kept in sync with the code.** For current
+> behaviour see [docs/configuration.md](docs/configuration.md),
+> [docs/mcp-client-setup.md](docs/mcp-client-setup.md) and
+> [docs/cli.md](docs/cli.md), or run `mcp-tools-sql help config`.
+
 ---
 
 ## 1. Vision
@@ -853,21 +858,9 @@ Flags:
 
 ### MCP Client Configuration (`.mcp.json`)
 
-```json
-{
-  "tools-sql": {
-    "type": "stdio",
-    "command": "${MCP_CODER_VENV_PATH}\\mcp-tools-sql.exe",
-    "args": [
-      "--project-dir", "${MCP_CODER_PROJECT_DIR}",
-      "--log-level", "INFO"
-    ],
-    "env": {
-      "MSSQL_PASSWORD": "${MSSQL_PASSWORD}"
-    }
-  }
-}
-```
+See [docs/mcp-client-setup.md](docs/mcp-client-setup.md). (An earlier draft
+here used a `--project-dir` flag; the server has none — it discovers config
+from the working directory or `--config`.)
 
 ---
 

@@ -10,7 +10,11 @@ from pathlib import Path
 import pytest
 
 from mcp_tools_sql.cli.commands import init as init_cmd
-from mcp_tools_sql.config.loader import load_database_config
+from mcp_tools_sql.config.loader import (
+    discover_query_config,
+    load_database_config,
+    load_query_config,
+)
 
 
 def _make_args(
@@ -189,6 +193,23 @@ def test_init_pyproject_happy_path(redirect_home_and_cwd: Path) -> None:
     assert parsed["tool"]["mcp-tools-sql"]["connection"] == "default"
     # original [project] section preserved
     assert parsed["project"]["name"] == "demo"
+
+
+def test_init_pyproject_output_is_discovered_and_loads(
+    redirect_home_and_cwd: Path,
+) -> None:
+    """The table `init --pyproject` writes is what config discovery reads."""
+    pyproject = redirect_home_and_cwd / "pyproject.toml"
+    pyproject.write_text('[project]\nname = "demo"\n', encoding="utf-8")
+
+    rc = init_cmd.run(
+        _make_args("sqlite", output=Path("mcp-tools-sql.toml"), pyproject=True),
+    )
+    assert rc == 0
+
+    found = discover_query_config(None, project_dir=redirect_home_and_cwd)
+    assert found == pyproject
+    assert load_query_config(found).connection == "default"
 
 
 # ---------------------------------------------------------------------------

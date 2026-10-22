@@ -1,7 +1,9 @@
 # mcp-tools-sql CLI Reference
 
 This document describes the `mcp-tools-sql` command-line interface
-delivered by the package's console-script entry point.
+delivered by the package's console-script entry point. The config file
+format is in [configuration.md](configuration.md); wiring the server into
+an MCP client is in [mcp-client-setup.md](mcp-client-setup.md).
 
 ## Synopsis
 
@@ -9,11 +11,16 @@ delivered by the package's console-script entry point.
 mcp-tools-sql [--config PATH] [--database-config PATH]
               [--log-level LEVEL] [--log-file PATH] [--console-only]
               [--version] [--help]
-              <command> [<args>]
+              [<command> [<args>]]
 ```
 
-If no `<command>` is given (or `help` is given), the CLI prints the
-top-level help and exits with code 0.
+| Command | Purpose |
+|---------|---------|
+| *(none)*, `server` | Run the MCP server over stdio. |
+| `help [config]` | Top-level help, or the config file guide. |
+| `init` | Write starter config files. |
+| `verify` | Check environment, configs, dependencies, connectivity and every configured tool. |
+| `tool` | List, describe and call the MCP tools directly. |
 
 ## Global flags
 
@@ -28,7 +35,7 @@ everywhere but **resolve differently per subcommand** — see
 |------|---------|-------------|
 | `--help`, `-h` | — | Print help for `mcp-tools-sql` (or for a subcommand when used as `<command> -h`) and exit 0. |
 | `--version` | — | Print the installed package version and exit 0. |
-| `--config PATH` | (auto-discovered) | Path to the project query config. Discovery falls back to `mcp-tools-sql.toml` in the current directory and then `[tool.mcp-tools-sql]` in `pyproject.toml`. |
+| `--config PATH` | (auto-discovered) | Path to the project query config. Discovery falls back to `mcp-tools-sql.toml` in the current directory and then `[tool.mcp-tools-sql]` in `pyproject.toml` — see [Discovery](configuration.md#discovery). |
 | `--database-config PATH` | `~/.mcp-tools-sql/config.toml` | Path to the database config (connections + credentials). |
 | `--log-level LEVEL` | per command (see below) | One of `DEBUG`, `INFO`, `OUTPUT`, `WARNING`, `ERROR`. |
 | `--log-file PATH` | per command (see below) | Write structured JSON logs to this file instead of the default path. Ignored when `--console-only` is set. |
@@ -48,7 +55,7 @@ Defaults depend on the command:
 | Command | `--log-level` | Log file |
 |---------|---------------|----------|
 | `server` | `INFO` | `~/.mcp-tools-sql/logs/mcp_tools_sql_<timestamp>.log` — a new file per launch |
-| `init`, `verify` | `OUTPUT` | none — console only |
+| every other command | `OUTPUT` | none — console only |
 
 `server` defaults to a file because MCP clients typically discard the server's
 stderr, making the file the only durable record. A failed launch is logged at
@@ -140,11 +147,13 @@ password = "${MSSQL_PASSWORD}"
 driver = "ODBC Driver 18 for SQL Server"
 ```
 
-`databases` is the **two-axis routing model** in action: one connection can
-reach several catalogs. Schema tools accept a `database` param to pick one, or
-`database = "*"` to fan out across all of them (see the two-axis model below).
+One connection can reach several catalogs; see
+[Multiple connections and databases](configuration.md#multiple-connections-and-databases).
 
 #### Example — postgresql
+
+> PostgreSQL has no backend implementation yet: `init` scaffolds the config
+> and it validates, but connecting fails with `Unsupported backend`.
 
 ```text
 $ mcp-tools-sql init --backend postgresql --pyproject
@@ -168,37 +177,17 @@ password = "${POSTGRES_PASSWORD}"
 PostgreSQL routes to exactly one database per connection; add further
 databases as additional `[connections.*]` blocks with their own credentials.
 
-#### The two-axis model, fan-out, and pinned targets
+### `help config` — the config file guide
 
-Routing has **two axes**: a **connection** (a server + backend + credentials)
-and, within it, a **database** (catalog). One connection and one database are
-the defaults, so single-target installs behave exactly as before and grow no
-extra tool parameters.
+```text
+mcp-tools-sql help config
+```
 
-- **Conditional tool surface.** A `connection` parameter appears on the built-in
-  schema tools only when more than one connection is configured; a `database`
-  parameter and the config-only `read_databases` tool appear only when more than
-  one `(connection, database)` target exists. Both parameters are
-  keyword-only with a `Literal` enum of the legal names.
-- **`database = "*"` fan-out.** The four read-only schema builtins accept
-  `database = "*"` to run across every database of the selected connection.
-  Merged rows gain a `_database` source column and, on truncation, a
-  per-database footer breakdown. There is no `connection = "*"`.
-- **`read_databases`.** A config-only tool (no DB access) that lists the
-  configured connections and their databases so a caller can discover the legal
-  `connection` / `database` values before calling the schema tools.
-- **Pinned query/update targets.** A `[queries.*]` or `[updates.*]` block may
-  set `connection` and/or `database` to pin that tool to one target at
-  registration time; `query_*` / `update_*` tools therefore take **no** runtime
-  `connection` / `database` params. `validate_sql` and `count_records` keep a
-  runtime `database` param (dialect and backend resolve per call).
-
-> **Security caveat (not an authorization boundary).** The `databases` list is a
-> **routing/discovery** convenience, **not** a permission boundary. A connection
-> can still reach any catalog its login is granted — cross-database SQL with
-> three-part `db.schema.table` names works verbatim regardless of what
-> `databases` lists. Enforce least privilege with per-connection database
-> credentials at the server, not by editing this list.
+Prints a self-contained guide to both config files: where they are found,
+every key, an example of each, the setup commands in order, and how to wire
+the server into an MCP client. It is meant to be enough for an LLM driving the
+CLI to configure the server without these docs. A test keeps it in step with
+the config models.
 
 ### `verify` — validate setup without starting the server
 
@@ -317,6 +306,9 @@ with the MCP server — schema introspection, `query_*`, `update_*`,
 without an MCP client or LLM. Supply `--config` and `--database-config` on
 the top-level `mcp-tools-sql` command, as with `verify`.
 
+The tool list depends on the config, so even `tool --help` needs configs that
+load. Without them `tool` exits 1 and points at `mcp-tools-sql help config`.
+
 Bare `tool` and `tool --help` are the same code path: both print the full
 tool listing (one `name  description` line per tool, sorted by name)
 followed by the exit codes table below, and both exit 0 — there is no
@@ -381,7 +373,9 @@ Valid.
 ### `help` and `--version`
 
 - `mcp-tools-sql help` is equivalent to `mcp-tools-sql --help`: it
-  prints the top-level help and exits 0.
+  prints the top-level help and exits 0. The top-level help ends with the
+  getting-started commands in order. `mcp-tools-sql help config` prints the
+  config guide (see above).
 - `mcp-tools-sql --help` and `mcp-tools-sql -h` print the top-level
   help; `mcp-tools-sql <command> -h` prints help for that subcommand.
 - `mcp-tools-sql --version` prints `mcp-tools-sql <version>` and
@@ -392,5 +386,7 @@ Valid.
 | Code | Meaning |
 |------|---------|
 | `0`  | Success. For `verify`, no `[ERR]` rows were emitted. |
-| `1`  | User-recoverable error: missing/invalid config, refused overwrite, failed connection, or any `[ERR]` row in `verify`. |
-| `2`  | Argparse parse error (unknown flag, missing required value, etc.). The CLI also prints `Try 'mcp-tools-sql --help' for more information.` to stderr in this case. |
+| `1`  | User-recoverable error in `init`, `verify` or `tool`: missing/invalid config, refused overwrite, failed connection, or any `[ERR]` row in `verify`. |
+| `2`  | Argparse parse error (unknown flag, missing required value, etc.). The CLI also prints `Try 'mcp-tools-sql --help' for more information.` to stderr in this case. The server (no command) also exits `2` when its config fails to load, after logging the reason and pointing at `verify`. |
+| `3`, `4` | `tool` only — the tool rejected the call, or the database returned an error. See [`tool` exit codes](#exit-codes). |
+| `130` | The server was interrupted (Ctrl+C). |
