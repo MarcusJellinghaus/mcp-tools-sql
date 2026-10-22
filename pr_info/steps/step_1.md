@@ -31,10 +31,15 @@ Resulting `select = ["D", "DOC201", "DOC202", "DOC402", "DOC403", "DOC501", "DOC
 
 ## Verification
 - `run_ruff_check(target_directories=["src","tests"])` → clean.
-- Prove the DOC rules still enforce: `run_ruff_check(select=["DOC501"],
-  target_directories=["src"])` → clean (no error about unknown/empty selection).
-- If either check reports findings, write one line to `pr_info/.blocked.txt`
-  and stop.
+- Prove the DOC rules still enforce with the project config: save
+  `.scratch/doc501_probe.py` containing a function with a Google docstring
+  (no `Raises:` section) whose body does `raise ValueError("x")`; run
+  `run_ruff_check(target_directories=[".scratch"])` and confirm it reports
+  `DOC501` for that file. Then `delete_directory(".scratch", recursive=True)`.
+  If `DOC501` is not reported, the gate disabled the DOC rules: write one line
+  to `pr_info/.blocked.txt` and stop.
+- If the `src`/`tests` check reports findings, write one line to
+  `pr_info/.blocked.txt` and stop.
 - pylint, mypy and pytest unchanged and green.
 
 ## Commit

@@ -7,36 +7,29 @@
 
 ## WHERE
 - `src/mcp_tools_sql/update_tools.py` — `_build_update_sig_params`,
-  `_build_update_body`, `UpdateTools.register`
+  `_build_update_body`
 - `src/mcp_tools_sql/summarize/tools.py` — value-list block (~lines 475-485)
 
 ## WHAT
-### update_tools — pass the narrowed key instead of asserting
-`register()` already raises `ValueError` when `cfg.key is None`, and mypy
-narrows `cfg.key` after it. Hand the narrowed key to the builders:
+### update_tools — explicit check instead of asserting
+In both `_build_update_sig_params` and `_build_update_body`, replace
+`assert config.key is not None` with:
 
 ```python
-def _build_update_sig_params(
-    config: UpdateConfig, key: UpdateKeyConfig
-) -> list[inspect.Parameter]: ...
-
-def _build_update_body(
-    name: str,
-    config: UpdateConfig,
-    key: UpdateKeyConfig,
-    qualified: str,
-    backend: DatabaseBackend,
-) -> Callable[..., Awaitable[str]]: ...
+if config.key is None:
+    msg = "update config requires a key field"
+    raise ValueError(msg)
 ```
-- Delete both `assert config.key is not None` lines.
-- Inside the builders, replace every `config.key.` with `key.`.
-- In `register()`:
-  `sig_params = _build_update_sig_params(cfg, cfg.key)` and
-  `body = _build_update_body(name, cfg, cfg.key, qualified, backend)`.
-- Add `UpdateKeyConfig` to the existing `TYPE_CHECKING` import from
-  `mcp_tools_sql.config.models`.
-- Docstrings: no `Raises:` needed (nothing raises). Do not add `Args:`
-  sections unless the surrounding docstrings already have them (they don't).
+mypy narrows `config.key` after the check, so the rest of each builder is
+unchanged. Signatures and the `register()` call sites stay as they are.
+
+Add a `Raises:` section to both docstrings (`DOC501` fires on private
+functions too), after `Returns:`:
+```
+Raises:
+    ValueError: If ``config.key`` is missing.
+```
+Do not add `Args:` sections (the surrounding docstrings don't have them).
 
 ### summarize/tools.py — test what the code needs
 Replace
@@ -71,7 +64,9 @@ never returns NULL.
 TDD: behaviour-preserving refactor. Regression coverage:
 `tests/test_update_tools.py`, `tests/test_update_tools_multitarget.py`,
 `tests/test_server.py`, `tests/summarize/`. No test calls the private
-builders directly. Run those first, then the full suite.
+builders directly. The new `raise ValueError` branches are unreachable
+(`register()` rejects a missing key first), so per the issue no test is added
+for them. Run those first, then the full suite.
 
 ## Verification
 - `run_ruff_check(select=["S101"], target_directories=["src"])` → clean.
@@ -79,4 +74,4 @@ builders directly. Run those first, then the full suite.
 - mypy `--strict`, pylint, full pytest green.
 
 ## Commit
-`refactor: drop asserts in update_tools and summarize via type narrowing`
+`refactor: replace asserts in update_tools and summarize`

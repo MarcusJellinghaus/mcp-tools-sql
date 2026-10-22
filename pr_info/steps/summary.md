@@ -23,13 +23,10 @@ This is a lint-policy change. No public API, tool schema or behaviour changes.
      `RuntimeError` if still `None`, return the connection. The four
      connection-using methods call it, matching MSSQL's existing
      `_ensure_connected()`, whose assert becomes a `raise RuntimeError`.
-   - `update_tools`: `register()` already raises `ValueError` when `key` is
-     missing. The two private builders now take the narrowed
-     `key: UpdateKeyConfig` as a parameter instead of re-checking
-     `config.key`. **KISS deviation from the issue text:** the issue asked for
-     a `raise ValueError` in each builder; passing the key removes two
-     unreachable branches and two `Raises:` sections and still meets every
-     acceptance criterion.
+   - `update_tools`: the two private builders replace
+     `assert config.key is not None` with `if config.key is None: raise
+     ValueError(...)` and gain a `Raises:` docstring section (per the issue's
+     decision). Signatures are unchanged.
    - `summarize/tools.py`: the value-list condition tests `distinct is not None`
      directly (equivalent to `include_distinct and category != "other"`, since
      `_split_stats` returns `None` exactly when distinct was not measured).
@@ -99,7 +96,7 @@ ignore = [
 | `tests/backends/test_mssql.py` | 3 | `B905` `zip(strict=True)` |
 | `tests/backends/test_registry.py` | 3 | `B009` plain attribute access |
 | `src/mcp_tools_sql/backends/sqlite.py` | 4 | new `_require_connection()`; 4 asserts removed |
-| `src/mcp_tools_sql/update_tools.py` | 5, 6, 7 | builders take `key`; `noqa: S608`; `Optional` → `\|` |
+| `src/mcp_tools_sql/update_tools.py` | 5, 6, 7 | builders assert → `raise ValueError`; `noqa: S608`; `Optional` → `\|` |
 | `src/mcp_tools_sql/summarize/tools.py` | 5, 7 | `distinct is not None` condition; `Optional` → `\|` |
 | `src/mcp_tools_sql/summarize/sql.py` | 6 | `noqa: S608` with reason |
 | `src/mcp_tools_sql/verification/connection.py` | 6 | `noqa: S607` with reason |
