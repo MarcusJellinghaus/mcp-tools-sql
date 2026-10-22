@@ -23,9 +23,9 @@ This tracks **Feature Implementation** consisting of multiple **Tasks**.
 
 ### Step 1: Gate preview rules behind `explicit-preview-rules` — [step_1.md](./steps/step_1.md)
 
-- [ ] Implementation: `pyproject.toml` gate + exact DOC codes; DOC501 `.scratch/` probe confirms DOC still enforces, then delete `.scratch/`
-- [ ] Quality checks: ruff, pylint, pytest, mypy — fix all issues
-- [ ] Commit message prepared
+- [x] Implementation: `pyproject.toml` gate + exact DOC codes; DOC501 `.scratch/` probe confirms DOC still enforces, then delete `.scratch/`
+- [x] Quality checks: ruff, pylint, pytest, mypy — fix all issues
+- [x] Commit message prepared
 
 ### Step 2: Enable already-clean groups (F, E, C4, ANN, SIM, SIM905, PLW1510) — [step_2.md](./steps/step_2.md)
 
