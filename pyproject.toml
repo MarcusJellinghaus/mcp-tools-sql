@@ -113,6 +113,12 @@ ignore_missing_imports = true
 module = ["sqlglot", "sqlglot.*"]
 ignore_missing_imports = true
 
+# Optional backend dependency: installed in some environments, not others.
+# An override (unlike an inline ignore) is never reported as unused.
+[[tool.mypy.overrides]]
+module = ["psycopg", "psycopg.*"]
+ignore_missing_imports = true
+
 [tool.ruff]
 target-version = "py311"
 line-length = 88
@@ -138,6 +144,10 @@ convention = "google"
 # W1203: logging-fstring-interpolation — redundant while W is disabled, but kept
 #        as documentation: f-strings in logging calls are acceptable for readability
 disable = ["W", "C", "R", "W1203"]
+
+[tool.pylint.main]
+# pyodbc is a C extension; let pylint import it to see its members (I1101).
+extension-pkg-allow-list = ["pyodbc"]
 
 [tool.pylint.typecheck]
 # sqlglot builds its ``exp`` expression classes dynamically; treat it as an

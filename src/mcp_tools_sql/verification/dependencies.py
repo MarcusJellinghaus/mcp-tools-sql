@@ -144,7 +144,7 @@ def _verify_dependencies_postgresql() -> dict[str, Any]:
     """
     result: dict[str, Any] = {}
     try:
-        import psycopg  # type: ignore[import-not-found]  # pylint: disable=import-outside-toplevel
+        import psycopg  # pylint: disable=import-outside-toplevel
 
         version = getattr(psycopg, "__version__", "")
         result["psycopg"] = make_entry(ok=True, value=version)

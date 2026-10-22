@@ -16,7 +16,35 @@ MCP server providing safe, configurable SQL database access for LLM-assisted wor
 - **Safety**: Config-driven queries, parameterized execution, no SQL injection
 - **Discoverability**: Schema introspection with search/filter for wide tables
 - **LLM-friendliness**: Truncated, formatted output that fits context windows
-- **Multi-backend**: SQLite, MS SQL Server, PostgreSQL behind a common abstraction
+- **Multi-backend**: SQLite and MS SQL Server behind a common abstraction
+  (PostgreSQL config is accepted; the backend is not implemented yet)
+
+### Design Principles
+
+- **The config is the security boundary.** Every statement whose rows reach the
+  LLM is declared up front. Updates are structured (table + key + fields); the
+  server generates the SQL.
+- **Bounded output.** Every result is truncated with a clear message ("showing
+  100 of 4,832 rows") so a single call cannot flood the context window.
+- **Design for the hard cases.** The driving use cases are:
+  - *Wide-table discovery* — find the right schema, table and a handful of
+    columns among 1,000+ in a customer data warehouse, then pull the data.
+    Each tool call informs the next.
+  - *Master data mapping* — look an entity up in several systems with
+    configured queries, confirm candidates with the user, write the mapping
+    with an update tool; later run the same tools in batch via automated
+    prompting.
+
+  If those work, simpler scenarios do too.
+
+### Out of Scope (Decided)
+
+- **Ad-hoc query execution.** There is no `run_select` / `run_update`. Result
+  rows come only from configured queries. `validate_sql`, `count_records` and
+  `summarize_columns` accept read-only SQL but return plans, counts and
+  column profiles, not result sets.
+- **Numeric analysis in SQL.** Heavy computation belongs in downstream scripts
+  (Python/pandas); this server does exploration and retrieval.
 
 ### Stakeholders
 
@@ -30,7 +58,9 @@ MCP server providing safe, configurable SQL database access for LLM-assisted wor
 - Python 3.11+
 - MCP protocol via STDIO transport (FastMCP)
 - Pydantic for all models (config, dynamic tool params, internal)
-- Three config files: `pyproject.toml` (dev), `~/.mcp-tools-sql/config.toml` (connections), `mcp-tools-sql.toml` (queries)
+- Two runtime config files: `~/.mcp-tools-sql/config.toml` (connections) and
+  `mcp-tools-sql.toml` (queries; alternatively `[tool.mcp-tools-sql]` in the
+  user project's `pyproject.toml`). See [configuration.md](../configuration.md).
 
 ---
 
@@ -42,7 +72,7 @@ MCP server providing safe, configurable SQL database access for LLM-assisted wor
 │                 │                  │                  │                │             │
 │ • Claude Code   │                  │  Built-in tools: │                │ • SQLite    │
 │ • Claude Desktop│                  │   schema intro.  │                │ • SQL Server│
-│ • VSCode        │                  │  Configured tools│                │ • PostgreSQL│
+│ • VSCode        │                  │  Configured tools│                │             │
 └─────────────────┘                  │   queries/updates│                └─────────────┘
                                      └──────────────────┘
                                               │
@@ -82,7 +112,7 @@ MCP server providing safe, configurable SQL database access for LLM-assisted wor
 │  └── mcp_tools_sql.verification (subpackage)        │
 ├─────────────────────────────────────────────────────┤
 │  Infrastructure Layer                               │
-│  ├── mcp_tools_sql.backends (sqlite, mssql, pg)     │
+│  ├── mcp_tools_sql.backends (sqlite, mssql)         │
 │  └── mcp_tools_sql.formatting                       │
 ├─────────────────────────────────────────────────────┤
 │  Config Layer                                       │

@@ -1,7 +1,5 @@
 # mcp-tools-sql
 
-> **Status: Under active development — not yet functional.**
-
 An MCP server for safe, configurable SQL database access. Exposes schema introspection, user-defined SELECT queries, and structured UPDATE operations as MCP tools for LLM-assisted workflows.
 
 ## Key Ideas
@@ -107,9 +105,6 @@ connections can be configured side by side. See
 > **Note:** `databases` is a routing/discovery list, **not** an authorization
 > boundary — a connection still reaches any catalog its login is granted. Grant
 > least privilege with per-connection database credentials at the server.
-
-The original [planning document](mcp-tools-sql.md) records design rationale;
-it is not kept in sync with the code.
 
 ## License
 
