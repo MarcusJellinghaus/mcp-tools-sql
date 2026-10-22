@@ -10,7 +10,7 @@ schemas for LLM consumption. Two test levels:
 
 import inspect
 from collections.abc import Callable
-from typing import Annotated, Any, Optional
+from typing import Annotated, Any
 
 import pytest
 from mcp.server.fastmcp import FastMCP
@@ -55,9 +55,9 @@ def _make_dynamic_tool_fn(
             default: object = inspect.Parameter.empty
         else:
             annotation = (
-                Annotated[Optional[python_type], Field(description=desc)]  # noqa: UP007
+                Annotated[python_type | None, Field(description=desc)]
                 if desc
-                else Optional[python_type]  # noqa: UP007
+                else python_type | None
             )
             default = None
 

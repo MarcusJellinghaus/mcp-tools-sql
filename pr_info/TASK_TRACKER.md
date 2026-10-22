@@ -59,9 +59,9 @@ This tracks **Feature Implementation** consisting of multiple **Tasks**.
 
 ### Step 7: Enable `UP`; accept `types.UnionType` in tool CLI unwrapping — [step_7.md](./steps/step_7.md)
 
-- [ ] Implementation: schema probe baseline, failing unit test, `_unwrap_annotation` fix, `UP` conversion + stale `noqa: UP007` removal, probe re-run byte-identical, delete `.scratch/`
-- [ ] Quality checks: ruff, pylint, pytest, mypy — fix all issues
-- [ ] Commit message prepared
+- [x] Implementation: schema probe baseline, failing unit test, `_unwrap_annotation` fix, `UP` conversion + stale `noqa: UP007` removal, probe re-run byte-identical, delete `.scratch/`
+- [x] Quality checks: ruff, pylint, pytest, mypy — fix all issues
+- [x] Commit message prepared
 
 ### Step 8: CI — rename `ruff-docstrings` job to `ruff` and check `tools/` — [step_8.md](./steps/step_8.md)
 

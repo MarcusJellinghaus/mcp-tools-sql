@@ -29,7 +29,7 @@ reference computed and aggregated output columns (``HAVING``-like filtering).
 from __future__ import annotations
 
 import inspect
-from typing import TYPE_CHECKING, Annotated, Any, Literal, Optional
+from typing import TYPE_CHECKING, Annotated, Any, Literal
 
 from pydantic import Field
 
@@ -136,7 +136,7 @@ def _base_summarize_params() -> list[inspect.Parameter]:
             kind=inspect.Parameter.POSITIONAL_OR_KEYWORD,
             default=None,
             annotation=Annotated[
-                Optional[str],  # noqa: UP007
+                str | None,
                 Field(description="Owning schema (ignored on SQLite)."),
             ],
         ),
@@ -145,7 +145,7 @@ def _base_summarize_params() -> list[inspect.Parameter]:
             kind=inspect.Parameter.POSITIONAL_OR_KEYWORD,
             default=None,
             annotation=Annotated[
-                Optional[str],  # noqa: UP007
+                str | None,
                 Field(description="Table to profile; requires schema."),
             ],
         ),
@@ -154,7 +154,7 @@ def _base_summarize_params() -> list[inspect.Parameter]:
             kind=inspect.Parameter.POSITIONAL_OR_KEYWORD,
             default=None,
             annotation=Annotated[
-                Optional[str],  # noqa: UP007
+                str | None,
                 Field(
                     description=(
                         "Read-only SELECT to profile instead of a table; "
@@ -168,7 +168,7 @@ def _base_summarize_params() -> list[inspect.Parameter]:
             kind=inspect.Parameter.POSITIONAL_OR_KEYWORD,
             default=None,
             annotation=Annotated[
-                Optional[list[str]],  # noqa: UP007
+                list[str] | None,
                 Field(description="Columns to profile; omit for all."),
             ],
         ),
@@ -177,7 +177,7 @@ def _base_summarize_params() -> list[inspect.Parameter]:
             kind=inspect.Parameter.POSITIONAL_OR_KEYWORD,
             default=None,
             annotation=Annotated[
-                Optional[str],  # noqa: UP007
+                str | None,
                 Field(description="Read-only predicate; :name placeholders only."),
             ],
         ),
@@ -186,7 +186,7 @@ def _base_summarize_params() -> list[inspect.Parameter]:
             kind=inspect.Parameter.POSITIONAL_OR_KEYWORD,
             default=None,
             annotation=Annotated[
-                Optional[dict[str, Any]],  # noqa: UP007
+                dict[str, Any] | None,
                 Field(description="Bound values for the where :name placeholders."),
             ],
         ),

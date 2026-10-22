@@ -2,7 +2,7 @@
 
 from __future__ import annotations
 
-from typing import Any, Optional, Self
+from typing import Any, Self
 
 from pydantic import BaseModel, ConfigDict, Field, model_validator
 
@@ -215,7 +215,7 @@ class UpdateConfig(BaseModel):
     description: str = ""
     schema_name: str = Field(default="", alias="schema")
     table: str = ""
-    key: Optional[UpdateKeyConfig] = None
+    key: UpdateKeyConfig | None = None
     fields: list[UpdateFieldConfig] = []
     connection: str = ""  # pinned connection name (optional)
     database: str = ""  # pinned database name (optional)

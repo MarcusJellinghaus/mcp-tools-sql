@@ -4,7 +4,7 @@ from __future__ import annotations
 
 import inspect
 from collections.abc import Awaitable, Callable
-from typing import TYPE_CHECKING, Annotated, Any, Optional
+from typing import TYPE_CHECKING, Annotated, Any
 
 from pydantic import Field
 
@@ -81,7 +81,7 @@ def _build_update_sig_params(config: UpdateConfig) -> list[inspect.Parameter]:
                     kind=inspect.Parameter.KEYWORD_ONLY,
                     default=_UNSET,
                     annotation=Annotated[
-                        Optional[python_type],  # noqa: UP007
+                        python_type | None,
                         Field(description=field_cfg.description),
                     ],
                 )

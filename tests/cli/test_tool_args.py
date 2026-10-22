@@ -3,13 +3,17 @@
 from __future__ import annotations
 
 import inspect
-from typing import Annotated, Any, Literal, Optional
+from typing import Annotated, Any, Literal
 
 import pytest
 from mcp.server.fastmcp.tools.base import Tool
 from pydantic import Field
 
-from mcp_tools_sql.cli.commands.tool_args import build_kwargs, build_tool_argparser
+from mcp_tools_sql.cli.commands.tool_args import (
+    _unwrap_annotation,
+    build_kwargs,
+    build_tool_argparser,
+)
 from mcp_tools_sql.tool_builder import _UNSET, build_tool_fn
 
 
@@ -52,7 +56,7 @@ def test_optional_int_param_omittable_and_parsed() -> None:
                 "count",
                 kind=inspect.Parameter.KEYWORD_ONLY,
                 default=1,
-                annotation=Optional[int],  # noqa: UP007
+                annotation=int | None,
             )
         ]
     )
@@ -111,7 +115,7 @@ def test_params_dict_repeatable_flag() -> None:
                 "params",
                 kind=inspect.Parameter.KEYWORD_ONLY,
                 default=None,
-                annotation=Optional[dict[str, Any]],  # noqa: UP007
+                annotation=dict[str, Any] | None,
             )
         ]
     )
@@ -135,7 +139,7 @@ def test_columns_list_repeatable_flag() -> None:
                 "columns",
                 kind=inspect.Parameter.KEYWORD_ONLY,
                 default=None,
-                annotation=Optional[list[str]],  # noqa: UP007
+                annotation=list[str] | None,
             )
         ]
     )
@@ -154,9 +158,7 @@ def test_unset_sentinel_default_is_treated_as_optional() -> None:
                 "notes",
                 kind=inspect.Parameter.KEYWORD_ONLY,
                 default=_UNSET,
-                annotation=Annotated[
-                    Optional[str], Field(description="Optional notes")  # noqa: UP007
-                ],
+                annotation=Annotated[str | None, Field(description="Optional notes")],
             )
         ]
     )
@@ -164,3 +166,12 @@ def test_unset_sentinel_default_is_treated_as_optional() -> None:
 
     assert build_kwargs(parser.parse_args([])) == {}
     assert build_kwargs(parser.parse_args(["--notes", "hi"])) == {"notes": "hi"}
+
+
+def test_unwrap_annotation_accepts_pep604_optional() -> None:
+    """`Annotated[int | None, Field(...)]` unwraps to `int` plus its description."""
+    base, description = _unwrap_annotation(
+        Annotated[int | None, Field(description="Count")]
+    )
+    assert base is int
+    assert description == "Count"
