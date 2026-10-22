@@ -18,6 +18,7 @@ from mcp_tools_sql.config.models import (
     BackendQueryConfig,
     ConnectionConfig,
     DatabaseConfig,
+    DatabaseSpec,
     QueryConfig,
     QueryFileConfig,
     QueryParamConfig,
@@ -32,11 +33,14 @@ from mcp_tools_sql.main import main
 _NOT_AUTHORED: dict[type[BaseModel], set[str]] = {
     # Derived from the [queries.<name>.params.<param>] table key.
     QueryParamConfig: {"name"},
+    # The `databases` table key or list entry.
+    DatabaseSpec: {"name"},
 }
 
 # Every config model whose fields are authored in a TOML file.
 _AUTHORED_MODELS: list[type[BaseModel]] = [
     ConnectionConfig,
+    DatabaseSpec,
     SecurityConfig,
     QueryFileConfig,
     QueryConfig,
@@ -64,6 +68,26 @@ _KEY_LINE = re.compile(rf"^ {{2,}}({_KEY}(?:, {_KEY})*,?)(?: {{2,}}|$)", re.MULT
 _HEADER_LINE = re.compile(r"^ *\[\[?([a-z_.<>]+)\]\]?", re.MULTILINE)
 
 
+def _indent(example: str) -> str:
+    """Return *example* as the guide embeds it: indented by two spaces."""
+    return "".join(
+        f"  {line}" if line.strip() else line
+        for line in example.splitlines(keepends=True)
+    )
+
+
+def _reference_text(guide: str) -> str:
+    """Return *guide* without the embedded examples.
+
+    Example table headers would otherwise mask a removed reference line.
+    """
+    for example in (DATABASE_CONFIG_EXAMPLE, QUERY_CONFIG_EXAMPLE):
+        indented = _indent(example)
+        assert indented in guide
+        guide = guide.replace(indented, "")
+    return guide
+
+
 def _listed_keys(guide: str) -> set[str]:
     """Return the keys the guide lists, in key lists or table headers."""
     keys: set[str] = set()
@@ -86,7 +110,7 @@ def test_guide_names_every_config_key(model: type[BaseModel]) -> None:
         for name, field in model.model_fields.items()
         if name not in skip
     ]
-    listed = _listed_keys(CONFIG_GUIDE)
+    listed = _listed_keys(_reference_text(CONFIG_GUIDE))
     missing = [k for k in keys if k not in listed]
 
     assert not missing, f"keys missing from CONFIG_GUIDE: {missing}"
@@ -101,11 +125,7 @@ def test_guide_examples_load() -> None:
 def test_guide_embeds_examples_indented() -> None:
     """Each example appears in the guide indented by two spaces."""
     for example in (DATABASE_CONFIG_EXAMPLE, QUERY_CONFIG_EXAMPLE):
-        indented = "".join(
-            f"  {line}" if line.strip() else line
-            for line in example.splitlines(keepends=True)
-        )
-        assert indented in CONFIG_GUIDE
+        assert _indent(example) in CONFIG_GUIDE
 
 
 def test_unknown_help_topic_exits_2() -> None:

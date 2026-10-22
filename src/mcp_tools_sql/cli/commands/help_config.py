@@ -151,8 +151,9 @@ _GUIDE_OUTRO = """\
 
 Built-in tools (no config needed): read_schemas, read_tables, read_columns,
 read_relations, validate_sql, count_records, summarize_columns. With more
-than one (connection, database) target they gain connection/database
-parameters and read_databases is added.
+than one (connection, database) target they gain a `database` parameter
+(plus `connection` when more than one connection is configured) and
+read_databases is added.
 
 Wiring into an MCP client: run `mcp-tools-sql` (no subcommand) as a stdio
 server, preferably with an absolute --config path, because the client

@@ -122,6 +122,15 @@ class TestModelValidation:
         query = QueryConfig.model_validate(data)
         assert query.params["customer_id"].name == "customer_id"
 
+    def test_query_param_explicit_name_overridden_by_key(self) -> None:
+        """An explicit `name` differing from its key is replaced by the key."""
+        data = {
+            "sql": "SELECT * FROM orders WHERE customer_id = :customer_id",
+            "params": {"customer_id": {"name": "cust", "type": "int"}},
+        }
+        query = QueryConfig.model_validate(data)
+        assert query.params["customer_id"].name == "customer_id"
+
 
 class TestBackendQueryConfig:
     """Tests for BackendQueryConfig model."""
