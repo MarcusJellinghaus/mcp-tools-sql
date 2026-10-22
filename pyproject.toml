@@ -144,6 +144,9 @@ disable = ["W", "C", "R", "W1203"]
 # ignored module so pylint neither attempts the import nor flags dynamic members.
 ignored-modules = ["sqlglot"]
 
+[tool.mcp-tools-py]
+formatter = "black"   # isort + black
+
 [tool.mcp-coder.implement]
 format_code = true
 check_type_hints = true
