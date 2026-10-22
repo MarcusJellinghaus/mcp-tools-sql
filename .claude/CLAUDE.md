@@ -6,7 +6,7 @@
 
 Use MCP tools for **all** operations. Never use `Read`, `Write`, `Edit`, or `Bash` for tasks that have an MCP equivalent. If no MCP equivalent exists, use Bash. Check the tool mapping table below first.
 
-**Justify Bash.** Before a Bash command or script, say in chat, on two lines:
+**Justify any native tool.** Before Read, Write, Edit, Glob, Grep, or Bash, say in chat, on two lines:
 
 - *What it does* — one sentence.
 - *Why MCP doesn't* — which tool you'd have used, and what stops it.
@@ -114,13 +114,13 @@ mcp-coder gh-tool set-status <label>
 
 ## Writing style
 
-Be concise. Shorter is better — chat, commits, PRs, docs, comments alike.
+Before sending, cut any sentence that doesn't tell the reader something new or change what they do next — chat, commits, PRs, docs, comments, skill output alike. No pleasantries, no hedging, no filler opens or closes; hedge only when the uncertainty changes the action. Stay readable: short clauses or arrow chains over dense paragraphs; lead with the outcome.
 
-Say it once. Never restate what the reader can already see: the diff, the code, the issue, or my own earlier message. Cut it; don't rephrase it.
+Don't restate investigation the tool calls already show (file reads, searches, test runs). In chat, give the conclusion and the decision points only — not a narrated walkthrough of how you got there.
 
-If a sentence isn't load-bearing, delete it.
+## Progress during loops
 
-Readable beats short. Cut what I don't need; don't compress what stays — complete sentences, no arrow chains or invented abbreviations. Lead with the outcome.
+Repeating the same action across 3+ items (e.g. files, issues, repos) → one short line per item as it completes, not just a final summary.
 
 ## Asking questions
 
