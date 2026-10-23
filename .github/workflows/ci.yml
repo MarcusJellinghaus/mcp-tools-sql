@@ -256,6 +256,7 @@ jobs:
           - {name: "tach", cmd: "tach --version && ./tools/tach_check.sh"}
           - {name: "vulture", cmd: "vulture --version && ./tools/vulture_check.sh"}
           - {name: "pycycle", cmd: "pycycle --version && ./tools/pycycle_check.sh"}
+          - {name: "deptry", cmd: "deptry --version && ./tools/deptry_check.sh"}
     name: ${{ matrix.check.name }}
     steps:
       - uses: actions/checkout@v7

@@ -21,8 +21,6 @@ dependencies = [
     # <2.0.0: mcp 2.x drops mcp.server.fastmcp (FastMCP -> MCPServer). See #46.
     "mcp>=1.3.0,<2.0.0",
     "mcp[cli]>=1.3.0,<2.0.0",
-    "structlog>=24.5.0",
-    "python-json-logger>=3.2.1",
     "mcp-coder-utils>=0.1.6.dev0",
     "tabulate>=0.9.0",
     "pydantic>=2.0",
@@ -43,6 +41,7 @@ dev = [
     "mcp-tools-py",        # single source for ruff + black/isort/pylint/mypy/vulture/pytest...
     "pycycle>=0.0.8",      # KEEP — mcp-tools-py ships it only in its own [dev] extra
     "tach>=0.35.0",        # KEEP — mcp-tools-py ships it only in its own [dev] extra
+    "deptry>=0.25.1",
 ]
 
 [project.scripts]
@@ -66,6 +65,19 @@ markers = [
     "postgresql_integration: Integration tests using PostgreSQL",
     "integration: General integration tests requiring external resources",
 ]
+
+# Run as `deptry src` (tools/deptry_check.sh) — src only; tests/ and tools/ are not scanned.
+[tool.deptry]
+known_first_party = ["mcp_tools_sql"]
+# Packages in the `dev` extra are tooling, not runtime deps: no DEP002 for them,
+# but importing one from src/ is still reported (DEP004).
+optional_dependencies_dev_groups = ["dev"]
+
+# pyodbc / psycopg are absent in `.[dev]`-only installs (the CI `architecture` job),
+# so deptry cannot read their metadata; name the modules explicitly.
+[tool.deptry.package_module_name_map]
+pyodbc = ["pyodbc"]
+psycopg = ["psycopg"]
 
 [tool.black]
 line-length = 88
