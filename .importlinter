@@ -1,6 +1,7 @@
 [importlinter]
 root_package = mcp_tools_sql
 root_package_paths = src
+include_external_packages = True
 
 [importlinter:contract:layers]
 name = Layered Architecture
@@ -35,3 +36,13 @@ forbidden_modules =
     mcp_tools_sql.count_tools
     mcp_tools_sql.summarize
     mcp_tools_sql.server
+
+[importlinter:contract:mcp_coder_utils_isolation]
+name = MCP Coder Utils Isolation
+type = forbidden
+source_modules =
+    mcp_tools_sql
+forbidden_modules =
+    mcp_coder_utils
+ignore_imports =
+    mcp_tools_sql.utils.** -> mcp_coder_utils
