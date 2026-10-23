@@ -29,9 +29,9 @@ This tracks **Feature Implementation** consisting of multiple **Tasks**.
 - [x] Commit message prepared
 
 ### Step 2: Coverage summary script + ported tests, dev deps, .gitignore, ruff ignore ([step_2.md](./steps/step_2.md))
-- [ ] Implementation (tests + production code)
-- [ ] Quality checks: pylint, pytest, mypy — fix all issues
-- [ ] Commit message prepared
+- [x] Implementation (tests + production code)
+- [x] Quality checks: pylint, pytest, mypy — fix all issues
+- [x] Commit message prepared
 
 ### Step 3: CI coverage wiring — unit-tests job, --cov on integration jobs, uploads, coverage job ([step_3.md](./steps/step_3.md))
 - [ ] Implementation (tests + production code)

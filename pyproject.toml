@@ -42,6 +42,8 @@ dev = [
     "pycycle>=0.0.8",      # KEEP — mcp-tools-py ships it only in its own [dev] extra
     "tach>=0.35.0",        # KEEP — mcp-tools-py ships it only in its own [dev] extra
     "deptry>=0.25.1",
+    "pytest-cov",
+    "diff-cover",
 ]
 
 [project.scripts]
@@ -172,6 +174,8 @@ ignore = [
 # credentials and "/tmp/..." literals used as test data, never opened;
 # S608: DDL/DML fixtures build SQL from strings on purpose.
 "tests/**/*.py" = ["D", "DOC", "SIM117", "S101", "S105", "S106", "S108", "S608"]
+# tools: standalone CI scripts copied from mcp_coder; Returns sections not required.
+"tools/**" = ["DOC201"]
 
 [tool.ruff.lint.pydocstyle]
 convention = "google"

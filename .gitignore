@@ -28,6 +28,12 @@ build/
 .mypy_cache/
 .ruff_cache/
 
+# Coverage artefacts
+.coverage
+.coverage.*
+coverage.xml
+htmlcov/
+
 # Rope project cache
 .ropeproject/
 
