@@ -4,7 +4,7 @@ from __future__ import annotations
 
 import inspect
 from collections.abc import Awaitable, Callable
-from typing import TYPE_CHECKING, Annotated, Any, Optional
+from typing import TYPE_CHECKING, Annotated, Any
 
 from pydantic import Field
 
@@ -43,8 +43,13 @@ def _build_update_sig_params(config: UpdateConfig) -> list[inspect.Parameter]:
     Returns:
         The ordered list of ``inspect.Parameter`` objects describing the
         tool's public signature.
+
+    Raises:
+        ValueError: If ``config.key`` is missing.
     """
-    assert config.key is not None
+    if config.key is None:
+        msg = "update config requires a key field"
+        raise ValueError(msg)
     sig_params: list[inspect.Parameter] = []
 
     key_type = resolve_python_type(config.key.type)
@@ -76,7 +81,7 @@ def _build_update_sig_params(config: UpdateConfig) -> list[inspect.Parameter]:
                     kind=inspect.Parameter.KEYWORD_ONLY,
                     default=_UNSET,
                     annotation=Annotated[
-                        Optional[python_type],  # noqa: UP007
+                        python_type | None,
                         Field(description=field_cfg.description),
                     ],
                 )
@@ -96,8 +101,13 @@ def _build_update_body(
     Returns:
         An async callable that executes the UPDATE and returns the
         formatted result string.
+
+    Raises:
+        ValueError: If ``config.key`` is missing.
     """
-    assert config.key is not None
+    if config.key is None:
+        msg = "update config requires a key field"
+        raise ValueError(msg)
     key_field = config.key.field
     field_names = [f.field for f in config.fields]
 
@@ -109,7 +119,7 @@ def _build_update_body(
         if not field_values:
             raise ValueError(f"update {name!r}: at least one field value required")
         set_clause = ", ".join(f"{col}=:{col}" for col in field_values)
-        sql = f"UPDATE {qualified} SET {set_clause} " f"WHERE {key_field}=:{key_field}"
+        sql = f"UPDATE {qualified} SET {set_clause} WHERE {key_field}=:{key_field}"  # noqa: S608 - table, column and key names come from validated config; values are bound :name params
         params = {**field_values, key_field: key_value}
         async with log_tool_call(name, params, sql=sql) as rec:
             affected = backend.execute_update(sql, params)

@@ -9,6 +9,7 @@ import pytest
 
 from mcp_tools_sql.backends.base import DatabaseBackend
 from mcp_tools_sql.backends.registry import BackendRegistry
+from mcp_tools_sql.backends.sqlite import SQLiteBackend
 from mcp_tools_sql.config.models import ConnectionConfig, ResolvedTarget
 
 
@@ -125,7 +126,8 @@ class TestLazyConnect:
         registry = BackendRegistry()
         backend = registry.backend_for(_sqlite_target("conn"))
         # SQLiteBackend keeps its connection lazily on ``_connection``.
-        assert getattr(backend, "_connection") is None
+        assert isinstance(backend, SQLiteBackend)
+        assert backend._connection is None
 
 
 # ---------------------------------------------------------------------------

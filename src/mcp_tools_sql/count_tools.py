@@ -22,7 +22,7 @@ from __future__ import annotations
 
 import inspect
 import sqlite3
-from typing import TYPE_CHECKING, Annotated, Any, Optional
+from typing import TYPE_CHECKING, Annotated, Any
 
 from pydantic import Field
 
@@ -87,7 +87,7 @@ def _base_count_params() -> list[inspect.Parameter]:
             kind=inspect.Parameter.POSITIONAL_OR_KEYWORD,
             default=None,
             annotation=Annotated[
-                Optional[dict[str, Any]],  # noqa: UP007
+                dict[str, Any] | None,
                 Field(description="Bound values for :name placeholders."),
             ],
         ),

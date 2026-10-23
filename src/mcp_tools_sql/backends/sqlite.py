@@ -51,6 +51,21 @@ class SQLiteBackend(DatabaseBackend):
             self._connection = None
         self._closed = True
 
+    def _require_connection(self) -> sqlite3.Connection:
+        """Lazily connect and return the live connection.
+
+        Returns:
+            The open SQLite connection.
+
+        Raises:
+            RuntimeError: If no connection is open after ``connect()``.
+        """
+        self.connect()
+        if self._connection is None:
+            msg = "Backend connection is not open."
+            raise RuntimeError(msg)
+        return self._connection
+
     def execute_query(
         self, sql: str, params: dict[str, Any] | None = None
     ) -> list[dict[str, Any]]:
@@ -59,9 +74,7 @@ class SQLiteBackend(DatabaseBackend):
         Returns:
             Rows as a list of dicts.
         """
-        self.connect()
-        assert self._connection is not None
-        cursor = self._connection.execute(sql, params or {})
+        cursor = self._require_connection().execute(sql, params or {})
         return [dict(row) for row in cursor.fetchall()]
 
     def execute_readonly_query(
@@ -135,10 +148,9 @@ class SQLiteBackend(DatabaseBackend):
         Returns:
             Number of affected rows.
         """
-        self.connect()
-        assert self._connection is not None
-        cursor = self._connection.execute(sql, params or {})
-        self._connection.commit()
+        conn = self._require_connection()
+        cursor = conn.execute(sql, params or {})
+        conn.commit()
         return cursor.rowcount
 
     def explain(self, sql: str, params: dict[str, Any] | None = None) -> str:
@@ -148,9 +160,9 @@ class SQLiteBackend(DatabaseBackend):
         parameterized SQL, so callers must pass ``params`` whenever the SQL
         references ``:name`` placeholders.
         """
-        self.connect()
-        assert self._connection is not None
-        cursor = self._connection.execute(f"EXPLAIN QUERY PLAN {sql}", params or {})
+        cursor = self._require_connection().execute(
+            f"EXPLAIN QUERY PLAN {sql}", params or {}
+        )
         rows = cursor.fetchall()
         return "\n".join(row["detail"] for row in rows)
 
@@ -162,6 +174,4 @@ class SQLiteBackend(DatabaseBackend):
         persistent connection is safe. Callers MUST NOT close the yielded
         connection.
         """
-        self.connect()
-        assert self._connection is not None
-        yield self._connection
+        yield self._require_connection()

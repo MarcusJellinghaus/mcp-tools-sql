@@ -178,9 +178,14 @@ class MSSQLBackend(DatabaseBackend):
 
         Returns:
             The active pyodbc connection.
+
+        Raises:
+            RuntimeError: If no connection is open after ``connect()``.
         """
         self.connect()
-        assert self._connection is not None
+        if self._connection is None:
+            msg = "Backend connection is not open."
+            raise RuntimeError(msg)
         return self._connection
 
     def _params_for_pyodbc(
@@ -211,7 +216,7 @@ class MSSQLBackend(DatabaseBackend):
         try:
             cursor.execute(sql_q, args)
             columns = [d[0] for d in cursor.description]
-            return [dict(zip(columns, row)) for row in cursor.fetchall()]
+            return [dict(zip(columns, row, strict=True)) for row in cursor.fetchall()]
         finally:
             cursor.close()
 
