@@ -155,7 +155,7 @@ def test_cross_file_rule4_unknown_per_query_connection(tmp_path: Path) -> None:
     )
     db_cfg = tmp_path / "db-config.toml"
     db_cfg.write_text(
-        "[connections.main]\n" 'backend = "mssql"\n' 'databases = ["sales"]\n',
+        '[connections.main]\nbackend = "mssql"\ndatabases = ["sales"]\n',
         encoding="utf-8",
     )
 
@@ -178,7 +178,7 @@ def test_cross_file_rule5_per_query_database_not_member(tmp_path: Path) -> None:
     )
     db_cfg = tmp_path / "db-config.toml"
     db_cfg.write_text(
-        "[connections.main]\n" 'backend = "mssql"\n' 'databases = ["sales", "hr"]\n',
+        '[connections.main]\nbackend = "mssql"\ndatabases = ["sales", "hr"]\n',
         encoding="utf-8",
     )
 

@@ -50,7 +50,7 @@ def test_update_config_minimal() -> None:
 
 def test_create_backend_sqlite(tmp_path: object) -> None:
     """create_backend returns an SQLiteBackend for backend='sqlite'."""
-    from mcp_tools_sql.backends.base import create_backend
+    from mcp_tools_sql.backends.registry import create_backend
 
     cfg = ConnectionConfig(backend="sqlite", path=":memory:")
     backend = create_backend(cfg)
@@ -59,7 +59,7 @@ def test_create_backend_sqlite(tmp_path: object) -> None:
 
 def test_create_backend_unknown() -> None:
     """create_backend raises ValueError for unknown backends."""
-    from mcp_tools_sql.backends.base import create_backend
+    from mcp_tools_sql.backends.registry import create_backend
 
     cfg = ConnectionConfig(backend="unknown")
     with pytest.raises(ValueError, match="Unsupported backend"):

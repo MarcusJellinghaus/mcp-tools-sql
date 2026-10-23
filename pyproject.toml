@@ -57,7 +57,9 @@ mcp-tools-sql = "mcp_tools_sql.main:main"
 testpaths = ["tests"]
 asyncio_default_fixture_loop_scope = "function"
 pythonpath = ["src"]
-addopts = "-n auto"
+# --strict-markers: unknown markers are errors (catches typos)
+# -p no:tach: Disable tach plugin (noisy output about unaffected tests)
+addopts = ["--strict-markers", "--tb=short", "-n", "auto", "-p", "no:tach"]
 markers = [
     "sqlite_integration: Integration tests using SQLite",
     "mssql_integration: Integration tests using Microsoft SQL Server",
@@ -163,10 +165,21 @@ ignore = [
 convention = "google"
 
 [tool.pylint.messages_control]
-# W, C, R: disabled by design (warnings, conventions, refactoring)
-# W1203: logging-fstring-interpolation — redundant while W is disabled, but kept
-#        as documentation: f-strings in logging calls are acceptable for readability
-disable = ["W", "C", "R", "W1203"]
+disable = [
+    "C",       # conventions — not enabled in this project
+    "R",       # refactor suggestions — not enabled in this project
+    "W1203",   # logging-fstring-interpolation — project uses f-strings for readability
+    "W0621",   # redefined-outer-name — standard pytest fixture pattern
+    "W0511",   # fixme/TODO — informational only, not a quality gate
+    "W0212",   # protected-access — legitimate in tests and controlled src usage
+    "W0613",   # unused-argument — pytest fixtures injected by name
+    "W0611",   # unused-import — owned by ruff F401 (pylint flags the X-as-X re-export convention)
+    "W0404",   # reimported — reimports across test functions
+    "W0718",   # broad-exception-caught — intentional catch-all in CLI/workflow error handling
+    "W0706",   # try-except-raise — explicit re-raise for clarity in error chains
+    "W4903",   # deprecated-argument — tracked for future cleanup
+]
+enable = ["R0401"]
 
 [tool.pylint.main]
 # pyodbc is a C extension; let pylint import it to see its members (I1101).

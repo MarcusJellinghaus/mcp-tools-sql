@@ -64,11 +64,11 @@ jobs:
       fail-fast: false
       matrix:
         check:
-          - {name: "black", cmd: "black --version && black --check src tests"}
-          - {name: "isort", cmd: "isort --version && isort --check --profile=black --float-to-top src tests"}
-          - {name: "pylint", cmd: "pylint --version && pylint -E ./src ./tests"}
+          - {name: "black", cmd: "black --version && black --check src tests tools"}
+          - {name: "isort", cmd: "isort --version && isort --check --profile=black --float-to-top src tests tools"}
+          - {name: "pylint", cmd: "pylint --version && pylint ./src ./tests"}  # configuration via pyproject.toml
           - {name: "ruff", cmd: "ruff version && ruff check src tests tools"}
-          - {name: "pytest", cmd: "pytest --version && pytest tests -n auto -m 'not sqlite_integration and not mssql_integration and not postgresql_integration'"}
+          - {name: "pytest", cmd: "pytest --version && pytest tests -m 'not sqlite_integration and not mssql_integration and not postgresql_integration'"}
           - {name: "mypy", cmd: "mypy --version && mypy --strict src tests"}
           - {name: "no-url-deps", cmd: "python tools/check_no_url_deps.py"}
           - {name: "file-size", cmd: "mcp-coder check file-size --max-lines 750 --allowlist-file .large-files-allowlist"}
@@ -87,15 +87,11 @@ jobs:
           python-version: 3.11
 
       - name: Install dependencies
-        # mcp-coder-utils is pinned to git main: `console_level` (needed by the
-        # server logging path) landed after the 0.1.5 PyPI release. Pre-install
-        # it so the `mcp-coder-utils>=0.1.6.dev0` requirement in [project]
-        # resolves. Keeping the URL here (not in pyproject.toml) is what lets
-        # tools/check_no_url_deps.py keep passing.
+        # GitHub-installed deps come from [tool.mcp-coder.install-from-github]
+        # in pyproject.toml (installed in the same uv call so they win over PyPI).
         run: |
-          uv pip install --system \
-            "mcp-coder-utils @ git+https://github.com/MarcusJellinghaus/mcp-coder-utils.git" \
-            ".[dev]"
+          mapfile -t SPECS < <(python tools/read_github_deps.py --specs)
+          uv pip install --system "${SPECS[@]}" ".[dev]"
 
       - name: Environment info
         run: |
@@ -125,11 +121,10 @@ jobs:
           python-version: 3.11
 
       - name: Install dependencies
-        # mcp-coder-utils from git — see the comment in the `test` job.
+        # GitHub deps from [tool.mcp-coder.install-from-github] — see the `test` job.
         run: |
-          uv pip install --system \
-            "mcp-coder-utils @ git+https://github.com/MarcusJellinghaus/mcp-coder-utils.git" \
-            ".[dev]"
+          mapfile -t SPECS < <(python tools/read_github_deps.py --specs)
+          uv pip install --system "${SPECS[@]}" ".[dev]"
 
       - name: Run SQLite integration tests
         run: |
@@ -169,11 +164,10 @@ jobs:
           python-version: 3.11
 
       - name: Install dependencies
-        # mcp-coder-utils from git — see the comment in the `test` job.
+        # GitHub deps from [tool.mcp-coder.install-from-github] — see the `test` job.
         run: |
-          uv pip install --system \
-            "mcp-coder-utils @ git+https://github.com/MarcusJellinghaus/mcp-coder-utils.git" \
-            ".[dev,postgresql]"
+          mapfile -t SPECS < <(python tools/read_github_deps.py --specs)
+          uv pip install --system "${SPECS[@]}" ".[dev,postgresql]"
 
       - name: Run PostgreSQL integration tests
         env:
@@ -225,11 +219,10 @@ jobs:
           sudo ACCEPT_EULA=Y apt-get install -y msodbcsql18 unixodbc-dev
 
       - name: Install dependencies
-        # mcp-coder-utils from git — see the comment in the `test` job.
+        # GitHub deps from [tool.mcp-coder.install-from-github] — see the `test` job.
         run: |
-          uv pip install --system \
-            "mcp-coder-utils @ git+https://github.com/MarcusJellinghaus/mcp-coder-utils.git" \
-            ".[dev,mssql]"
+          mapfile -t SPECS < <(python tools/read_github_deps.py --specs)
+          uv pip install --system "${SPECS[@]}" ".[dev,mssql]"
 
       - name: ODBC diagnostics
         run: |
@@ -259,10 +252,10 @@ jobs:
       fail-fast: false
       matrix:
         check:
-          - {name: "import-linter", cmd: "lint-imports --help > /dev/null && lint-imports"}
-          - {name: "tach", cmd: "tach --version && tach check"}
-          - {name: "vulture", cmd: "vulture --version && vulture src tests vulture_whitelist.py --min-confidence 60"}
-          - {name: "pycycle", cmd: "pycycle --version && pycycle --here --ignore .venv,__pycache__,build,dist,.git,.pytest_cache,.mypy_cache"}
+          - {name: "import-linter", cmd: "lint-imports --help > /dev/null && ./tools/lint_imports.sh"}
+          - {name: "tach", cmd: "tach --version && ./tools/tach_check.sh"}
+          - {name: "vulture", cmd: "vulture --version && ./tools/vulture_check.sh"}
+          - {name: "pycycle", cmd: "pycycle --version && ./tools/pycycle_check.sh"}
     name: ${{ matrix.check.name }}
     steps:
       - uses: actions/checkout@v7
@@ -278,11 +271,10 @@ jobs:
           python-version: 3.11
 
       - name: Install dependencies
-        # mcp-coder-utils from git — see the comment in the `test` job.
+        # GitHub deps from [tool.mcp-coder.install-from-github] — see the `test` job.
         run: |
-          uv pip install --system \
-            "mcp-coder-utils @ git+https://github.com/MarcusJellinghaus/mcp-coder-utils.git" \
-            ".[dev]"
+          mapfile -t SPECS < <(python tools/read_github_deps.py --specs)
+          uv pip install --system "${SPECS[@]}" ".[dev]"
 
       - name: Environment info
         run: |

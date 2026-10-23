@@ -8,7 +8,7 @@ from unittest.mock import MagicMock
 
 import pytest
 
-from mcp_tools_sql.backends.base import create_backend
+from mcp_tools_sql.backends.registry import create_backend
 from mcp_tools_sql.backends.sqlite import SQLiteBackend
 from mcp_tools_sql.config.models import ConnectionConfig, ResolvedTarget
 from mcp_tools_sql.verification import verify_connection

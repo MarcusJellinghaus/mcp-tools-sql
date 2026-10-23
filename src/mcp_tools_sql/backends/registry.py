@@ -4,19 +4,43 @@ from __future__ import annotations
 
 import logging
 
-from mcp_tools_sql.backends.base import DatabaseBackend, create_backend
-from mcp_tools_sql.config.models import ResolvedTarget
+from mcp_tools_sql.backends.base import _DIALECTS, DatabaseBackend
+from mcp_tools_sql.config.models import ConnectionConfig, ResolvedTarget
 
 logger = logging.getLogger(__name__)
+
+
+def create_backend(config: ConnectionConfig) -> DatabaseBackend:
+    """Factory: instantiate the appropriate backend for *config.backend*.
+
+    Returns:
+        A DatabaseBackend instance for the requested backend type.
+
+    Raises:
+        ValueError: If the backend type is not supported.
+    """
+    if config.backend == "sqlite":
+        from mcp_tools_sql.backends.sqlite import SQLiteBackend
+
+        return SQLiteBackend(config)
+    if config.backend in ("mssql", "pyodbc"):
+        from mcp_tools_sql.backends.mssql import MSSQLBackend
+
+        return MSSQLBackend(config)
+    msg = (
+        f"Unsupported backend: {config.backend}. "
+        f"Supported: {', '.join(sorted(_DIALECTS))}."
+    )
+    raise ValueError(msg)
 
 
 class BackendRegistry:
     """Instantiate and cache one backend per ``(connection, database)`` target.
 
     Owns backend lifecycle for the server: ``backend_for`` creates a backend on
-    first use (delegating concrete-backend selection to
-    :func:`~mcp_tools_sql.backends.base.create_backend`) and returns the cached
-    instance on repeat calls. ``close_all`` releases every instantiated backend.
+    first use (delegating concrete-backend selection to :func:`create_backend`)
+    and returns the cached instance on repeat calls. ``close_all`` releases
+    every instantiated backend.
     """
 
     def __init__(self) -> None:

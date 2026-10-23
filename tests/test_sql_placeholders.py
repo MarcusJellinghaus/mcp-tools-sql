@@ -426,7 +426,7 @@ _CLEAN_SQL: list[tuple[str, tuple[str, ...]]] = [
     ("SELECT a FROM t FOR XML PATH('row')", ("tsql",)),
     ("SELECT a FROM t OPTION (RECOMPILE)", ("sqlite", "tsql")),
     (
-        "WITH a AS (SELECT 1 AS x), b AS (SELECT 2 AS y) " "SELECT a.x, b.y FROM a, b",
+        "WITH a AS (SELECT 1 AS x), b AS (SELECT 2 AS y) SELECT a.x, b.y FROM a, b",
         ("sqlite", "tsql"),
     ),
     ("SELECT 1 UNION ALL SELECT 2", ("sqlite", "tsql")),

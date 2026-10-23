@@ -7,9 +7,7 @@ from contextlib import AbstractContextManager
 from types import TracebackType
 from typing import Any, Self
 
-from mcp_tools_sql.config.models import ConnectionConfig
-
-# keep in sync with the create_backend dispatch chain below
+# keep in sync with the create_backend dispatch chain in backends/registry.py
 _DIALECTS: dict[str, str] = {
     "sqlite": "sqlite",
     "mssql": "tsql",
@@ -154,27 +152,3 @@ class DatabaseBackend(ABC):
     ) -> None:
         """Close connection on context exit."""
         self.close()
-
-
-def create_backend(config: ConnectionConfig) -> DatabaseBackend:
-    """Factory: instantiate the appropriate backend for *config.backend*.
-
-    Returns:
-        A DatabaseBackend instance for the requested backend type.
-
-    Raises:
-        ValueError: If the backend type is not supported.
-    """
-    if config.backend == "sqlite":
-        from mcp_tools_sql.backends.sqlite import SQLiteBackend
-
-        return SQLiteBackend(config)
-    if config.backend in ("mssql", "pyodbc"):
-        from mcp_tools_sql.backends.mssql import MSSQLBackend
-
-        return MSSQLBackend(config)
-    msg = (
-        f"Unsupported backend: {config.backend}. "
-        f"Supported: {', '.join(sorted(_DIALECTS))}."
-    )
-    raise ValueError(msg)
