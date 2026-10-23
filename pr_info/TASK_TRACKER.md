@@ -22,9 +22,9 @@ This tracks **Feature Implementation** consisting of multiple **Tasks**.
 ## Tasks
 
 ### Step 1: Move `create_backend` into `backends/registry.py` (fix R0401 cycle) — [step_1.md](./steps/step_1.md)
-- [ ] Implementation: update test imports, move `create_backend` to `registry.py`, update comments/docstrings
-- [ ] Quality checks: pylint (incl. `--enable=R0401`), pytest, mypy — fix all issues
-- [ ] Commit message prepared
+- [x] Implementation: update test imports, move `create_backend` to `registry.py`, update comments/docstrings
+- [x] Quality checks: pylint (incl. `--enable=R0401`), pytest, mypy — fix all issues
+- [x] Commit message prepared
 
 ### Step 2: Full pylint run with mcp_coder's config — [step_2.md](./steps/step_2.md)
 - [ ] Implementation: pylint config in `pyproject.toml`, fix W1404 and W0223 findings, CI full pylint run
