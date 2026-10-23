@@ -87,15 +87,11 @@ jobs:
           python-version: 3.11
 
       - name: Install dependencies
-        # mcp-coder-utils is pinned to git main: `console_level` (needed by the
-        # server logging path) landed after the 0.1.5 PyPI release. Pre-install
-        # it so the `mcp-coder-utils>=0.1.6.dev0` requirement in [project]
-        # resolves. Keeping the URL here (not in pyproject.toml) is what lets
-        # tools/check_no_url_deps.py keep passing.
+        # GitHub-installed deps come from [tool.mcp-coder.install-from-github]
+        # in pyproject.toml (installed in the same uv call so they win over PyPI).
         run: |
-          uv pip install --system \
-            "mcp-coder-utils @ git+https://github.com/MarcusJellinghaus/mcp-coder-utils.git" \
-            ".[dev]"
+          mapfile -t SPECS < <(python tools/read_github_deps.py --specs)
+          uv pip install --system "${SPECS[@]}" ".[dev]"
 
       - name: Environment info
         run: |
@@ -125,11 +121,10 @@ jobs:
           python-version: 3.11
 
       - name: Install dependencies
-        # mcp-coder-utils from git — see the comment in the `test` job.
+        # GitHub deps from [tool.mcp-coder.install-from-github] — see the `test` job.
         run: |
-          uv pip install --system \
-            "mcp-coder-utils @ git+https://github.com/MarcusJellinghaus/mcp-coder-utils.git" \
-            ".[dev]"
+          mapfile -t SPECS < <(python tools/read_github_deps.py --specs)
+          uv pip install --system "${SPECS[@]}" ".[dev]"
 
       - name: Run SQLite integration tests
         run: |
@@ -169,11 +164,10 @@ jobs:
           python-version: 3.11
 
       - name: Install dependencies
-        # mcp-coder-utils from git — see the comment in the `test` job.
+        # GitHub deps from [tool.mcp-coder.install-from-github] — see the `test` job.
         run: |
-          uv pip install --system \
-            "mcp-coder-utils @ git+https://github.com/MarcusJellinghaus/mcp-coder-utils.git" \
-            ".[dev,postgresql]"
+          mapfile -t SPECS < <(python tools/read_github_deps.py --specs)
+          uv pip install --system "${SPECS[@]}" ".[dev,postgresql]"
 
       - name: Run PostgreSQL integration tests
         env:
@@ -225,11 +219,10 @@ jobs:
           sudo ACCEPT_EULA=Y apt-get install -y msodbcsql18 unixodbc-dev
 
       - name: Install dependencies
-        # mcp-coder-utils from git — see the comment in the `test` job.
+        # GitHub deps from [tool.mcp-coder.install-from-github] — see the `test` job.
         run: |
-          uv pip install --system \
-            "mcp-coder-utils @ git+https://github.com/MarcusJellinghaus/mcp-coder-utils.git" \
-            ".[dev,mssql]"
+          mapfile -t SPECS < <(python tools/read_github_deps.py --specs)
+          uv pip install --system "${SPECS[@]}" ".[dev,mssql]"
 
       - name: ODBC diagnostics
         run: |
@@ -278,11 +271,10 @@ jobs:
           python-version: 3.11
 
       - name: Install dependencies
-        # mcp-coder-utils from git — see the comment in the `test` job.
+        # GitHub deps from [tool.mcp-coder.install-from-github] — see the `test` job.
         run: |
-          uv pip install --system \
-            "mcp-coder-utils @ git+https://github.com/MarcusJellinghaus/mcp-coder-utils.git" \
-            ".[dev]"
+          mapfile -t SPECS < <(python tools/read_github_deps.py --specs)
+          uv pip install --system "${SPECS[@]}" ".[dev]"
 
       - name: Environment info
         run: |

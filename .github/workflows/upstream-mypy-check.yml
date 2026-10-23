@@ -31,11 +31,10 @@ jobs:
           python-version: "3.11"
 
       - name: Install dependencies
-        # mcp-coder-utils from git — see the comment in ci.yml's `test` job.
+        # GitHub deps from [tool.mcp-coder.install-from-github] in pyproject.toml.
         run: |
-          uv pip install --system \
-            "mcp-coder-utils @ git+https://github.com/MarcusJellinghaus/mcp-coder-utils.git" \
-            ".[dev]"
+          mapfile -t SPECS < <(python tools/read_github_deps.py --specs)
+          uv pip install --system "${SPECS[@]}" ".[dev]"
 
       - name: Run mypy --strict
         run: mypy --strict src tests

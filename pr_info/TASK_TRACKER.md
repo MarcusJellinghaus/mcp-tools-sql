@@ -37,9 +37,9 @@ This tracks **Feature Implementation** consisting of multiple **Tasks**.
 - [x] Commit message prepared
 
 ### Step 4: CI installs GitHub deps from `[tool.mcp-coder.install-from-github]` — [step_4.md](./steps/step_4.md)
-- [ ] Implementation: port `tools/read_github_deps.py`, replace hardcoded git URL installs in workflows with `--specs`
-- [ ] Quality checks: pylint, pytest, mypy — fix all issues
-- [ ] Commit message prepared
+- [x] Implementation: port `tools/read_github_deps.py`, replace hardcoded git URL installs in workflows with `--specs`
+- [x] Quality checks: pylint, pytest, mypy — fix all issues
+- [x] Commit message prepared
 
 ### Step 5: `subprocess_runner` shim + import-health test — [step_5.md](./steps/step_5.md)
 - [ ] Implementation: port `tests/test_module_imports.py` and `tests/_import_walker.py`, add `utils/subprocess_runner.py` shim
