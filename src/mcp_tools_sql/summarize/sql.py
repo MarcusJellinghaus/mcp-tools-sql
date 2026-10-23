@@ -199,7 +199,7 @@ def validate_where(
     """
     if not where or where.strip() == "":
         return (None, None)
-    probe = f"SELECT 1 FROM {table_ref.sql(dialect=dialect)} WHERE {where}"
+    probe = f"SELECT 1 FROM {table_ref.sql(dialect=dialect)} WHERE {where}"  # noqa: S608 - probe is vetted by basic_preflight and arbitrary_sql_violation; only its parsed AST is used
     verdict = basic_preflight(probe, params, dialect)
     if verdict is not None:
         return (None, verdict)

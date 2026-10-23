@@ -11,7 +11,7 @@ from __future__ import annotations
 import inspect
 from collections.abc import Awaitable, Callable
 from fnmatch import fnmatch
-from typing import TYPE_CHECKING, Annotated, Any, Literal, Optional, cast
+from typing import TYPE_CHECKING, Annotated, Any, Literal, cast
 
 from pydantic import Field
 
@@ -153,9 +153,9 @@ def build_query_sig_params(config: QueryConfig) -> list[inspect.Parameter]:
             )
         else:
             annotation = (
-                Annotated[Optional[python_type], Field(description=desc)]  # noqa: UP007
+                Annotated[python_type | None, Field(description=desc)]
                 if desc
-                else Optional[python_type]  # noqa: UP007
+                else python_type | None
             )
             sig_params.append(
                 inspect.Parameter(
@@ -188,9 +188,7 @@ def build_query_sig_params(config: QueryConfig) -> list[inspect.Parameter]:
                 filter_kwarg,
                 kind=inspect.Parameter.POSITIONAL_OR_KEYWORD,
                 default=None,
-                annotation=Annotated[
-                    Optional[str], Field(description=filter_desc)
-                ],  # noqa: UP007
+                annotation=Annotated[str | None, Field(description=filter_desc)],
             )
         )
 
@@ -362,7 +360,7 @@ def build_target_params(
             "database",
             kind=inspect.Parameter.KEYWORD_ONLY,
             default=None,
-            annotation=Annotated[Optional[db_enum], Field(description=db_desc)],
+            annotation=Annotated[db_enum | None, Field(description=db_desc)],
         )
     )
 

@@ -328,7 +328,7 @@ class TestErrorHandling:
     def test_connect_invalid_path(self, tmp_path: Path) -> None:
         invalid_path = str(tmp_path / "nonexistent_dir" / "sub" / "test.db")
         backend = _make_backend(invalid_path)
-        with pytest.raises(Exception):
+        with pytest.raises(sqlite3.DatabaseError):
             backend.connect()
 
     @pytest.mark.skipif(sys.platform == "win32", reason="chmod not reliable on Windows")
@@ -339,7 +339,7 @@ class TestErrorHandling:
         try:
             backend = _make_backend(str(db_path))
             backend.connect()
-            with pytest.raises(Exception):
+            with pytest.raises(sqlite3.DatabaseError):
                 backend.execute_update("CREATE TABLE t (id INTEGER PRIMARY KEY)")
         finally:
             os.chmod(db_path, stat.S_IRUSR | stat.S_IWUSR)
@@ -349,7 +349,7 @@ class TestErrorHandling:
         corrupt_path.write_bytes(b"this is not a valid sqlite database file!!!")
         backend = _make_backend(str(corrupt_path))
         backend.connect()
-        with pytest.raises(Exception):
+        with pytest.raises(sqlite3.DatabaseError):
             backend.execute_query("SELECT name FROM sqlite_master WHERE type='table'")
 
 

@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import argparse
 import inspect
+import types
 from typing import TYPE_CHECKING, Annotated, Any, Literal, Union, get_args, get_origin
 
 from pydantic.fields import FieldInfo
@@ -30,7 +31,7 @@ def _parse_kv(value: str) -> tuple[str, str]:
 
 
 def _unwrap_annotation(annotation: Any) -> tuple[Any, str | None]:
-    """Strip ``Annotated``/``Field`` metadata and ``Optional`` wrapping.
+    """Strip ``Annotated``/``Field`` metadata and ``Optional``/``X | None`` wrapping.
 
     Returns:
         The base type (or ``Literal[...]`` generic alias) and the `Field`
@@ -43,7 +44,7 @@ def _unwrap_annotation(annotation: Any) -> tuple[Any, str | None]:
         for meta in args[1:]:
             if isinstance(meta, FieldInfo) and meta.description:
                 description = meta.description
-    if get_origin(annotation) is Union:
+    if get_origin(annotation) in (Union, types.UnionType):
         non_none = [arg for arg in get_args(annotation) if arg is not type(None)]
         if non_none:
             annotation = non_none[0]
