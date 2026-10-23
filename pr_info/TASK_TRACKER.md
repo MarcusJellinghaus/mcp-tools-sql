@@ -57,9 +57,9 @@ This tracks **Feature Implementation** consisting of multiple **Tasks**.
 - [x] Commit message prepared
 
 ### Step 8: Local check scripts; CI architecture jobs call them — [step_8.md](./steps/step_8.md)
-- [ ] Implementation: copy 10 `tools/*.sh`/`.bat` scripts from mcp_coder, set exec bit on CI-invoked `.sh`, update CI architecture matrix
-- [ ] Quality checks: pylint, pytest, mypy — fix all issues
-- [ ] Commit message prepared
+- [x] Implementation: copy 10 `tools/*.sh`/`.bat` scripts from mcp_coder, set exec bit on CI-invoked `.sh`, update CI architecture matrix
+- [x] Quality checks: pylint, pytest, mypy — fix all issues
+- [x] Commit message prepared
 
 ### Step 9: black and isort CI cover `tools/` — [step_9.md](./steps/step_9.md)
 - [ ] Implementation: extend black and isort CI commands to `src tests tools`

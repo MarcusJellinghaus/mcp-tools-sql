@@ -252,10 +252,10 @@ jobs:
       fail-fast: false
       matrix:
         check:
-          - {name: "import-linter", cmd: "lint-imports --help > /dev/null && lint-imports"}
-          - {name: "tach", cmd: "tach --version && tach check"}
-          - {name: "vulture", cmd: "vulture --version && vulture src tests vulture_whitelist.py --min-confidence 60"}
-          - {name: "pycycle", cmd: "pycycle --version && pycycle --here --ignore .venv,__pycache__,build,dist,.git,.pytest_cache,.mypy_cache"}
+          - {name: "import-linter", cmd: "lint-imports --help > /dev/null && ./tools/lint_imports.sh"}
+          - {name: "tach", cmd: "tach --version && ./tools/tach_check.sh"}
+          - {name: "vulture", cmd: "vulture --version && ./tools/vulture_check.sh"}
+          - {name: "pycycle", cmd: "pycycle --version && ./tools/pycycle_check.sh"}
     name: ${{ matrix.check.name }}
     steps:
       - uses: actions/checkout@v7
