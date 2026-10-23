@@ -57,7 +57,9 @@ mcp-tools-sql = "mcp_tools_sql.main:main"
 testpaths = ["tests"]
 asyncio_default_fixture_loop_scope = "function"
 pythonpath = ["src"]
-addopts = "-n auto"
+# --strict-markers: unknown markers are errors (catches typos)
+# -p no:tach: Disable tach plugin (noisy output about unaffected tests)
+addopts = ["--strict-markers", "--tb=short", "-n", "auto", "-p", "no:tach"]
 markers = [
     "sqlite_integration: Integration tests using SQLite",
     "mssql_integration: Integration tests using Microsoft SQL Server",

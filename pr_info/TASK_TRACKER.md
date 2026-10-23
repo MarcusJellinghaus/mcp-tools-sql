@@ -32,9 +32,9 @@ This tracks **Feature Implementation** consisting of multiple **Tasks**.
 - [x] Commit message prepared
 
 ### Step 3: pytest `addopts` aligned with mcp_coder — [step_3.md](./steps/step_3.md)
-- [ ] Implementation: update `addopts` in `pyproject.toml`, drop `-n auto` from CI pytest command
-- [ ] Quality checks: pylint, pytest, mypy — fix all issues
-- [ ] Commit message prepared
+- [x] Implementation: update `addopts` in `pyproject.toml`, drop `-n auto` from CI pytest command
+- [x] Quality checks: pylint, pytest, mypy — fix all issues
+- [x] Commit message prepared
 
 ### Step 4: CI installs GitHub deps from `[tool.mcp-coder.install-from-github]` — [step_4.md](./steps/step_4.md)
 - [ ] Implementation: port `tools/read_github_deps.py`, replace hardcoded git URL installs in workflows with `--specs`
