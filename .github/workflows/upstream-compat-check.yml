@@ -1,7 +1,8 @@
-name: Upstream mypy check
+name: Upstream compat check
 
 # Triggered by repository_dispatch when mcp-coder-utils' main branch changes.
-# Runs mypy --strict against this repo with the latest mcp-coder-utils from main.
+# Runs mypy --strict and a runtime import check of every mcp_tools_sql module
+# against the latest mcp-coder-utils main to detect interface breaks.
 # On failure: standard GitHub Actions email + red icon in the Actions tab.
 
 on:
@@ -18,8 +19,8 @@ permissions:
   contents: read
 
 jobs:
-  mypy-against-upstream-main:
-    name: mypy-against-upstream-${{ github.event.client_payload.upstream || github.event.inputs.upstream }}
+  upstream-compat:
+    name: upstream-compat-${{ github.event.client_payload.upstream || github.event.inputs.upstream || github.event_name }}
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v7
@@ -30,11 +31,20 @@ jobs:
         with:
           python-version: "3.11"
 
-      - name: Install dependencies
-        # GitHub deps from [tool.mcp-coder.install-from-github] in pyproject.toml.
+      # Upstream specs come from [tool.mcp-coder.install-from-github] and are
+      # installed in the same call as .[dev], so uv keeps the git versions.
+      - name: Install upstream packages from main and mcp-tools-sql
+        id: install
         run: |
           mapfile -t SPECS < <(python tools/read_github_deps.py --specs)
           uv pip install --system "${SPECS[@]}" ".[dev]"
 
       - name: Run mypy --strict
+        if: ${{ !cancelled() && steps.install.outcome == 'success' }}
         run: mypy --strict src tests
+
+      - name: Import every mcp_tools_sql module (strict)
+        if: ${{ !cancelled() && steps.install.outcome == 'success' }}
+        env:
+          MCP_TOOLS_SQL_IMPORT_TEST_STRICT: "1"
+        run: pytest tests/test_module_imports.py

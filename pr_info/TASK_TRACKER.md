@@ -47,9 +47,9 @@ This tracks **Feature Implementation** consisting of multiple **Tasks**.
 - [x] Commit message prepared
 
 ### Step 6: Upstream compat check workflow — [step_6.md](./steps/step_6.md)
-- [ ] Implementation: move `upstream-mypy-check.yml` to `upstream-compat-check.yml`, add strict import step
-- [ ] Quality checks: pylint, pytest, mypy — fix all issues
-- [ ] Commit message prepared
+- [x] Implementation: move `upstream-mypy-check.yml` to `upstream-compat-check.yml`, add strict import step
+- [x] Quality checks: pylint, pytest, mypy — fix all issues
+- [x] Commit message prepared
 
 ### Step 7: Enforce the `mcp_coder_utils` shim boundary with import-linter — [step_7.md](./steps/step_7.md)
 - [ ] Implementation: add `mcp_coder_utils_isolation` contract to `.importlinter`, update CLAUDE.md "Shared Libraries"
