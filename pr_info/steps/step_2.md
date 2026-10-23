@@ -73,7 +73,7 @@ Adaptations (only these):
    ```
    ``coverage xml`` for ``--cov=src/mcp_tools_sql`` reports package names
    relative to that measured root, dropping the ``mcp_tools_sql`` prefix:
-   ``backends.mssql`` -> ``backends``, ``cli.commands`` -> ``cli``. The root
+   ``utils.data_type_utility`` -> ``utils``, ``cli.commands`` -> ``cli``. The root
    package itself (loose top-level modules like ``main.py``) is reported as
    ``.``, which buckets into the readable ``mcp_tools_sql`` row.
    ```

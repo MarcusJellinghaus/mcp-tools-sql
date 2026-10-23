@@ -4,27 +4,10 @@
 > Read `pr_info/steps/summary.md`, then implement **only** `pr_info/steps/step_3.md`.
 > Edit `.github/workflows/ci.yml` as described: add the `unit-tests` job, add
 > `--cov` flags and uploads to the three integration jobs, and add the `coverage`
-> job. First run the guard probe. Then run the checks, format, and make exactly
-> one commit.
+> job. Then run the checks, format, and make exactly one commit.
 
 ## WHERE
 - `.github/workflows/ci.yml` (only file changed)
-- `.scratch/test_probe.py` (temporary; deleted before commit)
-
-## Precondition — guard probe
-The `coverage` job's no-data guard relies on `coverage combine` exiting non-zero
-for a **missing** and an **empty** directory. Probe it with a scratch test,
-following the "Scratch probes" section of CLAUDE.md. In `tmp_path`, run
-`subprocess.run([sys.executable, "-m", "coverage", "combine", <dir>])` for a
-non-existent dir and for an empty dir, and assert `returncode != 0` for both. Run it
-with `run_pytest_check` and `extra_args: ["-p", "no:cacheprovider", ".scratch/test_probe.py"]`,
-then `delete_directory(".scratch", recursive=True)`.
-- Both non-zero → use the guard below as written.
-- Otherwise → put `[ -n "$(ls -A coverage-data 2>/dev/null)" ] &&` in front of
-  `coverage combine` inside the guard condition.
-- If `coverage` is not importable in the environment, write one line to
-  `pr_info/.blocked.txt` (`coverage not installed; cannot probe combine exit codes`)
-  and stop.
 
 ## WHAT
 
@@ -96,7 +79,9 @@ add `COVERAGE_FILE` to the step `env` (create an `env:` block for sqlite):
 
       - name: Coverage report
         run: |
-          if ! { coverage combine coverage-data && coverage xml -o coverage.xml; }; then
+          if ! { [ -n "$(ls -A coverage-data 2>/dev/null)" ] \
+                 && coverage combine coverage-data \
+                 && coverage xml -o coverage.xml; }; then
             echo "_No coverage data for this run; coverage report skipped._" >> "$GITHUB_STEP_SUMMARY"
             exit 0
           fi
@@ -119,7 +104,7 @@ add `COVERAGE_FILE` to the step `env` (create an `env:` block for sqlite):
 
 ## ALGORITHM (coverage step)
 ```
-if combine fails or xml fails (no/empty data, "No data to report"):
+if coverage-data/ missing or empty, or combine fails, or xml fails ("No data to report"):
     write notice to step summary; exit 0
 if PR: diff-cover vs origin/<base> → diff-coverage.md (ignore failure)
 run ci_coverage_summary.py → append to step summary (+ diff report if present)
@@ -136,5 +121,5 @@ run ci_coverage_summary.py → append to step summary (+ diff report if present)
    the `test` matrix.
 2. Run `run_pylint_check`, `run_mypy_check`, and `run_pytest_check` with
    `extra_args: ["-n", "auto"]`. All must pass.
-3. Make sure `.scratch/` is deleted. Run `run_format_code`, then commit:
+3. Run `run_format_code`, then commit:
    `ci: report combined coverage from unit and integration jobs`.
