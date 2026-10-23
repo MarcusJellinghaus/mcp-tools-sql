@@ -68,7 +68,6 @@ jobs:
           - {name: "isort", cmd: "isort --version && isort --check --profile=black --float-to-top src tests tools"}
           - {name: "pylint", cmd: "pylint --version && pylint ./src ./tests"}  # configuration via pyproject.toml
           - {name: "ruff", cmd: "ruff version && ruff check src tests tools"}
-          - {name: "pytest", cmd: "pytest --version && pytest tests -m 'not sqlite_integration and not mssql_integration and not postgresql_integration'"}
           - {name: "mypy", cmd: "mypy --version && mypy --strict src tests"}
           - {name: "no-url-deps", cmd: "python tools/check_no_url_deps.py"}
           - {name: "file-size", cmd: "mcp-coder check file-size --max-lines 750 --allowlist-file .large-files-allowlist"}
@@ -103,6 +102,43 @@ jobs:
       - name: Run ${{ matrix.check.name }}
         run: ${{ matrix.check.cmd }}
 
+  # Unit tests (with coverage data for the combined report)
+  unit-tests:
+    runs-on: ubuntu-latest
+    name: unit-tests
+    steps:
+      - uses: actions/checkout@v7
+
+      - name: Install uv
+        uses: astral-sh/setup-uv@v7
+        with:
+          enable-cache: false
+
+      - name: Set up Python 3.11
+        uses: actions/setup-python@v6
+        with:
+          python-version: 3.11
+
+      - name: Install dependencies
+        # GitHub deps from [tool.mcp-coder.install-from-github] — see the `test` job.
+        run: |
+          mapfile -t SPECS < <(python tools/read_github_deps.py --specs)
+          uv pip install --system "${SPECS[@]}" ".[dev]"
+
+      - name: Run unit tests
+        env:
+          COVERAGE_FILE: .coverage.unit
+        run: pytest --version && pytest tests -m 'not sqlite_integration and not mssql_integration and not postgresql_integration' --cov=src/mcp_tools_sql --cov-report=
+
+      - name: Upload coverage data
+        if: always()
+        uses: actions/upload-artifact@v7
+        with:
+          name: coverage-data-unit
+          path: .coverage.unit
+          include-hidden-files: true
+          retention-days: 1
+
   # SQLite integration tests (always available, no service container needed)
   sqlite-integration:
     runs-on: ubuntu-latest
@@ -127,10 +163,22 @@ jobs:
           uv pip install --system "${SPECS[@]}" ".[dev]"
 
       - name: Run SQLite integration tests
+        env:
+          COVERAGE_FILE: .coverage.sqlite
         run: |
-          rc=0; pytest tests -m sqlite_integration -v || rc=$?
+          rc=0; pytest tests -m sqlite_integration -v --cov=src/mcp_tools_sql --cov-report= || rc=$?
           if [ $rc -eq 5 ]; then echo "No tests collected — skipping"; exit 0; fi
           exit $rc
+
+      - name: Upload coverage data
+        if: always()
+        uses: actions/upload-artifact@v7
+        with:
+          name: coverage-data-sqlite
+          path: .coverage.sqlite
+          include-hidden-files: true
+          if-no-files-found: ignore
+          retention-days: 1
 
   # PostgreSQL integration tests
   postgresql-integration:
@@ -176,10 +224,21 @@ jobs:
           TEST_PG_USER: testuser
           TEST_PG_PASSWORD: testpass
           TEST_PG_DB: testdb
+          COVERAGE_FILE: .coverage.postgresql
         run: |
-          rc=0; pytest tests -m postgresql_integration -v || rc=$?
+          rc=0; pytest tests -m postgresql_integration -v --cov=src/mcp_tools_sql --cov-report= || rc=$?
           if [ $rc -eq 5 ]; then echo "No tests collected — skipping"; exit 0; fi
           exit $rc
+
+      - name: Upload coverage data
+        if: always()
+        uses: actions/upload-artifact@v7
+        with:
+          name: coverage-data-postgresql
+          path: .coverage.postgresql
+          include-hidden-files: true
+          if-no-files-found: ignore
+          retention-days: 1
 
   # MSSQL integration tests (best-effort)
   mssql-integration:
@@ -239,10 +298,64 @@ jobs:
           TEST_MSSQL_PORT: 1433
           TEST_MSSQL_USER: sa
           TEST_MSSQL_PASSWORD: "TestPass123!"
+          COVERAGE_FILE: .coverage.mssql
         run: |
-          rc=0; pytest tests -m mssql_integration -v || rc=$?
+          rc=0; pytest tests -m mssql_integration -v --cov=src/mcp_tools_sql --cov-report= || rc=$?
           if [ $rc -eq 5 ]; then echo "No tests collected — skipping"; exit 0; fi
           exit $rc
+
+      - name: Upload coverage data
+        if: always()
+        uses: actions/upload-artifact@v7
+        with:
+          name: coverage-data-mssql
+          path: .coverage.mssql
+          include-hidden-files: true
+          if-no-files-found: ignore
+          retention-days: 1
+
+  # Coverage report (reporting only — never a gate)
+  coverage:
+    runs-on: ubuntu-latest
+    needs: [unit-tests, sqlite-integration, postgresql-integration, mssql-integration]
+    if: always() && (github.event_name == 'pull_request' || github.ref == 'refs/heads/main')
+    steps:
+      - uses: actions/checkout@v7
+        with:
+          fetch-depth: 0
+
+      - name: Set up Python 3.11
+        uses: actions/setup-python@v6
+        with:
+          python-version: 3.11
+
+      - name: Install coverage tools
+        run: pip install coverage diff-cover
+
+      - name: Download coverage data
+        continue-on-error: true
+        uses: actions/download-artifact@v8
+        with:
+          pattern: coverage-data-*
+          path: coverage-data
+          merge-multiple: true
+
+      - name: Coverage report
+        run: |
+          if ! { [ -n "$(ls -A coverage-data 2>/dev/null)" ] \
+                 && coverage combine coverage-data \
+                 && coverage xml -o coverage.xml; }; then
+            echo "_No coverage data for this run; coverage report skipped._" >> "$GITHUB_STEP_SUMMARY"
+            exit 0
+          fi
+          if [ "${{ github.event_name }}" = "pull_request" ]; then
+            diff-cover coverage.xml \
+              --compare-branch=origin/${{ github.base_ref }} \
+              --format markdown:diff-coverage.md || true
+          fi
+          args=(--coverage-xml coverage.xml --output "$GITHUB_STEP_SUMMARY")
+          if [ -f diff-coverage.md ]; then args+=(--diff-report diff-coverage.md); fi
+          python tools/ci_coverage_summary.py "${args[@]}"
 
   # Architecture and code quality checks (PR only)
   architecture:
@@ -256,6 +369,7 @@ jobs:
           - {name: "tach", cmd: "tach --version && ./tools/tach_check.sh"}
           - {name: "vulture", cmd: "vulture --version && ./tools/vulture_check.sh"}
           - {name: "pycycle", cmd: "pycycle --version && ./tools/pycycle_check.sh"}
+          - {name: "deptry", cmd: "deptry --version && ./tools/deptry_check.sh"}
     name: ${{ matrix.check.name }}
     steps:
       - uses: actions/checkout@v7
