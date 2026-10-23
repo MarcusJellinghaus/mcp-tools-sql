@@ -42,9 +42,9 @@ This tracks **Feature Implementation** consisting of multiple **Tasks**.
 - [x] Commit message prepared
 
 ### Step 5: `subprocess_runner` shim + import-health test — [step_5.md](./steps/step_5.md)
-- [ ] Implementation: port `tests/test_module_imports.py` and `tests/_import_walker.py`, add `utils/subprocess_runner.py` shim
-- [ ] Quality checks: pylint, pytest, mypy — fix all issues
-- [ ] Commit message prepared
+- [x] Implementation: port `tests/test_module_imports.py` and `tests/_import_walker.py`, add `utils/subprocess_runner.py` shim
+- [x] Quality checks: pylint, pytest, mypy — fix all issues
+- [x] Commit message prepared
 
 ### Step 6: Upstream compat check workflow — [step_6.md](./steps/step_6.md)
 - [ ] Implementation: move `upstream-mypy-check.yml` to `upstream-compat-check.yml`, add strict import step
