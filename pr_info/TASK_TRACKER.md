@@ -23,4 +23,21 @@ This tracks **Feature Implementation** consisting of multiple **Tasks**.
 
 <!-- Tasks populated from pr_info/steps/ by prepare_task_tracker -->
 
+### Step 1: deptry — config, dependency cleanup, check script, CI job ([step_1.md](./steps/step_1.md))
+- [x] Implementation (pyproject.toml, tools/deptry_check.sh/.bat, ci.yml; `deptry src` clean)
+- [x] Quality checks: pylint, pytest, mypy — fix all issues
+- [x] Commit message prepared
+
+### Step 2: Coverage summary script + ported tests, dev deps, .gitignore, ruff ignore ([step_2.md](./steps/step_2.md))
+- [ ] Implementation (tests + production code)
+- [ ] Quality checks: pylint, pytest, mypy — fix all issues
+- [ ] Commit message prepared
+
+### Step 3: CI coverage wiring — unit-tests job, --cov on integration jobs, uploads, coverage job ([step_3.md](./steps/step_3.md))
+- [ ] Implementation (tests + production code)
+- [ ] Quality checks: pylint, pytest, mypy — fix all issues
+- [ ] Commit message prepared
+
 ## Pull Request
+- [ ] PR review: review all changes against the issue's acceptance criteria
+- [ ] PR summary prepared
