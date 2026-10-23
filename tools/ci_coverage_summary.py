@@ -19,7 +19,7 @@ import xml.etree.ElementTree as ET
 from dataclasses import dataclass
 from pathlib import Path
 
-MARKER_TRAP_CAVEAT = (
+INTEGRATION_COVERAGE_CAVEAT = (
     "_The `mssql-integration` job is `continue-on-error`, so a failed run "
     "leaves the mssql backend uncovered. No test carries "
     "`postgresql_integration` yet, so that job contributes no data._"
@@ -98,7 +98,7 @@ def render_step_summary(summary: CoverageSummary, diff_report: str | None) -> st
     lines = [
         f"## Coverage: {summary.rate:.0%}",
         "",
-        MARKER_TRAP_CAVEAT,
+        INTEGRATION_COVERAGE_CAVEAT,
         "",
         "<details>",
         "<summary>Per-package breakdown</summary>",

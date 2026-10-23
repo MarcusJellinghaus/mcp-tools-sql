@@ -41,7 +41,7 @@ def _coverage_xml(packages_xml: str) -> str:
 @pytest.mark.parametrize(
     "full_name, expected",
     [
-        ("llm.providers", "llm"),
+        ("utils.data_type_utility", "utils"),
         (".", "mcp_tools_sql"),
         ("cli", "cli"),
     ],
@@ -52,9 +52,9 @@ def test_top_level_package_name(full_name: str, expected: str) -> None:
 
 def test_parse_coverage_xml_aggregates_by_top_level(tmp_path: Path) -> None:
     xml = _coverage_xml("""\
-    <package name="llm.providers">
+    <package name="utils.data_type_utility">
       <classes>
-        <class name="anthropic.py" filename="llm/providers/anthropic.py">
+        <class name="type_mapping.py" filename="utils/data_type_utility/type_mapping.py">
           <lines>
             <line number="1" hits="1"/>
             <line number="2" hits="0"/>
@@ -62,9 +62,9 @@ def test_parse_coverage_xml_aggregates_by_top_level(tmp_path: Path) -> None:
         </class>
       </classes>
     </package>
-    <package name="llm.utils">
+    <package name="utils">
       <classes>
-        <class name="tokens.py" filename="llm/utils/tokens.py">
+        <class name="sql_placeholders.py" filename="utils/sql_placeholders.py">
           <lines>
             <line number="1" hits="1"/>
             <line number="2" hits="1"/>
@@ -74,7 +74,7 @@ def test_parse_coverage_xml_aggregates_by_top_level(tmp_path: Path) -> None:
     </package>
     <package name=".">
       <classes>
-        <class name="mcp_tools_py.py" filename="mcp_tools_py.py">
+        <class name="main.py" filename="main.py">
           <lines>
             <line number="1" hits="1"/>
           </lines>
@@ -90,9 +90,9 @@ def test_parse_coverage_xml_aggregates_by_top_level(tmp_path: Path) -> None:
     assert summary.lines_valid == 5
     assert summary.lines_covered == 4
     rollups = {p.name: p for p in summary.packages}
-    assert set(rollups) == {"llm", "mcp_tools_sql"}
-    assert rollups["llm"].lines_valid == 4
-    assert rollups["llm"].lines_covered == 3
+    assert set(rollups) == {"utils", "mcp_tools_sql"}
+    assert rollups["utils"].lines_valid == 4
+    assert rollups["utils"].lines_covered == 3
     assert rollups["mcp_tools_sql"].lines_valid == 1
     assert rollups["mcp_tools_sql"].lines_covered == 1
 
@@ -103,7 +103,7 @@ def test_render_step_summary_includes_caveat_and_table() -> None:
         lines_covered=8,
         packages=[
             ci_coverage_summary.PackageRollup(
-                name="llm", lines_valid=6, lines_covered=5
+                name="backends", lines_valid=6, lines_covered=5
             ),
             ci_coverage_summary.PackageRollup(
                 name="cli", lines_valid=4, lines_covered=3
@@ -113,12 +113,12 @@ def test_render_step_summary_includes_caveat_and_table() -> None:
     rendered = ci_coverage_summary.render_step_summary(summary, diff_report=None)
 
     assert "## Coverage: 80%" in rendered
-    assert ci_coverage_summary.MARKER_TRAP_CAVEAT in rendered
+    assert ci_coverage_summary.INTEGRATION_COVERAGE_CAVEAT in rendered
     assert "continue-on-error" in rendered
     assert "postgresql_integration" in rendered
     assert "<details>" in rendered
     assert "Per-package breakdown" in rendered
-    assert "llm" in rendered
+    assert "backends" in rendered
     assert "cli" in rendered
 
 
