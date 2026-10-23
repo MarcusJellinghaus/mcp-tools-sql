@@ -27,9 +27,9 @@ This tracks **Feature Implementation** consisting of multiple **Tasks**.
 - [x] Commit message prepared
 
 ### Step 2: Full pylint run with mcp_coder's config — [step_2.md](./steps/step_2.md)
-- [ ] Implementation: pylint config in `pyproject.toml`, fix W1404 and W0223 findings, CI full pylint run
-- [ ] Quality checks: pylint, pytest, mypy — fix all issues
-- [ ] Commit message prepared
+- [x] Implementation: pylint config in `pyproject.toml`, fix W1404 and W0223 findings, CI full pylint run
+- [x] Quality checks: pylint, pytest, mypy — fix all issues
+- [x] Commit message prepared
 
 ### Step 3: pytest `addopts` aligned with mcp_coder — [step_3.md](./steps/step_3.md)
 - [ ] Implementation: update `addopts` in `pyproject.toml`, drop `-n auto` from CI pytest command

@@ -405,33 +405,33 @@ class _FanoutBackend(DatabaseBackend):
         """Unused in these tests.
 
         Raises:
-            NotImplementedError: Always.
+            AssertionError: Always.
         """
-        raise NotImplementedError
+        raise AssertionError("unused in these tests")
 
     def execute_update(self, sql: str, params: dict[str, Any] | None = None) -> int:
         """Unused in these tests.
 
         Raises:
-            NotImplementedError: Always.
+            AssertionError: Always.
         """
-        raise NotImplementedError
+        raise AssertionError("unused in these tests")
 
     def explain(self, sql: str, params: dict[str, Any] | None = None) -> str:
         """Unused in these tests.
 
         Raises:
-            NotImplementedError: Always.
+            AssertionError: Always.
         """
-        raise NotImplementedError
+        raise AssertionError("unused in these tests")
 
     def get_isolated_connection(self) -> Any:
         """Unused in these tests.
 
         Raises:
-            NotImplementedError: Always.
+            AssertionError: Always.
         """
-        raise NotImplementedError
+        raise AssertionError("unused in these tests")
 
 
 def _fanout_registry(
