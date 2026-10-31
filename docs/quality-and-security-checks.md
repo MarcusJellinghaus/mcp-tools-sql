@@ -141,6 +141,16 @@ is replaced by an expiring one, the badge silently stops updating on expiry.
 - CodeQL is meant to run as GitHub default setup (no workflow file); enable it in the
   UI, see [Repo settings](#repo-settings-manual-github-ui).
 - All actions are pinned to commit SHAs; Dependabot keeps the pins current.
+- Signed release artifacts: the `attach-signed-artifacts` job in
+  [`publish.yml`](../.github/workflows/publish.yml) runs after `publish` on each GitHub
+  release. It attests build provenance for `dist/*` (`actions/attest-build-provenance`,
+  Sigstore) and uploads the wheel, sdist and `provenance.sigstore.json` to the release.
+  Its `contents: write`, `id-token: write` and `attestations: write` permissions are
+  scoped to that job; the workflow default stays `contents: read`. Verify a downloaded
+  file with `gh attestation verify <file> --repo MarcusJellinghaus/mcp-tools-sql`. The
+  release tag comes from the event (`github.event.release.tag_name`), so the
+  prefix-less tag format (`0.1.0`) needs no special handling. Untested until the next
+  release.
 - `approve-command.yml` runs `/approve` only for `OWNER`, `MEMBER` and `COLLABORATOR`
   comment authors.
 - Vulnerability reporting policy: [`SECURITY.md`](../SECURITY.md).
