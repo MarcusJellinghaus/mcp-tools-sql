@@ -38,9 +38,7 @@ def valid_database_config(tmp_path: Path) -> Path:
     sqlite_db.write_bytes(b"")
     path = tmp_path / "db-config.toml"
     path.write_text(
-        "[connections.default]\n"
-        'backend = "sqlite"\n'
-        f'path = "{sqlite_db.as_posix()}"\n',
+        f'[connections.default]\nbackend = "sqlite"\npath = "{sqlite_db.as_posix()}"\n',
         encoding="utf-8",
     )
     return path
@@ -167,9 +165,7 @@ def test_verify_sqlite_full_run_all_ok(
 
     db_cfg = tmp_path / "db-config.toml"
     db_cfg.write_text(
-        "[connections.default]\n"
-        'backend = "sqlite"\n'
-        f'path = "{sqlite_db.as_posix()}"\n',
+        f'[connections.default]\nbackend = "sqlite"\npath = "{sqlite_db.as_posix()}"\n',
         encoding="utf-8",
     )
 
@@ -251,9 +247,7 @@ def test_verify_warn_for_sensitive_keys_in_query_config(
 
     db_cfg = tmp_path / "db-config.toml"
     db_cfg.write_text(
-        "[connections.default]\n"
-        'backend = "sqlite"\n'
-        f'path = "{sqlite_db.as_posix()}"\n',
+        f'[connections.default]\nbackend = "sqlite"\npath = "{sqlite_db.as_posix()}"\n',
         encoding="utf-8",
     )
 
@@ -280,9 +274,7 @@ def test_verify_full_sqlite_run_returns_0(
 
     db_cfg = tmp_path / "db-config.toml"
     db_cfg.write_text(
-        "[connections.default]\n"
-        'backend = "sqlite"\n'
-        f'path = "{sqlite_db.as_posix()}"\n',
+        f'[connections.default]\nbackend = "sqlite"\npath = "{sqlite_db.as_posix()}"\n',
         encoding="utf-8",
     )
 
@@ -381,9 +373,7 @@ def test_verify_full_run_with_queries_and_updates_returns_0(
 
     db_cfg = tmp_path / "db-config.toml"
     db_cfg.write_text(
-        "[connections.default]\n"
-        'backend = "sqlite"\n'
-        f'path = "{sqlite_db.as_posix()}"\n',
+        f'[connections.default]\nbackend = "sqlite"\npath = "{sqlite_db.as_posix()}"\n',
         encoding="utf-8",
     )
 
@@ -464,9 +454,7 @@ def test_verify_cli_queries_updates_snapshot(
 
     db_cfg = tmp_path / "db-config.toml"
     db_cfg.write_text(
-        "[connections.default]\n"
-        'backend = "sqlite"\n'
-        f'path = "{sqlite_db.as_posix()}"\n',
+        f'[connections.default]\nbackend = "sqlite"\npath = "{sqlite_db.as_posix()}"\n',
         encoding="utf-8",
     )
 

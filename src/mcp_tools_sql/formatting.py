@@ -116,11 +116,9 @@ def format_update_result(
         A human-readable message describing how many rows were affected.
     """
     if affected_rows == 0:
-        return f"No row found in {qualified_table} where " f"{key_field}={key_value!r}."
+        return f"No row found in {qualified_table} where {key_field}={key_value!r}."
     if affected_rows == 1:
-        return (
-            f"Updated 1 row in {qualified_table} where " f"{key_field}={key_value!r}."
-        )
+        return f"Updated 1 row in {qualified_table} where {key_field}={key_value!r}."
     return (
         f"WARNING: key was supposed to uniquely identify one row\n"
         f"Updated {affected_rows} rows in {qualified_table} "

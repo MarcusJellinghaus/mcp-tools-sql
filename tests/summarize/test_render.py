@@ -166,8 +166,7 @@ def test_column_note_renders_inline_in_the_header() -> None:
     out = render_deep([profile])
 
     assert out.splitlines()[0] == (
-        "notes  (unknown, string — type not determined: "
-        "all sampled values were NULL)"
+        "notes  (unknown, string — type not determined: all sampled values were NULL)"
     )
 
 

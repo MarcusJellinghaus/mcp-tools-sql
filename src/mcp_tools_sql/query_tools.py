@@ -58,8 +58,7 @@ class QueryTools:
         for name, config in self._queries.items():
             if not self._NAME_RE.match(name):
                 raise ValueError(
-                    f"Invalid query name {name!r}: must match "
-                    f"{self._NAME_RE.pattern}"
+                    f"Invalid query name {name!r}: must match {self._NAME_RE.pattern}"
                 )
             target = self._targets.resolve_pinned(
                 config.connection or None, config.database or None

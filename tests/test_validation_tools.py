@@ -643,7 +643,7 @@ async def test_mssql_valid_update_does_not_execute(mssql_db: MSSQLTestEnv) -> No
         ) as client:
             text = await _call_validate(
                 client,
-                f"UPDATE {mssql_db.schema}.customers " "SET name = 'X' WHERE id = 999",
+                f"UPDATE {mssql_db.schema}.customers SET name = 'X' WHERE id = 999",
             )
         assert text == "Valid."
         rows_after = backend.execute_query(

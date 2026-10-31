@@ -45,9 +45,7 @@ def sqlite_wide_db(tmp_path: Path) -> Generator[Path, None, None]:
     conn.execute(f"CREATE TABLE wide_table ({columns})")  # noqa: S608
     placeholders = ", ".join("?" for _ in range(150))
     values = tuple(f"val_{i}" for i in range(150))
-    conn.execute(
-        f"INSERT INTO wide_table VALUES ({placeholders})", values
-    )  # noqa: S608
+    conn.execute(f"INSERT INTO wide_table VALUES ({placeholders})", values)  # noqa: S608
     conn.commit()
     conn.close()
     yield db_path

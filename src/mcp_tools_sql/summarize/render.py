@@ -578,8 +578,7 @@ def empty_source_message(label: str | None) -> str:
     if label is None:
         return "The source query returned 0 rows."
     return (
-        f"Table {label} is empty (0 rows). "
-        "Use read_columns for its column definitions."
+        f"Table {label} is empty (0 rows). Use read_columns for its column definitions."
     )
 
 

@@ -404,8 +404,7 @@ def build_schema_body(
         fan_targets = targets.for_connection(conn)
         if not fan_targets:
             return (
-                f"Connection '{conn}' not found. "
-                f"Available: {targets.connection_names}"
+                f"Connection '{conn}' not found. Available: {targets.connection_names}"
             )
         requested, note = _cap_max_rows(
             config, kwargs.pop("max_rows", _default_max_rows(config))

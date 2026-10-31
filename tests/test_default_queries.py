@@ -35,12 +35,12 @@ class TestDefaultQueriesLoading:
         queries = load_default_queries()
         for name, config in queries.items():
             resolved = config.resolve_sql("sqlite")
-            assert (
-                resolved == config.backends["sqlite"].sql
-            ), f"{name}: resolve_sql('sqlite') should return the override"
-            assert (
-                resolved != config.sql
-            ), f"{name}: sqlite SQL should differ from default"
+            assert resolved == config.backends["sqlite"].sql, (
+                f"{name}: resolve_sql('sqlite') should return the override"
+            )
+            assert resolved != config.sql, (
+                f"{name}: sqlite SQL should differ from default"
+            )
 
     def test_read_columns_filter_column_is_name(self) -> None:
         """read_columns sets filter_column = 'name' for implicit name_filter."""
@@ -108,8 +108,7 @@ class TestSqlitePragmaBinding:
         conn.row_factory = sqlite3.Row
         try:
             cursor = conn.execute(
-                'SELECT id, "from", "table", "to" '
-                "FROM pragma_foreign_key_list(:table)",
+                'SELECT id, "from", "table", "to" FROM pragma_foreign_key_list(:table)',
                 {"table": "orders"},
             )
             rows = cursor.fetchall()

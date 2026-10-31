@@ -1,5 +1,11 @@
 # mcp-tools-sql
 
+[![CI](https://github.com/MarcusJellinghaus/mcp-tools-sql/actions/workflows/ci.yml/badge.svg?branch=main)](https://github.com/MarcusJellinghaus/mcp-tools-sql/actions/workflows/ci.yml) [![PyPI](https://img.shields.io/pypi/v/mcp-tools-sql)](https://pypi.org/project/mcp-tools-sql/) [![Python](https://img.shields.io/python/required-version-toml?tomlFilePath=https://raw.githubusercontent.com/MarcusJellinghaus/mcp-tools-sql/main/pyproject.toml)](https://pypi.org/project/mcp-tools-sql/) [![License](https://img.shields.io/github/license/MarcusJellinghaus/mcp-tools-sql)](LICENSE)
+
+Every change to mcp-tools-sql passes these checks ([details](docs/quality-and-security-checks.md)):
+
+[![Ruff](https://img.shields.io/endpoint?url=https://raw.githubusercontent.com/astral-sh/ruff/main/assets/badge/v2.json)](https://github.com/astral-sh/ruff) [![mypy](https://img.shields.io/badge/mypy-strict-blue)](https://mypy.readthedocs.io/) [![pylint](https://img.shields.io/badge/linting-pylint-yellowgreen)](https://github.com/pylint-dev/pylint) [![architecture](https://img.shields.io/badge/architecture-enforced-blue)](docs/quality-and-security-checks.md#architecture) [![coverage](https://img.shields.io/endpoint?url=https://gist.githubusercontent.com/MarcusJellinghaus/9a7892066964f11765a07d74285ad104/raw/mcp-tools-sql-coverage.json)](https://github.com/MarcusJellinghaus/mcp-tools-sql/actions/workflows/ci.yml) [![OpenSSF Scorecard](https://api.scorecard.dev/projects/github.com/MarcusJellinghaus/mcp-tools-sql/badge)](https://scorecard.dev/viewer/?uri=github.com/MarcusJellinghaus/mcp-tools-sql) [![CodeQL](https://github.com/MarcusJellinghaus/mcp-tools-sql/actions/workflows/github-code-scanning/codeql/badge.svg)](https://github.com/MarcusJellinghaus/mcp-tools-sql/actions/workflows/github-code-scanning/codeql)
+
 An MCP server for safe, configurable SQL database access. Exposes schema introspection, user-defined SELECT queries, and structured UPDATE operations as MCP tools for LLM-assisted workflows.
 
 ## Key Ideas
@@ -70,6 +76,7 @@ enough for an LLM driving the CLI to set the server up on its own.
 | [docs/mcp-client-setup.md](docs/mcp-client-setup.md) | Wiring the server into Claude Code, Claude Desktop and other MCP clients |
 | [docs/cli.md](docs/cli.md) | Every command and flag, example output, exit codes |
 | [docs/architecture/architecture.md](docs/architecture/architecture.md) | Internals |
+| [docs/quality-and-security-checks.md](docs/quality-and-security-checks.md) | CI quality and security checks, required repo settings |
 
 ## Logging
 

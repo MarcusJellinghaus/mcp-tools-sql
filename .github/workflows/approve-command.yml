@@ -4,16 +4,18 @@ on:
   issue_comment:
     types: [created]
 
+permissions: {}
+
 jobs:
   handle-approve:
     runs-on: ubuntu-latest
-    # Only run on issues (not PRs) and when comment is /approve
-    if: github.event.issue.pull_request == null && contains(github.event.comment.body, '/approve')
+    # Only run on issues (not PRs), when comment contains /approve, and only for trusted commenters (OWNER/MEMBER/COLLABORATOR); untrusted -> skipped silently
+    if: github.event.issue.pull_request == null && contains(github.event.comment.body, '/approve') && contains(fromJSON('["OWNER","MEMBER","COLLABORATOR"]'), github.event.comment.author_association)
     permissions:
       issues: write
     steps:
       - name: Handle approve command
-        uses: actions/github-script@v9
+        uses: actions/github-script@3a2844b7e9c422d3c10d287c895573f7108da1b3 # v9.0.0
         with:
           script: |
             const comment = context.payload.comment.body.trim();

@@ -7,12 +7,13 @@ authors = [
 description = "An MCP server for safe, configurable SQL database access"
 readme = "README.md"
 requires-python = ">=3.11"
-license = {text = "MIT"}
+license = "MIT"
+license-files = ["LICENSE"]
 keywords = ["mcp", "sql", "database", "llm", "claude", "ai", "sql-server", "postgresql", "sqlite"]
 classifiers = [
     "Programming Language :: Python :: 3",
+    "Programming Language :: Python :: 3.11",
     "Operating System :: OS Independent",
-    "License :: OSI Approved :: MIT License",
     "Development Status :: 3 - Alpha",
     "Intended Audience :: Developers",
     "Topic :: Software Development :: Libraries :: Python Modules",
@@ -35,11 +36,19 @@ all-backends = [
     "pyodbc>=5.0.0",
     "psycopg[binary]>=3.1.0",
 ]
+# Lean set for the CI `mypy` job (`pip install .[typecheck]`): mypy plus what
+# `mypy --strict src tests` imports. Runtime deps come from the project itself.
+typecheck = [
+    "mypy>=1.13.0",
+    "pytest",
+    "types-tabulate>=0.9.0",
+]
 dev = [
+    "mcp-tools-sql[typecheck]",
     "mcp-workspace",
     "mcp-coder",
-    "mcp-tools-py",        # single source for ruff + black/isort/pylint/mypy/vulture/pytest...
-    "pycycle>=0.0.8",      # KEEP — mcp-tools-py ships it only in its own [dev] extra
+    "mcp-tools-py",        # pylint/mypy/vulture/pytest...
+    "ruff~=0.17.2",        # pinned for stable rule/format output (mcp-tools-py also ships ruff)
     "tach>=0.35.0",        # KEEP — mcp-tools-py ships it only in its own [dev] extra
     "deptry>=0.25.1",
     "pytest-cov",
@@ -71,24 +80,16 @@ markers = [
 # Run as `deptry src` (tools/deptry_check.sh) — src only; tests/ and tools/ are not scanned.
 [tool.deptry]
 known_first_party = ["mcp_tools_sql"]
-# Packages in the `dev` extra are tooling, not runtime deps: no DEP002 for them,
-# but importing one from src/ is still reported (DEP004).
-optional_dependencies_dev_groups = ["dev"]
+# Packages in these extras are tooling, not runtime deps: no DEP002 for them,
+# but importing one from src/ is still reported (DEP004). deptry does not expand
+# the `mcp-tools-sql[typecheck]` self-reference in `dev`, so name both.
+optional_dependencies_dev_groups = ["dev", "typecheck"]
 
 # pyodbc / psycopg are absent in `.[dev]`-only installs (the CI `architecture` job),
 # so deptry cannot read their metadata; name the modules explicitly.
 [tool.deptry.package_module_name_map]
 pyodbc = ["pyodbc"]
 psycopg = ["psycopg"]
-
-[tool.black]
-line-length = 88
-target-version = ["py311"]
-
-[tool.isort]
-profile = "black"
-line_length = 88
-float_to_top = true
 
 [tool.mypy]
 python_version = "3.11"
@@ -139,6 +140,8 @@ ignore_missing_imports = true
 target-version = "py311"
 line-length = 88
 
+[tool.ruff.format]
+
 [tool.ruff.lint]
 # preview needed for DOC rules (pydoclint)
 #
@@ -159,14 +162,16 @@ select = [
     "C4", "B",
     "S",
     "UP",
+    "I",
     # PLW1510 only: the PL prefix would re-enable pylint's disabled R category (PLR09xx).
     "PLW1510",
+    # PLE2502 bidirectional-unicode: covers bandit B613 (trojansource), which has no S port.
+    "PLE2502",
 ]
 ignore = [
-    "D104",  # missing docstring in __init__.py (low value)
     "D107",  # missing docstring in __init__ method (redundant with class docstring)
     "ANN401",  # Any is correct at library/CLI boundaries; mypy strict covers the rest
-    "E501",  # line length is owned by the formatter (black); not re-checked here
+    "E501",  # line length is owned by the formatter (ruff format); not re-checked here
 ]
 
 [tool.ruff.lint.per-file-ignores]
@@ -207,11 +212,24 @@ extension-pkg-allow-list = ["pyodbc"]
 ignored-modules = ["sqlglot"]
 
 [tool.mcp-tools-py]
-formatter = "black"   # isort + black
+# Formatter for run_format_code and mcp-coder workflows: ruff (import sorting + ruff format)
+formatter = "ruff"
+
+[tool.mcp-coder]
+format_code = true
 
 [tool.mcp-coder.implement]
-format_code = true
 check_type_hints = true
+
+[tool.mcp-coder.install]
+# Extras `mcp-coder install` passes to `uv` when provisioning this repo.
+extras = "dev"
+# Run by `mcp-coder install` after provisioning; any failure fails the install.
+post_install_checks = [
+    ["mcp-tools-sql", "--version"],
+    ["mcp-workspace", "--version"],
+    ["mcp-tools-py", "--version"],
+]
 
 [tool.mcp-coder.install-from-github]
 # All installed together WITH deps — uv resolves siblings in one pass
@@ -239,7 +257,7 @@ mcp-coder-utils = { git = "https://github.com/MarcusJellinghaus/mcp-coder-utils.
 # mcp-coder = { git = "https://github.com/MarcusJellinghaus/mcp_coder.git" }
 
 [build-system]
-requires = ["setuptools>=61.0", "setuptools-scm>=8.0"]
+requires = ["setuptools>=77", "setuptools-scm>=8.0"]
 build-backend = "setuptools.build_meta"
 
 [tool.setuptools_scm]

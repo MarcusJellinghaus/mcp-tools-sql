@@ -24,9 +24,7 @@ def valid_database_config(tmp_path: Path) -> Path:
     sqlite_db.write_bytes(b"")
     path = tmp_path / "db-config.toml"
     path.write_text(
-        "[connections.default]\n"
-        'backend = "sqlite"\n'
-        f'path = "{sqlite_db.as_posix()}"\n',
+        f'[connections.default]\nbackend = "sqlite"\npath = "{sqlite_db.as_posix()}"\n',
         encoding="utf-8",
     )
     return path
@@ -146,11 +144,7 @@ def test_cross_file_rule4_unknown_per_query_connection(tmp_path: Path) -> None:
     """A per-query `connection` that is not configured marks rule 4 as [ERR]."""
     query_cfg = tmp_path / "mcp-tools-sql.toml"
     query_cfg.write_text(
-        'connection = "main"\n'
-        "\n"
-        "[queries.x]\n"
-        'sql = "SELECT 1"\n'
-        'connection = "ghost"\n',
+        'connection = "main"\n\n[queries.x]\nsql = "SELECT 1"\nconnection = "ghost"\n',
         encoding="utf-8",
     )
     db_cfg = tmp_path / "db-config.toml"
@@ -169,11 +163,7 @@ def test_cross_file_rule5_per_query_database_not_member(tmp_path: Path) -> None:
     """A per-query `database` outside the connection's catalog marks rule 5 as [ERR]."""
     query_cfg = tmp_path / "mcp-tools-sql.toml"
     query_cfg.write_text(
-        'connection = "main"\n'
-        "\n"
-        "[queries.x]\n"
-        'sql = "SELECT 1"\n'
-        'database = "finance"\n',
+        'connection = "main"\n\n[queries.x]\nsql = "SELECT 1"\ndatabase = "finance"\n',
         encoding="utf-8",
     )
     db_cfg = tmp_path / "db-config.toml"
