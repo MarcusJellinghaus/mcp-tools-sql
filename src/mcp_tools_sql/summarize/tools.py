@@ -391,7 +391,7 @@ class SummarizeTools:
                     return f"Invalid parameters. {type(exc).__name__}: {exc}"
                 except RuntimeError as exc:
                     return f"Database connection error. {type(exc).__name__}: {exc}"
-                except Exception as exc:  # noqa: BLE001
+                except Exception as exc:
                     return f"Unexpected error. {type(exc).__name__}: {exc}"
 
         sig_params = _base_summarize_params() + build_target_params(targets, star=False)

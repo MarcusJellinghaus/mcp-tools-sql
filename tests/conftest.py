@@ -42,10 +42,10 @@ def sqlite_wide_db(tmp_path: Path) -> Generator[Path, None, None]:
     db_path = tmp_path / "wide.db"
     conn = sqlite3.connect(str(db_path))
     columns = ", ".join(f"col_{i} TEXT" for i in range(150))
-    conn.execute(f"CREATE TABLE wide_table ({columns})")  # noqa: S608
+    conn.execute(f"CREATE TABLE wide_table ({columns})")
     placeholders = ", ".join("?" for _ in range(150))
     values = tuple(f"val_{i}" for i in range(150))
-    conn.execute(f"INSERT INTO wide_table VALUES ({placeholders})", values)  # noqa: S608
+    conn.execute(f"INSERT INTO wide_table VALUES ({placeholders})", values)
     conn.commit()
     conn.close()
     yield db_path

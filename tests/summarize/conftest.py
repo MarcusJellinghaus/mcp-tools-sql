@@ -51,10 +51,10 @@ def profiling_db(tmp_path: Path) -> Generator[Path, None, None]:
     conn.execute("CREATE TABLE empty_t (a INTEGER, b TEXT)")
 
     wide_cols = ", ".join(f"w{i} INTEGER" for i in range(20))
-    conn.execute(f"CREATE TABLE wide_t ({wide_cols})")  # noqa: S608
+    conn.execute(f"CREATE TABLE wide_t ({wide_cols})")
     placeholders = ", ".join("?" for _ in range(20))
     conn.execute(
-        f"INSERT INTO wide_t VALUES ({placeholders})",  # noqa: S608
+        f"INSERT INTO wide_t VALUES ({placeholders})",
         tuple(range(20)),
     )
 
