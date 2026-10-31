@@ -145,7 +145,7 @@ class CountTools:
                     return f"Invalid parameters. {type(exc).__name__}: {exc}"
                 except RuntimeError as exc:
                     return f"Database connection error. {type(exc).__name__}: {exc}"
-                except Exception as exc:  # noqa: BLE001
+                except Exception as exc:
                     return f"Unexpected error. {type(exc).__name__}: {exc}"
                 return str(rows[0]["row_count"])
 

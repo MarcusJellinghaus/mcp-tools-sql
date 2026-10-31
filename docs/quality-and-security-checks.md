@@ -84,9 +84,15 @@ PR-only `architecture` matrix, one job per tool:
 | `deptry` | `[tool.deptry]` | [`deptry_check.sh`](../tools/deptry_check.sh) |
 
 Pylint `R0401` catches cyclic imports on every push (pycycle was dropped as redundant,
-as in mcp_coder). The `mcp_coder_utils_isolation` import-linter contract
-keeps `mcp_coder_utils` behind the shims in `mcp_tools_sql.utils`. See
-[`architecture.md`](architecture/architecture.md).
+as in mcp_coder). Import-linter isolation contracts:
+
+- `mcp_coder_utils_isolation` keeps `mcp_coder_utils` behind the shims in
+  `mcp_tools_sql.utils`.
+- `subprocess_isolation` forbids importing `subprocess` in `src` and `tests`; use
+  `execute_subprocess` from `mcp_tools_sql.utils.subprocess_runner`.
+- `no_test_imports_in_source` forbids `src` importing from `tests`.
+
+See [`architecture.md`](architecture/architecture.md).
 
 ## File size
 
@@ -164,7 +170,8 @@ pytest, split by marker: `unit-tests` (no integration markers), `sqlite-integrat
 `postgresql-integration` (Postgres 16 service container) and `mssql-integration` (SQL
 Server 2022 service container, `continue-on-error`, best-effort). Exit code 5 (no tests
 collected) counts as success for the integration jobs. See `[tool.pytest.ini_options]`
-in [`pyproject.toml`](../pyproject.toml).
+in [`pyproject.toml`](../pyproject.toml). `.python-version` pins the local interpreter
+to 3.11, the version CI uses.
 
 ## Repo hygiene
 
@@ -193,13 +200,16 @@ in [`pyproject.toml`](../pyproject.toml).
 the GitHub UI under Settings. Checklist:
 
 - [x] Code security: CodeQL, default setup
-- [ ] Code security: private vulnerability reporting
-- [ ] Code security: Dependabot alerts and Dependabot security updates
-- [ ] Code security: secret scanning and push protection
+- [x] Code security: private vulnerability reporting
+- [x] Code security: Dependabot alerts and Dependabot security updates
+- [x] Code security: secret scanning and push protection
+- [ ] Code security: secret scanning extras (non-provider patterns, validity checks);
+  optional, UI only (the REST API accepts but ignores them)
 - [x] Rules: branch ruleset on `main` (require PR, block force push and deletion,
   required status checks below, strict mode)
 - [x] General: auto-delete head branches on merge
-- [ ] Secrets and variables: repo secret `BADGE_GIST_TOKEN` (fine-grained PAT, only
+- [x] Actions: require actions to be pinned to a full-length SHA
+- [x] Secrets and variables: repo secret `BADGE_GIST_TOKEN` (fine-grained PAT, only
   "Gists: read and write") and repo variable `BADGE_GIST_ID` =
   `9a7892066964f11765a07d74285ad104`, plus the gist file `mcp-tools-sql-coverage.json`
   (see [Coverage badge](#coverage-badge))
@@ -213,6 +223,9 @@ Required status checks (names as reported by CI):
 | Jobs | `check-forbidden-folders` (PR-only), `unit-tests`, `sqlite-integration`, `postgresql-integration` |
 
 Do not require `mssql-integration` (`continue-on-error`) or `coverage` (reporting only).
+
+`postgresql-integration` currently collects no tests (the PostgreSQL backend is not
+implemented; exit 5 counts as success). It stays required as a placeholder.
 
 **Job-name rule:** required status checks must match CI job names. Matrix entries report
 under their `name`, not the job id (`test`, `architecture`). A renamed or removed job

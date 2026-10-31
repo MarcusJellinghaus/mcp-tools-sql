@@ -432,7 +432,7 @@ def build_schema_body(
                         row["_database"] = target.database
                     counts[target.database] = len(rows)
                     merged.extend(rows)
-                except Exception as exc:  # noqa: BLE001
+                except Exception as exc:
                     errors.append((target.database, str(exc)))
             rec.record(rows=len(merged), cols=len(merged[0]) if merged else 0)
         formatted = format_fanout_rows(

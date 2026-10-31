@@ -1,6 +1,10 @@
 [importlinter]
-root_package = mcp_tools_sql
-root_package_paths = src
+root_packages =
+    mcp_tools_sql
+    tests
+root_package_paths =
+    src
+    .
 include_external_packages = True
 
 [importlinter:contract:layers]
@@ -46,3 +50,23 @@ forbidden_modules =
     mcp_coder_utils
 ignore_imports =
     mcp_tools_sql.utils.** -> mcp_coder_utils
+
+# Neither source nor tests import 'subprocess' directly; they go through the
+# mcp_tools_sql.utils.subprocess_runner shim (over mcp-coder-utils).
+[importlinter:contract:subprocess_isolation]
+name = Subprocess Library Isolation
+type = forbidden
+source_modules =
+    mcp_tools_sql
+    tests
+forbidden_modules =
+    subprocess
+
+# Production code never imports from tests.
+[importlinter:contract:no_test_imports_in_source]
+name = Source Code Independence from Tests
+type = forbidden
+source_modules =
+    mcp_tools_sql
+forbidden_modules =
+    tests
