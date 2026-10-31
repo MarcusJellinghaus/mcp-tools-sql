@@ -193,13 +193,15 @@ in [`pyproject.toml`](../pyproject.toml).
 the GitHub UI under Settings. Checklist:
 
 - [x] Code security: CodeQL, default setup
-- [ ] Code security: private vulnerability reporting
-- [ ] Code security: Dependabot alerts and Dependabot security updates
-- [ ] Code security: secret scanning and push protection
+- [x] Code security: private vulnerability reporting
+- [x] Code security: Dependabot alerts and Dependabot security updates
+- [x] Code security: secret scanning and push protection
+- [ ] Code security: secret scanning extras (non-provider patterns, validity checks);
+  optional, UI only (the REST API accepts but ignores them)
 - [x] Rules: branch ruleset on `main` (require PR, block force push and deletion,
   required status checks below, strict mode)
 - [x] General: auto-delete head branches on merge
-- [ ] Secrets and variables: repo secret `BADGE_GIST_TOKEN` (fine-grained PAT, only
+- [x] Secrets and variables: repo secret `BADGE_GIST_TOKEN` (fine-grained PAT, only
   "Gists: read and write") and repo variable `BADGE_GIST_ID` =
   `9a7892066964f11765a07d74285ad104`, plus the gist file `mcp-tools-sql-coverage.json`
   (see [Coverage badge](#coverage-badge))
