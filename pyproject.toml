@@ -7,12 +7,13 @@ authors = [
 description = "An MCP server for safe, configurable SQL database access"
 readme = "README.md"
 requires-python = ">=3.11"
-license = {text = "MIT"}
+license = "MIT"
+license-files = ["LICENSE"]
 keywords = ["mcp", "sql", "database", "llm", "claude", "ai", "sql-server", "postgresql", "sqlite"]
 classifiers = [
     "Programming Language :: Python :: 3",
+    "Programming Language :: Python :: 3.11",
     "Operating System :: OS Independent",
-    "License :: OSI Approved :: MIT License",
     "Development Status :: 3 - Alpha",
     "Intended Audience :: Developers",
     "Topic :: Software Development :: Libraries :: Python Modules",
@@ -246,7 +247,7 @@ mcp-coder-utils = { git = "https://github.com/MarcusJellinghaus/mcp-coder-utils.
 # mcp-coder = { git = "https://github.com/MarcusJellinghaus/mcp_coder.git" }
 
 [build-system]
-requires = ["setuptools>=61.0", "setuptools-scm>=8.0"]
+requires = ["setuptools>=77", "setuptools-scm>=8.0"]
 build-backend = "setuptools.build_meta"
 
 [tool.setuptools_scm]
