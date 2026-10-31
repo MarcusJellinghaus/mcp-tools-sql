@@ -4,16 +4,20 @@ from __future__ import annotations
 
 import logging
 import socket
-import subprocess
 import sys
 from typing import Any
 
 from mcp_tools_sql.backends.base import DatabaseBackend
 from mcp_tools_sql.backends.mssql import build_sanitized_connection_string
 from mcp_tools_sql.config.models import ResolvedTarget
+from mcp_tools_sql.utils.subprocess_runner import CommandOptions, execute_subprocess
 from mcp_tools_sql.verification._helpers import make_entry, make_warn_entry
 
 logger = logging.getLogger(__name__)
+
+# klist is resolved via PATH on purpose.
+_KLIST_COMMAND = ["klist", "-s"]
+_KLIST_TIMEOUT_SECONDS = 5
 
 _CONTROL_CHAR_HINT = (
     "value contains control character(s) (e.g. newline) — most likely from a "
@@ -94,30 +98,33 @@ def _check_kerberos_ticket() -> tuple[bool, str, str]:
 
     Returns:
         Tuple ``(ok, value, error)``. ``ok`` is True when ``klist -s``
-        exits zero. ``FileNotFoundError`` (no ``klist`` installed) and
-        ``subprocess.TimeoutExpired`` map to ``ok=False`` with a hint.
+        exits zero. A missing ``klist`` binary and a timeout map to
+        ``ok=False`` with a hint, as does any other failure to launch it.
     """
-    try:
-        proc = subprocess.run(
-            ["klist", "-s"],  # noqa: S607 - klist is resolved via PATH on purpose
-            check=False,
-            capture_output=True,
-            timeout=5,
+    result = execute_subprocess(
+        _KLIST_COMMAND, CommandOptions(timeout_seconds=_KLIST_TIMEOUT_SECONDS)
+    )
+    if result.timed_out:
+        message = (
+            f"Command '{_KLIST_COMMAND}' timed out after "
+            f"{_KLIST_TIMEOUT_SECONDS} seconds"
         )
-    except FileNotFoundError:
-        logger.debug("klist not found on PATH")
-        return (
-            False,
-            "klist not installed",
-            "Install Kerberos client tools (krb5-user / krb5-workstation)",
-        )
-    except subprocess.TimeoutExpired as exc:
-        logger.debug("klist -s timed out: %s", exc)
-        return False, "klist timeout", str(exc)
-    if proc.returncode == 0:
+        logger.debug("klist -s timed out: %s", message)
+        return False, "klist timeout", message
+    if result.execution_error:
+        if result.execution_error.startswith("FileNotFoundError"):
+            logger.debug("klist not found on PATH")
+            return (
+                False,
+                "klist not installed",
+                "Install Kerberos client tools (krb5-user / krb5-workstation)",
+            )
+        logger.debug("klist -s failed to run: %s", result.execution_error)
+        return False, "klist failed", result.execution_error
+    if result.return_code == 0:
         logger.debug("klist -s exit 0: cached ticket present")
         return True, "cached ticket present", ""
-    logger.debug("klist -s exit %d, stderr=%r", proc.returncode, proc.stderr)
+    logger.debug("klist -s exit %d, stderr=%r", result.return_code, result.stderr)
     return False, "no cached ticket", "Run `kinit` to obtain a Kerberos ticket"
 
 

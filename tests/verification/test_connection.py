@@ -11,6 +11,7 @@ import pytest
 from mcp_tools_sql.backends.registry import create_backend
 from mcp_tools_sql.backends.sqlite import SQLiteBackend
 from mcp_tools_sql.config.models import ConnectionConfig, ResolvedTarget
+from mcp_tools_sql.utils.subprocess_runner import CommandResult
 from mcp_tools_sql.verification import verify_connection
 
 
@@ -436,16 +437,28 @@ def _trusted_mssql() -> ConnectionConfig:
     )
 
 
+def _patch_klist(monkeypatch: pytest.MonkeyPatch, result: CommandResult) -> MagicMock:
+    """Make the shim's ``execute_subprocess`` return ``result`` in connection."""
+    mock = MagicMock(return_value=result)
+    monkeypatch.setattr(
+        "mcp_tools_sql.verification.connection.execute_subprocess", mock
+    )
+    return mock
+
+
 def test_klist_zero_returns_ok(
     monkeypatch: pytest.MonkeyPatch,
     linux_platform: None,  # pylint: disable=unused-argument
     ok_backend: MagicMock,
 ) -> None:
     """``klist -s`` exits 0 → kerberos_ticket row ok=True."""
-    proc = MagicMock(returncode=0)
-    monkeypatch.setattr("subprocess.run", MagicMock(return_value=proc))
+    mock = _patch_klist(
+        monkeypatch, CommandResult(return_code=0, stdout="", stderr="", timed_out=False)
+    )
     result = verify_connection(_target(_trusted_mssql(), database="d"), ok_backend)
     assert result["kerberos_ticket"]["ok"] is True
+    assert mock.call_args.args[0] == ["klist", "-s"]
+    assert mock.call_args.args[1].timeout_seconds == 5
 
 
 def test_klist_nonzero_returns_err(
@@ -454,8 +467,9 @@ def test_klist_nonzero_returns_err(
     ok_backend: MagicMock,
 ) -> None:
     """``klist -s`` exits non-zero → kerberos_ticket row ok=False."""
-    proc = MagicMock(returncode=1)
-    monkeypatch.setattr("subprocess.run", MagicMock(return_value=proc))
+    _patch_klist(
+        monkeypatch, CommandResult(return_code=1, stdout="", stderr="", timed_out=False)
+    )
     result = verify_connection(_target(_trusted_mssql(), database="d"), ok_backend)
     assert result["kerberos_ticket"]["ok"] is False
     error = result["kerberos_ticket"]["error"].lower()
@@ -469,8 +483,15 @@ def test_klist_nonzero_logs_debug(
     ok_backend: MagicMock,
 ) -> None:
     """``klist -s`` exits non-zero → debug log records exit code + stderr."""
-    proc = MagicMock(returncode=1, stderr=b"kinit: no credentials cache")
-    monkeypatch.setattr("subprocess.run", MagicMock(return_value=proc))
+    _patch_klist(
+        monkeypatch,
+        CommandResult(
+            return_code=1,
+            stdout="",
+            stderr="kinit: no credentials cache",
+            timed_out=False,
+        ),
+    )
     with caplog.at_level("DEBUG", logger="mcp_tools_sql.verification.connection"):
         verify_connection(_target(_trusted_mssql(), database="d"), ok_backend)
     debug_lines = [
@@ -488,9 +509,67 @@ def test_klist_missing_returns_err(
     ok_backend: MagicMock,
 ) -> None:
     """``klist`` not installed → kerberos_ticket row ok=False."""
-    monkeypatch.setattr("subprocess.run", MagicMock(side_effect=FileNotFoundError()))
+    _patch_klist(
+        monkeypatch,
+        CommandResult(
+            return_code=1,
+            stdout="",
+            stderr="",
+            timed_out=False,
+            execution_error="FileNotFoundError: [Errno 2] No such file: 'klist'",
+        ),
+    )
     result = verify_connection(_target(_trusted_mssql(), database="d"), ok_backend)
     assert result["kerberos_ticket"]["ok"] is False
+    assert result["kerberos_ticket"]["value"] == "klist not installed"
+    assert "krb5" in result["kerberos_ticket"]["error"]
+
+
+def test_klist_timeout_returns_err(
+    monkeypatch: pytest.MonkeyPatch,
+    linux_platform: None,  # pylint: disable=unused-argument
+    ok_backend: MagicMock,
+) -> None:
+    """``klist -s`` times out → kerberos_ticket row ok=False with timeout text."""
+    _patch_klist(
+        monkeypatch,
+        CommandResult(
+            return_code=1,
+            stdout="",
+            stderr="",
+            timed_out=True,
+            execution_error="Process timed out after 5 seconds",
+        ),
+    )
+    result = verify_connection(_target(_trusted_mssql(), database="d"), ok_backend)
+    assert result["kerberos_ticket"]["ok"] is False
+    assert result["kerberos_ticket"]["value"] == "klist timeout"
+    assert (
+        result["kerberos_ticket"]["error"]
+        == "Command '['klist', '-s']' timed out after 5 seconds"
+    )
+
+
+def test_klist_other_launch_failure_returns_err(
+    monkeypatch: pytest.MonkeyPatch,
+    linux_platform: None,  # pylint: disable=unused-argument
+    ok_backend: MagicMock,
+) -> None:
+    """Non-FileNotFound launch error (e.g. PermissionError) → ok=False, no raise."""
+    _patch_klist(
+        monkeypatch,
+        CommandResult(
+            return_code=1,
+            stdout="",
+            stderr="",
+            timed_out=False,
+            execution_error="PermissionError: [Errno 13] Permission denied: 'klist'",
+        ),
+    )
+    result = verify_connection(_target(_trusted_mssql(), database="d"), ok_backend)
+    assert result["kerberos_ticket"]["ok"] is False
+    assert result["kerberos_ticket"]["value"] == "klist failed"
+    assert "PermissionError" in result["kerberos_ticket"]["error"]
 
 
 def test_non_linux_platforms_skip_check(

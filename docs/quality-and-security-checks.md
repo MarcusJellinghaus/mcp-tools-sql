@@ -84,9 +84,15 @@ PR-only `architecture` matrix, one job per tool:
 | `deptry` | `[tool.deptry]` | [`deptry_check.sh`](../tools/deptry_check.sh) |
 
 Pylint `R0401` catches cyclic imports on every push (pycycle was dropped as redundant,
-as in mcp_coder). The `mcp_coder_utils_isolation` import-linter contract
-keeps `mcp_coder_utils` behind the shims in `mcp_tools_sql.utils`. See
-[`architecture.md`](architecture/architecture.md).
+as in mcp_coder). Import-linter isolation contracts:
+
+- `mcp_coder_utils_isolation` keeps `mcp_coder_utils` behind the shims in
+  `mcp_tools_sql.utils`.
+- `subprocess_isolation` forbids importing `subprocess` in `src` and `tests`; use
+  `execute_subprocess` from `mcp_tools_sql.utils.subprocess_runner`.
+- `no_test_imports_in_source` forbids `src` importing from `tests`.
+
+See [`architecture.md`](architecture/architecture.md).
 
 ## File size
 
