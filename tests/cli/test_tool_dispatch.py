@@ -123,9 +123,7 @@ def test_classify_exception_rejected_bucket() -> None:
 def test_classify_exception_backend_default() -> None:
     """`classify_exception` falls back to `EXIT_BACKEND` for anything else."""
     assert classify_exception(sqlite3.ProgrammingError("x")) == EXIT_BACKEND
-    assert (
-        classify_exception(Exception("x")) == EXIT_BACKEND
-    )  # pylint: disable=broad-exception-raised
+    assert classify_exception(Exception("x")) == EXIT_BACKEND  # pylint: disable=broad-exception-raised
 
 
 @pytest.mark.skipif(

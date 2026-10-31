@@ -345,9 +345,7 @@ class TestEnvVarExpansion:
         monkeypatch.delenv("MISSING_VAR", raising=False)
         config_file = tmp_path / "config.toml"
         config_file.write_text(
-            "[connections.default]\n"
-            'backend = "mssql"\n'
-            'password = "${MISSING_VAR}"\n',
+            '[connections.default]\nbackend = "mssql"\npassword = "${MISSING_VAR}"\n',
             encoding="utf-8",
         )
 
@@ -394,10 +392,7 @@ class TestEnvVarExpansion:
         """load_query_config does NOT call _expand_env_vars: literal preserved."""
         config_file = tmp_path / "mcp-tools-sql.toml"
         config_file.write_text(
-            'connection = "default"\n'
-            "\n"
-            "[queries.q]\n"
-            "sql = \"SELECT '${NOPE}' AS x\"\n",
+            'connection = "default"\n\n[queries.q]\nsql = "SELECT \'${NOPE}\' AS x"\n',
             encoding="utf-8",
         )
 

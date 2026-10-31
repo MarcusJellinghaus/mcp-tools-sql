@@ -136,8 +136,7 @@ async def test_aggregate_source_with_outside_where(profiling_db: Path) -> None:
         out = await call_summarize(
             client,
             sql=(
-                "SELECT category, COUNT(*) AS orders "
-                "FROM profile_me GROUP BY category"
+                "SELECT category, COUNT(*) AS orders FROM profile_me GROUP BY category"
             ),
             where="orders > :min",
             params={"min": 1},

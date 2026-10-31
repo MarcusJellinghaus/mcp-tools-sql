@@ -587,15 +587,11 @@ def test_build_tool_server_returns_unregistered_server(tmp_path: Path) -> None:
     args = _write_sqlite_configs(tmp_path)
     server, qpath = build_tool_server(args)
 
-    assert (
-        server.mcp._tool_manager.list_tools() == []
-    )  # pylint: disable=protected-access
+    assert server.mcp._tool_manager.list_tools() == []  # pylint: disable=protected-access
     assert qpath == args.config
 
     server.register_all()
-    assert (
-        server.mcp._tool_manager.list_tools() != []
-    )  # pylint: disable=protected-access
+    assert server.mcp._tool_manager.list_tools() != []  # pylint: disable=protected-access
 
     server.close()
 

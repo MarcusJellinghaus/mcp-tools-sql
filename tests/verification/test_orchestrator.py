@@ -87,9 +87,7 @@ def valid_sqlite_configs(tmp_path: Path, sqlite_db: Path) -> tuple[Path, Path]:
 
     db_cfg = tmp_path / "db-config.toml"
     db_cfg.write_text(
-        "[connections.default]\n"
-        'backend = "sqlite"\n'
-        f'path = "{sqlite_db.as_posix()}"\n',
+        f'[connections.default]\nbackend = "sqlite"\npath = "{sqlite_db.as_posix()}"\n',
         encoding="utf-8",
     )
     return query_cfg, db_cfg

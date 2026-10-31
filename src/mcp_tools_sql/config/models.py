@@ -311,6 +311,5 @@ class ResolvedTargets(BaseModel):
                 return target
         available = [t.database for t in conn_targets]
         raise ValueError(
-            f"Database '{db}' not found in connection '{conn}'. "
-            f"Available: {available}"
+            f"Database '{db}' not found in connection '{conn}'. Available: {available}"
         )

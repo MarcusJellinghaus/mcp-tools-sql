@@ -133,8 +133,7 @@ _METADATA_SQL: dict[str, str] = {
         "ORDER BY ORDINAL_POSITION"
     ),
     "sqlite": (
-        "SELECT name, type, cid AS ordinal "
-        "FROM pragma_table_info(:table) ORDER BY cid"
+        "SELECT name, type, cid AS ordinal FROM pragma_table_info(:table) ORDER BY cid"
     ),
 }
 

@@ -64,8 +64,7 @@ jobs:
       fail-fast: false
       matrix:
         check:
-          - {name: "black", cmd: "black --version && black --check src tests tools"}
-          - {name: "isort", cmd: "isort --version && isort --check --profile=black --float-to-top src tests tools"}
+          - {name: "ruff-format", cmd: "ruff version && ruff format --check src tests tools"}
           - {name: "pylint", cmd: "pylint --version && pylint ./src ./tests"}  # configuration via pyproject.toml
           - {name: "ruff", cmd: "ruff version && ruff check src tests tools"}
           - {name: "mypy", cmd: "mypy --version && mypy --strict src tests"}
