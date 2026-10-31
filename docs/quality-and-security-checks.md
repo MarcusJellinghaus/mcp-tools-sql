@@ -170,7 +170,8 @@ pytest, split by marker: `unit-tests` (no integration markers), `sqlite-integrat
 `postgresql-integration` (Postgres 16 service container) and `mssql-integration` (SQL
 Server 2022 service container, `continue-on-error`, best-effort). Exit code 5 (no tests
 collected) counts as success for the integration jobs. See `[tool.pytest.ini_options]`
-in [`pyproject.toml`](../pyproject.toml).
+in [`pyproject.toml`](../pyproject.toml). `.python-version` pins the local interpreter
+to 3.11, the version CI uses.
 
 ## Repo hygiene
 
@@ -207,6 +208,7 @@ the GitHub UI under Settings. Checklist:
 - [x] Rules: branch ruleset on `main` (require PR, block force push and deletion,
   required status checks below, strict mode)
 - [x] General: auto-delete head branches on merge
+- [x] Actions: require actions to be pinned to a full-length SHA
 - [x] Secrets and variables: repo secret `BADGE_GIST_TOKEN` (fine-grained PAT, only
   "Gists: read and write") and repo variable `BADGE_GIST_ID` =
   `9a7892066964f11765a07d74285ad104`, plus the gist file `mcp-tools-sql-coverage.json`
@@ -221,6 +223,9 @@ Required status checks (names as reported by CI):
 | Jobs | `check-forbidden-folders` (PR-only), `unit-tests`, `sqlite-integration`, `postgresql-integration` |
 
 Do not require `mssql-integration` (`continue-on-error`) or `coverage` (reporting only).
+
+`postgresql-integration` currently collects no tests (the PostgreSQL backend is not
+implemented; exit 5 counts as success). It stays required as a placeholder.
 
 **Job-name rule:** required status checks must match CI job names. Matrix entries report
 under their `name`, not the job id (`test`, `architecture`). A renamed or removed job
