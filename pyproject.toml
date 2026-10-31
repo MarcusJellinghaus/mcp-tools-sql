@@ -39,7 +39,6 @@ dev = [
     "mcp-workspace",
     "mcp-coder",
     "mcp-tools-py",        # single source for ruff (lint + format)/pylint/mypy/vulture/pytest...
-    "pycycle>=0.0.8",      # KEEP — mcp-tools-py ships it only in its own [dev] extra
     "tach>=0.35.0",        # KEEP — mcp-tools-py ships it only in its own [dev] extra
     "deptry>=0.25.1",
     "pytest-cov",

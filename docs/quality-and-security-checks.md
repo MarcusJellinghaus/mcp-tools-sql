@@ -11,7 +11,7 @@ files. Modelled on mcp_coder's `docs/repository-setup/quality-and-security-check
 | [Formatting](#formatting) | ruff format, ruff `I` | One tool for layout and import order | `run_format_code` | [`pyproject.toml`](../pyproject.toml), [`ci.yml`](../.github/workflows/ci.yml) |
 | [Types](#types) | mypy strict | Type errors, including breaks from upstream packages | `run_mypy_check` | [`pyproject.toml`](../pyproject.toml), [`ci.yml`](../.github/workflows/ci.yml), [`upstream-compat-check.yml`](../.github/workflows/upstream-compat-check.yml) |
 | [Pylint](#pylint) | pylint | Errors and warnings ruff does not cover | `run_pylint_check` | [`pyproject.toml`](../pyproject.toml), [`ci.yml`](../.github/workflows/ci.yml) |
-| [Architecture](#architecture) | import-linter, tach, vulture, pycycle, pylint `R0401` | Module boundaries, no cycles, no dead code | `run_lint_imports_check`, `run_tach_check`, `run_vulture_check` | [`.importlinter`](../.importlinter), [`tach.toml`](../tach.toml), [`ci.yml`](../.github/workflows/ci.yml), [`architecture.md`](architecture/architecture.md) |
+| [Architecture](#architecture) | import-linter, tach, vulture, pylint `R0401` | Module boundaries, no cycles, no dead code | `run_lint_imports_check`, `run_tach_check`, `run_vulture_check` | [`.importlinter`](../.importlinter), [`tach.toml`](../tach.toml), [`ci.yml`](../.github/workflows/ci.yml), [`architecture.md`](architecture/architecture.md) |
 | [File size](#file-size) | `mcp-coder check file-size` | Small files fit an LLM's context window | `check_file_size` | [`.large-files-allowlist`](../.large-files-allowlist), [`ci.yml`](../.github/workflows/ci.yml) |
 | [Dependencies](#dependencies) | deptry, Dependabot | Declared dependencies match imports; stay current | `run_deptry_check`; Dependabot: none | [`pyproject.toml`](../pyproject.toml), [`dependabot.yml`](../.github/dependabot.yml) |
 | [Coverage](#coverage) | pytest-cov, diff-cover | Show what tests reach, without gating | `run_pytest_check` | [`ci.yml`](../.github/workflows/ci.yml), [`ci_coverage_summary.py`](../tools/ci_coverage_summary.py) |
@@ -34,7 +34,7 @@ files. Modelled on mcp_coder's `docs/repository-setup/quality-and-security-check
   `run_lint_imports_check`, `run_tach_check`, `run_deptry_check`, `run_format_code`.
 - **mcp-workspace** reads CI and PR status (`check_branch_status`, `github_pr_view`) and
   provides `check_file_size`.
-- **Gaps** (shell, mcp-coder CLI or CI only): pycycle, the [Repo hygiene](#repo-hygiene)
+- **Gaps** (shell, mcp-coder CLI or CI only): the [Repo hygiene](#repo-hygiene)
   jobs, CodeQL, Scorecard, Dependabot, `mcp-coder verify`.
 
 ## Lint
@@ -78,11 +78,10 @@ PR-only `architecture` matrix, one job per tool:
 | `import-linter` | [`.importlinter`](../.importlinter) | [`lint_imports.sh`](../tools/lint_imports.sh) |
 | `tach` | [`tach.toml`](../tach.toml) | [`tach_check.sh`](../tools/tach_check.sh) |
 | `vulture` | `vulture_whitelist.py` | [`vulture_check.sh`](../tools/vulture_check.sh) |
-| `pycycle` | none | [`pycycle_check.sh`](../tools/pycycle_check.sh) |
 | `deptry` | `[tool.deptry]` | [`deptry_check.sh`](../tools/deptry_check.sh) |
 
-pycycle still runs; pylint `R0401` overlaps it and catches cycles on every push, so
-pycycle is a candidate for removal. The `mcp_coder_utils_isolation` import-linter contract
+Pylint `R0401` catches cyclic imports on every push (pycycle was dropped as redundant,
+as in mcp_coder). The `mcp_coder_utils_isolation` import-linter contract
 keeps `mcp_coder_utils` behind the shims in `mcp_tools_sql.utils`. See
 [`architecture.md`](architecture/architecture.md).
 
@@ -158,7 +157,7 @@ Required status checks (names as reported by CI):
 | Source | Check names |
 |---|---|
 | `test` matrix | `ruff-format`, `pylint`, `ruff`, `mypy`, `no-url-deps`, `file-size` |
-| `architecture` matrix (PR-only) | `import-linter`, `tach`, `vulture`, `pycycle`, `deptry` |
+| `architecture` matrix (PR-only) | `import-linter`, `tach`, `vulture`, `deptry` |
 | Jobs | `check-forbidden-folders` (PR-only), `unit-tests`, `sqlite-integration`, `postgresql-integration` |
 
 Do not require `mssql-integration` (`continue-on-error`) or `coverage` (reporting only).
