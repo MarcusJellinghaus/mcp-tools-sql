@@ -9,8 +9,8 @@ permissions: {}
 jobs:
   handle-approve:
     runs-on: ubuntu-latest
-    # Only run on issues (not PRs) and when comment is /approve
-    if: github.event.issue.pull_request == null && contains(github.event.comment.body, '/approve')
+    # Only run on issues (not PRs), when comment contains /approve, and only for trusted commenters (OWNER/MEMBER/COLLABORATOR); untrusted -> skipped silently
+    if: github.event.issue.pull_request == null && contains(github.event.comment.body, '/approve') && contains(fromJSON('["OWNER","MEMBER","COLLABORATOR"]'), github.event.comment.author_association)
     permissions:
       issues: write
     steps:
