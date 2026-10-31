@@ -58,7 +58,10 @@ locally (`[tool.mcp-tools-py] formatter = "ruff"`).
 
 ## Types
 
-mypy strict (`[tool.mypy]`), CI job `mypy` over `src` and `tests`.
+mypy strict (`[tool.mypy]`), CI job `mypy` over `src` and `tests`. The job installs the
+lean `typecheck` extra (mypy, pytest, `types-tabulate`) instead of `.[dev]`; `dev`
+includes it via a self-reference. A matrix entry selects its install target with
+`install:` (default `.[dev]`).
 [`upstream-compat-check.yml`](../.github/workflows/upstream-compat-check.yml) runs mypy
 strict and a runtime import of every module against upstream main of mcp-coder-utils, on
 `repository_dispatch` or `workflow_dispatch`, so interface breaks show before a release.

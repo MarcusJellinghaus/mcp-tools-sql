@@ -67,7 +67,7 @@ jobs:
           - {name: "ruff-format", cmd: "ruff version && ruff format --check src tests tools"}
           - {name: "pylint", cmd: "pylint --version && pylint ./src ./tests"}  # configuration via pyproject.toml
           - {name: "ruff", cmd: "ruff version && ruff check src tests tools"}
-          - {name: "mypy", cmd: "mypy --version && mypy --strict src tests"}
+          - {name: "mypy", install: ".[typecheck]", cmd: "mypy --version && mypy --strict src tests"}
           - {name: "no-url-deps", cmd: "python tools/check_no_url_deps.py"}
           - {name: "file-size", cmd: "mcp-coder check file-size --max-lines 750 --allowlist-file .large-files-allowlist"}
     name: ${{ matrix.check.name }}
@@ -87,9 +87,10 @@ jobs:
       - name: Install dependencies
         # GitHub-installed deps come from [tool.mcp-coder.install-from-github]
         # in pyproject.toml (installed in the same uv call so they win over PyPI).
+        # A matrix entry may set `install:` to use a leaner extra (mypy: .[typecheck]).
         run: |
           mapfile -t SPECS < <(python tools/read_github_deps.py --specs)
-          uv pip install --system "${SPECS[@]}" ".[dev]"
+          uv pip install --system "${SPECS[@]}" "${{ matrix.check.install || '.[dev]' }}"
 
       - name: Environment info
         run: |

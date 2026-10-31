@@ -35,7 +35,15 @@ all-backends = [
     "pyodbc>=5.0.0",
     "psycopg[binary]>=3.1.0",
 ]
+# Lean set for the CI `mypy` job (`pip install .[typecheck]`): mypy plus what
+# `mypy --strict src tests` imports. Runtime deps come from the project itself.
+typecheck = [
+    "mypy>=1.13.0",
+    "pytest",
+    "types-tabulate>=0.9.0",
+]
 dev = [
+    "mcp-tools-sql[typecheck]",
     "mcp-workspace",
     "mcp-coder",
     "mcp-tools-py",        # pylint/mypy/vulture/pytest...
@@ -71,9 +79,10 @@ markers = [
 # Run as `deptry src` (tools/deptry_check.sh) — src only; tests/ and tools/ are not scanned.
 [tool.deptry]
 known_first_party = ["mcp_tools_sql"]
-# Packages in the `dev` extra are tooling, not runtime deps: no DEP002 for them,
-# but importing one from src/ is still reported (DEP004).
-optional_dependencies_dev_groups = ["dev"]
+# Packages in these extras are tooling, not runtime deps: no DEP002 for them,
+# but importing one from src/ is still reported (DEP004). deptry does not expand
+# the `mcp-tools-sql[typecheck]` self-reference in `dev`, so name both.
+optional_dependencies_dev_groups = ["dev", "typecheck"]
 
 # pyodbc / psycopg are absent in `.[dev]`-only installs (the CI `architecture` job),
 # so deptry cannot read their metadata; name the modules explicitly.
