@@ -4,7 +4,7 @@
 
 [![Ruff](https://img.shields.io/endpoint?url=https://raw.githubusercontent.com/astral-sh/ruff/main/assets/badge/v2.json)](https://github.com/astral-sh/ruff) [![mypy](https://img.shields.io/badge/mypy-strict-blue)](https://mypy.readthedocs.io/) [![pylint](https://img.shields.io/badge/linting-pylint-yellowgreen)](https://github.com/pylint-dev/pylint) [![architecture](https://img.shields.io/badge/architecture-enforced-blue)](docs/quality-and-security-checks.md#architecture) [![coverage](https://img.shields.io/endpoint?url=https://gist.githubusercontent.com/MarcusJellinghaus/9a7892066964f11765a07d74285ad104/raw/mcp-tools-sql-coverage.json)](https://github.com/MarcusJellinghaus/mcp-tools-sql/actions/workflows/ci.yml)
 
-[![OpenSSF Scorecard](https://api.scorecard.dev/projects/github.com/MarcusJellinghaus/mcp-tools-sql/badge)](https://scorecard.dev/viewer/?uri=github.com/MarcusJellinghaus/mcp-tools-sql)
+[![OpenSSF Scorecard](https://api.scorecard.dev/projects/github.com/MarcusJellinghaus/mcp-tools-sql/badge)](https://scorecard.dev/viewer/?uri=github.com/MarcusJellinghaus/mcp-tools-sql) [![CodeQL](https://github.com/MarcusJellinghaus/mcp-tools-sql/actions/workflows/github-code-scanning/codeql/badge.svg)](https://github.com/MarcusJellinghaus/mcp-tools-sql/actions/workflows/github-code-scanning/codeql)
 
 An MCP server for safe, configurable SQL database access. Exposes schema introspection, user-defined SELECT queries, and structured UPDATE operations as MCP tools for LLM-assisted workflows.
 

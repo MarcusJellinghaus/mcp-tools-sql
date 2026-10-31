@@ -138,8 +138,8 @@ is replaced by an expiring one, the badge silently stops updating on expiry.
   `B613`). Per-file ignores for tests are documented in `pyproject.toml`.
 - OpenSSF Scorecard ([`scorecard.yml`](../.github/workflows/scorecard.yml)) runs weekly
   and on pushes to main, and uploads SARIF to code scanning.
-- CodeQL is meant to run as GitHub default setup (no workflow file); enable it in the
-  UI, see [Repo settings](#repo-settings-manual-github-ui).
+- CodeQL runs as GitHub default setup (no workflow file; languages `actions` and
+  `python`). See [Repo settings](#repo-settings-manual-github-ui).
 - All actions are pinned to commit SHAs; Dependabot keeps the pins current.
 - Signed release artifacts: the `attach-signed-artifacts` job in
   [`publish.yml`](../.github/workflows/publish.yml) runs after `publish` on each GitHub
@@ -181,13 +181,13 @@ in [`pyproject.toml`](../pyproject.toml).
 `mcp-coder verify` reports the `GITHUB SECURITY` section; turning features on happens in
 the GitHub UI under Settings. Checklist:
 
-- [ ] Code security: CodeQL, default setup
+- [x] Code security: CodeQL, default setup
 - [ ] Code security: private vulnerability reporting
 - [ ] Code security: Dependabot alerts and Dependabot security updates
 - [ ] Code security: secret scanning and push protection
-- [ ] Rules: branch ruleset on `main` (require PR, block force push and deletion,
+- [x] Rules: branch ruleset on `main` (require PR, block force push and deletion,
   required status checks below, strict mode)
-- [ ] General: auto-delete head branches on merge
+- [x] General: auto-delete head branches on merge
 - [ ] Secrets and variables: repo secret `BADGE_GIST_TOKEN` (fine-grained PAT, only
   "Gists: read and write") and repo variable `BADGE_GIST_ID` =
   `9a7892066964f11765a07d74285ad104`, plus the gist file `mcp-tools-sql-coverage.json`
@@ -210,5 +210,4 @@ blocks every PR until the ruleset is updated.
 ## Badges
 
 README badges give the check state at a glance: CI, PyPI, Python version, license, ruff,
-mypy, architecture, coverage ([setup](#coverage-badge)), OpenSSF Scorecard. TODO: add the
-CodeQL badge once CodeQL default setup is enabled (it is omitted until then).
+mypy, architecture, coverage ([setup](#coverage-badge)), OpenSSF Scorecard, CodeQL.
