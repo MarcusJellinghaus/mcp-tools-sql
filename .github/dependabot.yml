@@ -21,3 +21,4 @@ updates:
     target-branch: "main"
     labels:
       - "dependencies"
+      - "CI"
