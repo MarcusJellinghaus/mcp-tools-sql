@@ -102,8 +102,32 @@ PR-only CI job `deptry`. Dependabot updates `pip` and `github-actions` weekly
 
 Reported, never a gate. Jobs `unit-tests`, `sqlite-integration`, `postgresql-integration`
 and `mssql-integration` each upload a `.coverage.*` file. The `coverage` job combines
-them and, on PRs, writes a diff-cover summary to the job summary. No coverage badge (no
-gist configured). Local digest: `run_pytest_check(coverage=True)`.
+them and, on PRs, writes a diff-cover summary to the job summary. Without coverage data
+the job writes a "no coverage data" note and still succeeds. Local digest:
+`run_pytest_check(coverage=True)`.
+
+### Coverage badge
+
+On every push to `main`, the `coverage` job writes the combined total to a public gist
+(`Update coverage badge` step, `continue-on-error`, so a broken token never fails CI);
+shields.io renders the README badge from the gist's raw URL. The step is skipped when
+there is no coverage data.
+
+The gist is **shared with mcp_coder** (ID `9a7892066964f11765a07d74285ad104`, one file per
+repo). The filename here must stay `mcp-tools-sql-coverage.json`; `mcp_coder-coverage.json`
+would overwrite mcp_coder's badge. One-time setup, mirroring mcp_coder's
+`docs/repository-setup/github.md` "Coverage badge":
+
+1. Create the gist file `mcp-tools-sql-coverage.json` in the shared gist, with placeholder
+   content `{"schemaVersion": 1, "label": "coverage", "message": "pending", "color": "lightgrey"}`.
+2. Create a fine-grained PAT with the account permission **Gists: read and write** only,
+   repository access "Public repositories" (read-only), no expiration. The PAT must belong
+   to the gist's owner account (same account as mcp_coder's, so the existing owner works).
+3. Add repo secret `BADGE_GIST_TOKEN` = the PAT and repo variable `BADGE_GIST_ID` =
+   `9a7892066964f11765a07d74285ad104`.
+
+The badge shows missing or "pending" until the first push to `main` after setup. If the PAT
+is replaced by an expiring one, the badge silently stops updating on expiry.
 
 ## Security scanning
 
@@ -151,6 +175,10 @@ the GitHub UI under Settings. Checklist:
 - [ ] Rules: branch ruleset on `main` (require PR, block force push and deletion,
   required status checks below, strict mode)
 - [ ] General: auto-delete head branches on merge
+- [ ] Secrets and variables: repo secret `BADGE_GIST_TOKEN` (fine-grained PAT, only
+  "Gists: read and write") and repo variable `BADGE_GIST_ID` =
+  `9a7892066964f11765a07d74285ad104`, plus the gist file `mcp-tools-sql-coverage.json`
+  (see [Coverage badge](#coverage-badge))
 
 Required status checks (names as reported by CI):
 
@@ -169,4 +197,5 @@ blocks every PR until the ruleset is updated.
 ## Badges
 
 README badges give the check state at a glance: CI, PyPI, Python version, license, ruff,
-mypy, OpenSSF Scorecard. The CodeQL badge is omitted until default setup is enabled.
+mypy, architecture, coverage ([setup](#coverage-badge)), OpenSSF Scorecard. TODO: add the
+CodeQL badge once CodeQL default setup is enabled (it is omitted until then).

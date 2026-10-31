@@ -339,14 +339,35 @@ jobs:
           path: coverage-data
           merge-multiple: true
 
-      - name: Coverage report
+      - name: Combine coverage data
+        id: coverage_combine
+        # Degrades gracefully: without data, `total` stays unset and the badge
+        # and report steps below are skipped.
         run: |
-          if ! { [ -n "$(ls -A coverage-data 2>/dev/null)" ] \
-                 && coverage combine coverage-data \
-                 && coverage xml -o coverage.xml; }; then
+          if [ -n "$(ls -A coverage-data 2>/dev/null)" ] \
+             && coverage combine coverage-data \
+             && coverage xml -o coverage.xml; then
+            echo "total=$(coverage report --format=total)" >> "$GITHUB_OUTPUT"
+          else
             echo "_No coverage data for this run; coverage report skipped._" >> "$GITHUB_STEP_SUMMARY"
-            exit 0
           fi
+
+      # The gist is shared with mcp_coder: filename must stay mcp-tools-sql-coverage.json.
+      - name: Update coverage badge
+        if: github.event_name == 'push' && github.ref == 'refs/heads/main' && steps.coverage_combine.outputs.total != ''
+        continue-on-error: true
+        uses: schneegans/dynamic-badges-action@28b0fa8bdeb46170ac397105ece0c1fe58f68910 # v1.9.0
+        with:
+          auth: ${{ secrets.BADGE_GIST_TOKEN }}
+          gistID: ${{ vars.BADGE_GIST_ID }}
+          filename: mcp-tools-sql-coverage.json
+          label: coverage
+          message: ${{ steps.coverage_combine.outputs.total }}%
+          color: blue
+
+      - name: Coverage report
+        if: steps.coverage_combine.outputs.total != ''
+        run: |
           if [ "${{ github.event_name }}" = "pull_request" ]; then
             diff-cover coverage.xml \
               --compare-branch=origin/${{ github.base_ref }} \
