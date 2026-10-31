@@ -17,7 +17,7 @@ files. Modelled on mcp_coder's `docs/repository-setup/quality-and-security-check
 | [Coverage](#coverage) | pytest-cov, diff-cover | Show what tests reach, without gating | `run_pytest_check` | [`ci.yml`](../.github/workflows/ci.yml), [`ci_coverage_summary.py`](../tools/ci_coverage_summary.py) |
 | [Security scanning](#security-scanning) | ruff `S`, `PLE2502`, CodeQL, OpenSSF Scorecard | Insecure code and supply-chain risks | `run_ruff_check`; CodeQL, Scorecard: none | [`pyproject.toml`](../pyproject.toml), [`scorecard.yml`](../.github/workflows/scorecard.yml), [`SECURITY.md`](../SECURITY.md) |
 | [Tests](#tests) | pytest | Behaviour stays correct | `run_pytest_check` | [`pyproject.toml`](../pyproject.toml), [`ci.yml`](../.github/workflows/ci.yml) |
-| [Repo hygiene](#repo-hygiene) | CI jobs, `tools/check_*.py` | Keep scratch files and URL dependencies out | none | [`ci.yml`](../.github/workflows/ci.yml), [`check_no_url_deps.py`](../tools/check_no_url_deps.py) |
+| [Repo hygiene](#repo-hygiene) | CI jobs, `tools/check_*.py`, lychee (local only) | Keep scratch files and URL dependencies out; markdown links resolve | none | [`ci.yml`](../.github/workflows/ci.yml), [`check_no_url_deps.py`](../tools/check_no_url_deps.py), [`lychee_check.sh`](../tools/lychee_check.sh) |
 | [Repo settings](#repo-settings-manual-github-ui) | `mcp-coder verify`, branch ruleset | GitHub security features and required checks are on | none | [Checklist](#repo-settings-manual-github-ui) |
 | [Badges](#badges) | README badges | Check state visible at a glance | none | [`README.md`](../README.md) |
 
@@ -35,7 +35,7 @@ files. Modelled on mcp_coder's `docs/repository-setup/quality-and-security-check
 - **mcp-workspace** reads CI and PR status (`check_branch_status`, `github_pr_view`) and
   provides `check_file_size`.
 - **Gaps** (shell, mcp-coder CLI or CI only): the [Repo hygiene](#repo-hygiene)
-  jobs, CodeQL, Scorecard, Dependabot, `mcp-coder verify`.
+  jobs, lychee, CodeQL, Scorecard, Dependabot, `mcp-coder verify`.
 
 ## Lint
 
@@ -175,6 +175,17 @@ in [`pyproject.toml`](../pyproject.toml).
   direct `mcp_workspace` imports) was evaluated and not ported: this repo has no git
   subprocess code, and the `mcp_coder_utils_isolation` import-linter contract already
   covers the shim boundary.
+- `lychee` (local only, not in CI): checks markdown links and `#anchors` in `README.md`,
+  `SECURITY.md` and `docs/**/*.md`. Run `tools/lychee_check.bat` (cmd) or
+  `tools/lychee_check.sh` (Git Bash). It is offline by default (local files, no network);
+  remove `--offline` in the script to also check external URLs, which can report
+  transient TLS or network errors that are not broken links. Adding it to CI is a possible
+  later step; mcp_coder does not run it there either.
+  - Install: single binary, no toolchain. Download the release asset from
+    [lychee releases](https://github.com/lycheeverse/lychee/releases)
+    (`gh release download --repo lycheeverse/lychee --pattern "lychee-x86_64-pc-windows-msvc.zip*"`),
+    check the zip's SHA-256 against the `.sha256` file (hash on its second line), extract
+    `lychee.exe` and put it on `PATH`.
 
 ## Repo settings (manual, GitHub UI)
 
