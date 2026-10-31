@@ -205,8 +205,10 @@ ignored-modules = ["sqlglot"]
 # Formatter for run_format_code and mcp-coder workflows: ruff (import sorting + ruff format)
 formatter = "ruff"
 
-[tool.mcp-coder.implement]
+[tool.mcp-coder]
 format_code = true
+
+[tool.mcp-coder.implement]
 check_type_hints = true
 
 [tool.mcp-coder.install-from-github]
