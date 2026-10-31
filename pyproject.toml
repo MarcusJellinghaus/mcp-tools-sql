@@ -22,7 +22,7 @@ dependencies = [
     # <2.0.0: mcp 2.x drops mcp.server.fastmcp (FastMCP -> MCPServer). See #46.
     "mcp>=1.3.0,<2.0.0",
     "mcp[cli]>=1.3.0,<2.0.0",
-    "mcp-coder-utils>=0.1.6.dev0",
+    "mcp-coder-utils>=0.1.6",
     "tabulate>=0.9.0",
     "pydantic>=2.0",
     "tomlkit>=0.13.0",
@@ -51,6 +51,10 @@ dev = [
     "ruff~=0.17.2",        # pinned for stable rule/format output (mcp-tools-py also ships ruff)
     "tach>=0.35.0",        # KEEP — mcp-tools-py ships it only in its own [dev] extra
     "deptry>=0.25.1",
+    "import-linter>=2.0",
+    "vulture>=2.14",
+    "pytest-asyncio",
+    "pytest-xdist",        # addopts uses `-n auto`
     "pytest-cov",
     "diff-cover",
 ]
