@@ -15,22 +15,26 @@ from mcp_tools_sql.config.loader import (
 )
 from mcp_tools_sql.config.models import DatabaseConfig, QueryFileConfig
 from mcp_tools_sql.utils.user_app_data import get_user_app_data_dir
-from mcp_tools_sql.verification._helpers import make_entry
+from mcp_tools_sql.verification._helpers import (
+    CheckResult,
+    make_entry,
+    make_warn_entry,
+)
 
 
 def verify_config_files(
     config_path: Path | None,
     db_config_path: Path | None,
-) -> dict[str, Any]:
+) -> dict[str, CheckResult]:
     """Verify that both config files resolve to a path and parse cleanly.
 
     Returns:
-        Standard verifier result dict with entries for the resolved path
-        and parse status of the query config and the database config.
-        A ``query_config_sensitive_keys`` entry is added with ``warn=True``
-        when sensitive keys are detected in the query config.
+        Verifier rows for the resolved path and parse status of the query
+        config and the database config. A ``query_config_sensitive_keys``
+        warning row is added when sensitive keys are detected in the query
+        config.
     """
-    result: dict[str, Any] = {}
+    result: dict[str, CheckResult] = {}
     query_config: QueryFileConfig | None = None
     db_config: DatabaseConfig | None = None
 
@@ -58,13 +62,10 @@ def verify_config_files(
         except ValueError:
             found = []
         if found:
-            entry = make_entry(
-                ok=False,
-                value=", ".join(sorted(set(found))),
-                error="Move credentials to ~/.mcp-tools-sql/config.toml",
+            result["query_config_sensitive_keys"] = make_warn_entry(
+                ", ".join(sorted(set(found))),
+                "Move credentials to ~/.mcp-tools-sql/config.toml",
             )
-            entry["warn"] = True
-            result["query_config_sensitive_keys"] = entry
 
     db_path = db_config_path or (get_user_app_data_dir("mcp-tools-sql") / "config.toml")
     if not db_path.exists():
@@ -92,16 +93,11 @@ def verify_config_files(
     if query_config is not None and db_config is not None:
         _append_cross_file_checks(result, query_config, db_config)
 
-    result["overall_ok"] = all(
-        entry["ok"] or entry.get("warn", False)
-        for key, entry in result.items()
-        if key != "overall_ok"
-    )
     return result
 
 
 def _append_cross_file_checks(
-    result: dict[str, Any],
+    result: dict[str, CheckResult],
     query_config: QueryFileConfig,
     db_config: DatabaseConfig,
 ) -> None:

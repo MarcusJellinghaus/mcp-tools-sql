@@ -3,10 +3,10 @@
 from __future__ import annotations
 
 import argparse
-from typing import Any
 
 from mcp_tools_sql.cli.parsers import WideHelpFormatter
-from mcp_tools_sql.verification import verify_all
+from mcp_tools_sql.verification import VerifyResult, verify_all
+from mcp_tools_sql.verification.orchestrator import render_skip_m2_summary
 
 STATUS_SYMBOLS: dict[str, str] = {"ok": "[OK]", "err": "[ERR]", "warn": "[WARN]"}
 _LABEL_WIDTH = 28  # minimum pad; longer labels are never truncated
@@ -51,15 +51,11 @@ def run(args: argparse.Namespace) -> int:
     Returns:
         Process exit code (``0`` if every section passed, ``1`` otherwise).
     """
-    sections, skip_summary = verify_all(args.config, args.database_config)
-    return _print_and_summarize(sections, skip_summary=skip_summary)
+    result = verify_all(args.config, args.database_config)
+    return _print_and_summarize(result)
 
 
-def _print_and_summarize(
-    sections: list[tuple[str, dict[str, Any]]],
-    *,
-    skip_summary: str | None = None,
-) -> int:
+def _print_and_summarize(result: VerifyResult) -> int:
     """Print every section's rows and the trailing summary line.
 
     Returns:
@@ -68,12 +64,10 @@ def _print_and_summarize(
     ok_count = 0
     warn_count = 0
     err_count = 0
-    for title, result in sections:
-        _print_section(title)
-        for key, entry in result.items():
-            if key == "overall_ok":
-                continue
-            if entry.get("warn"):
+    for section in result["sections"]:
+        _print_section(section["title"])
+        for key, entry in section["checks"].items():
+            if not entry["ok"] and entry["severity"] == "warning":
                 print(
                     _format_row(
                         "warn",
@@ -97,7 +91,8 @@ def _print_and_summarize(
                 )
                 err_count += 1
         print()
-    if skip_summary is not None:
-        print(skip_summary)
+    skipped_queries = result["skipped_queries"]
+    if skipped_queries is not None:
+        print(render_skip_m2_summary(skipped_queries, result["skipped_updates"] or 0))
     print(f"{ok_count} checks passed, {warn_count} warnings, {err_count} errors")
     return _compute_exit_code(err_count)

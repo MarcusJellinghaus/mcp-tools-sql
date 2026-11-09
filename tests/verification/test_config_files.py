@@ -7,6 +7,7 @@ from pathlib import Path
 import pytest
 
 from mcp_tools_sql.verification import verify_config_files
+from mcp_tools_sql.verification._helpers import checks_ok
 
 
 @pytest.fixture
@@ -37,7 +38,7 @@ def test_verify_config_files_missing_returns_err(tmp_path: Path) -> None:
 
     assert result["query_config_path"]["ok"] is False
     assert str(missing) in result["query_config_path"]["error"]
-    assert result["overall_ok"] is False
+    assert checks_ok(result) is False
 
 
 def test_verify_config_files_valid_returns_ok(
@@ -54,7 +55,7 @@ def test_verify_config_files_valid_returns_ok(
     assert result["query_config_parse"]["ok"] is True
     assert result["database_config_path"]["ok"] is True
     assert result["database_config_parse"]["ok"] is True
-    assert result["overall_ok"] is True
+    assert checks_ok(result) is True
 
 
 # ---------------------------------------------------------------------------
@@ -74,7 +75,7 @@ def test_cross_file_single_target_legacy_passes(
 
     assert result["connection_valid"]["ok"] is True
     assert result["connection_valid"]["value"] == "default"
-    assert result["overall_ok"] is True
+    assert checks_ok(result) is True
 
 
 def test_cross_file_valid_multi_config_all_pass(tmp_path: Path) -> None:
@@ -121,7 +122,7 @@ def test_cross_file_valid_multi_config_all_pass(tmp_path: Path) -> None:
     assert result["queries.q2.database"]["ok"] is True
     assert result["updates.u1.connection"]["ok"] is True
     assert result["updates.u1.database"]["ok"] is True
-    assert result["overall_ok"] is True
+    assert checks_ok(result) is True
 
 
 def test_cross_file_rule1_unknown_file_connection(tmp_path: Path) -> None:
@@ -137,7 +138,7 @@ def test_cross_file_rule1_unknown_file_connection(tmp_path: Path) -> None:
     result = verify_config_files(query_cfg, db_config_path=db_cfg)
 
     assert result["connection_valid"]["ok"] is False
-    assert result["overall_ok"] is False
+    assert checks_ok(result) is False
 
 
 def test_cross_file_rule4_unknown_per_query_connection(tmp_path: Path) -> None:
@@ -156,7 +157,7 @@ def test_cross_file_rule4_unknown_per_query_connection(tmp_path: Path) -> None:
     result = verify_config_files(query_cfg, db_config_path=db_cfg)
 
     assert result["queries.x.connection"]["ok"] is False
-    assert result["overall_ok"] is False
+    assert checks_ok(result) is False
 
 
 def test_cross_file_rule5_per_query_database_not_member(tmp_path: Path) -> None:
@@ -175,7 +176,7 @@ def test_cross_file_rule5_per_query_database_not_member(tmp_path: Path) -> None:
     result = verify_config_files(query_cfg, db_config_path=db_cfg)
 
     assert result["queries.x.database"]["ok"] is False
-    assert result["overall_ok"] is False
+    assert checks_ok(result) is False
 
 
 def test_cross_file_rule237_violation_surfaces_via_parse_row(tmp_path: Path) -> None:
@@ -198,4 +199,23 @@ def test_cross_file_rule237_violation_surfaces_via_parse_row(tmp_path: Path) -> 
     # ... and no bespoke rule-2/3/7 row nor any cross-file row is emitted,
     # because there is no loaded config object to inspect.
     assert "connection_valid" not in result
-    assert result["overall_ok"] is False
+    assert checks_ok(result) is False
+
+
+def test_sensitive_keys_row_is_warning(
+    tmp_path: Path,
+    valid_database_config: Path,
+) -> None:
+    """Sensitive keys in the query config yield a warning row that keeps CONFIG ok."""
+    query_cfg = tmp_path / "mcp-tools-sql.toml"
+    query_cfg.write_text(
+        'connection = "default"\npassword = "leaked"\n', encoding="utf-8"
+    )
+
+    result = verify_config_files(query_cfg, db_config_path=valid_database_config)
+
+    row = result["query_config_sensitive_keys"]
+    assert row["ok"] is False
+    assert row["severity"] == "warning"
+    assert "password" in row["value"]
+    assert checks_ok(result) is True

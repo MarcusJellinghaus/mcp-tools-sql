@@ -156,8 +156,12 @@ issue #21 to keep the CLI module under the 600-line file-size limit and
 to make the engine reusable from non-CLI consumers (planned: MCP-server
 health endpoint, programmatic validation in tests). The orchestrator
 `verify_all(config_path, db_config_path)` composes every section in a
-canonical order and returns `(sections, skip_summary)`; the CLI shim
-is a pure printer that iterates `sections` as-is. The subpackage sits
+canonical order and returns a `VerifyResult` dict: an ordered list of
+`VerifySection`s (`title`, `ok`, `checks` keyed by row label, each a
+`CheckResult` with `ok`/`value`/`severity`) plus `skipped_queries` /
+`skipped_updates` counts, set only when a failed connection skipped
+QUERIES/UPDATES; the CLI shim is a pure printer that iterates `sections`
+as-is. The subpackage sits
 at the `tool_implementation` layer (same as `schema_tools`/`query_tools`)
 in `tach.toml`, and on its own line in `.importlinter` (above
 `schema_tools|...`) because it imports from `schema_tools.load_default_queries`

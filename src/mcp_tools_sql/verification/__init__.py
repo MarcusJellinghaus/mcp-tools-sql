@@ -1,6 +1,10 @@
 """Verification engine for the `verify` CLI subcommand."""
 
-from mcp_tools_sql.verification._helpers import VerifierEntry
+from mcp_tools_sql.verification._helpers import (
+    CheckResult,
+    VerifyResult,
+    VerifySection,
+)
 from mcp_tools_sql.verification.builtin import verify_builtin
 from mcp_tools_sql.verification.config_files import verify_config_files
 from mcp_tools_sql.verification.connection import verify_connection
@@ -11,7 +15,9 @@ from mcp_tools_sql.verification.queries import verify_queries
 from mcp_tools_sql.verification.updates import verify_updates
 
 __all__ = [
-    "VerifierEntry",
+    "CheckResult",
+    "VerifyResult",
+    "VerifySection",
     "verify_all",
     "verify_builtin",
     "verify_config_files",

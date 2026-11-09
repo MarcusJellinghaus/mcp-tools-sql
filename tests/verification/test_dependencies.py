@@ -6,6 +6,7 @@ import sys
 from unittest.mock import MagicMock, patch
 
 from mcp_tools_sql.verification import verify_dependencies
+from mcp_tools_sql.verification._helpers import checks_ok
 
 
 def test_verify_dependencies_sqlite_shows_info_line() -> None:
@@ -14,14 +15,14 @@ def test_verify_dependencies_sqlite_shows_info_line() -> None:
 
     assert result["info"]["ok"] is True
     assert "no optional dependencies" in result["info"]["value"]
-    assert result["overall_ok"] is True
+    assert checks_ok(result) is True
 
 
 def test_verify_dependencies_unknown_backend_returns_err() -> None:
     """`unknown` backend returns ok=False with a clear error message."""
     result = verify_dependencies("unknown")
 
-    assert result["overall_ok"] is False
+    assert checks_ok(result) is False
     assert result["backend"]["ok"] is False
     assert "cannot determine backend" in result["backend"]["error"]
 
@@ -34,7 +35,7 @@ def test_verify_dependencies_postgresql_when_psycopg_missing() -> None:
     assert result["psycopg"]["ok"] is False
     assert "(not installed)" in result["psycopg"]["value"]
     assert "pip install" in result["psycopg"]["install_hint"]
-    assert result["overall_ok"] is False
+    assert checks_ok(result) is False
 
 
 def test_verify_dependencies_mssql_when_pyodbc_missing() -> None:
@@ -45,7 +46,7 @@ def test_verify_dependencies_mssql_when_pyodbc_missing() -> None:
     assert result["pyodbc"]["ok"] is False
     assert "pip install mcp-tools-sql[mssql]" in result["pyodbc"]["install_hint"]
     assert result["odbc_driver"]["ok"] is False
-    assert result["overall_ok"] is False
+    assert checks_ok(result) is False
 
 
 def test_verify_dependencies_mssql_with_pyodbc_and_driver() -> None:
@@ -61,7 +62,7 @@ def test_verify_dependencies_mssql_with_pyodbc_and_driver() -> None:
     assert result["pyodbc"]["ok"] is True
     assert result["odbc_driver"]["ok"] is True
     assert "SQL Server" in result["odbc_driver"]["value"]
-    assert result["overall_ok"] is True
+    assert checks_ok(result) is True
 
 
 def test_verify_dependencies_mssql_with_pyodbc_no_driver() -> None:
@@ -75,7 +76,7 @@ def test_verify_dependencies_mssql_with_pyodbc_no_driver() -> None:
     assert result["pyodbc"]["ok"] is True
     assert result["odbc_driver"]["ok"] is False
     assert "ODBC Driver 18 for SQL Server" in result["odbc_driver"]["install_hint"]
-    assert result["overall_ok"] is False
+    assert checks_ok(result) is False
 
 
 def test_verify_dependencies_mssql_configured_driver_installed() -> None:
@@ -111,4 +112,4 @@ def test_verify_dependencies_mssql_configured_driver_mismatch() -> None:
     # Installed drivers shown in the error so the user sees the diff
     assert "ODBC Driver 18 for SQL Server" in result["odbc_driver"]["error"]
     assert "SQLite ODBC Driver" in result["odbc_driver"]["error"]
-    assert result["overall_ok"] is False
+    assert checks_ok(result) is False
