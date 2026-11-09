@@ -12,6 +12,10 @@ from tabulate import tabulate
 # Every ``max_rows`` is floored at this bound before it reaches a slice.
 MAX_ROWS_MIN: int = 1
 
+# Appended to a statement-timeout message by tool-aware callers.
+TIMEOUT_HINT_PARAMS = "Use more selective parameters."
+TIMEOUT_HINT_NARROWER = "Use a narrower query."
+
 
 def format_rows(
     rows: list[dict[str, Any]],

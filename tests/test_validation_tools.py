@@ -274,7 +274,7 @@ def test_mssql_explain_showplan_sequence() -> None:
     backend = MagicMock()
     backend.get_isolated_connection = MagicMock(return_value=isolated_cm)
 
-    plan = _explain(backend, "mssql", "SELECT :a", {"a": 1})
+    plan = _explain(backend, "mssql", "SELECT :a", {"a": 1}, 30)
 
     assert plan == "StmtText\nplan-row-1"
     call_sequence = [call.args[0] for call in cursor.execute.call_args_list]
@@ -300,7 +300,7 @@ def test_mssql_explain_non_finite_float_raises_value_error() -> None:
     """
     backend = MagicMock()
     with pytest.raises(ValueError, match="non-finite"):
-        _explain(backend, "mssql", "SELECT :x", {"x": float("inf")})
+        _explain(backend, "mssql", "SELECT :x", {"x": float("inf")}, 30)
     backend.get_isolated_connection.assert_not_called()
 
 
@@ -324,7 +324,7 @@ def test_mssql_explain_showplan_off_runs_on_execute_failure() -> None:
     backend.get_isolated_connection = MagicMock(return_value=isolated_cm)
 
     with pytest.raises(RuntimeError, match="explain failed"):
-        _explain(backend, "mssql", "SELECT bogus", None)
+        _explain(backend, "mssql", "SELECT bogus", None, 30)
 
     call_sequence = [call.args[0] for call in cursor.execute.call_args_list]
     assert call_sequence == [

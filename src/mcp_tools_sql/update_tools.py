@@ -8,6 +8,7 @@ from typing import TYPE_CHECKING, Annotated, Any
 
 from pydantic import Field
 
+from mcp_tools_sql.backends.base import QueryTimeoutError
 from mcp_tools_sql.formatting import format_update_result
 from mcp_tools_sql.identifiers import IDENTIFIER_PATTERN, identifier_error
 from mcp_tools_sql.tool_builder import _UNSET, build_tool_fn
@@ -122,7 +123,10 @@ def _build_update_body(
         sql = f"UPDATE {qualified} SET {set_clause} WHERE {key_field}=:{key_field}"  # noqa: S608 - table, column and key names come from validated config; values are bound :name params
         params = {**field_values, key_field: key_value}
         async with log_tool_call(name, params, sql=sql) as rec:
-            affected = backend.execute_update(sql, params)
+            try:
+                affected = backend.execute_update(sql, params)
+            except QueryTimeoutError as exc:
+                return str(exc)
             rec.record(rows=affected, cols=len(field_values))
             return format_update_result(affected, qualified, key_field, key_value)
 

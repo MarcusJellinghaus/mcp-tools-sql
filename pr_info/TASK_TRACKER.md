@@ -45,9 +45,9 @@ See [step_3.md](./steps/step_3.md)
 ### Step 4: Tool-level timeout branches (count, validate, summarize, update)
 See [step_4.md](./steps/step_4.md)
 
-- [ ] Implementation (tests + production code)
-- [ ] Quality checks: pylint, pytest, mypy, lint-imports — fix all issues
-- [ ] Commit message prepared
+- [x] Implementation (tests + production code)
+- [x] Quality checks: pylint, pytest, mypy, lint-imports — fix all issues
+- [x] Commit message prepared
 
 ### Step 5: Batched read on the backends
 See [step_5.md](./steps/step_5.md)
