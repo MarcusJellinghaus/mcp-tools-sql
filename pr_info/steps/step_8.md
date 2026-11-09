@@ -99,7 +99,8 @@ Tool text as produced by `render_limited`, plus the existing cap note.
 - Configured query with `filter_column` and no placeholders: `narrow with
   <col>_filter` on truncation; on timeout no hint.
 - Char budget: small `[limits] max_output_chars` → table length (text before the
-  first `\n\n[Output truncated`) ≤ the limit, message present; cell cap with
+  first `\n\n[Output truncated`) ≤ the limit, message present, including a
+  query whose column header is wider than every cell in it; cell cap with
   marker and `Long values were cut at N chars.`; first row wider than the
   budget → 0 rows + wider-than-limit message.
 - `*_filter` whose matches are beyond the first raw batch (> 500 raw rows) →

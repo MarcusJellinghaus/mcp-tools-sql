@@ -74,8 +74,8 @@ def collect(
 - `cell_text`: `None` → `""`, else `str(value)`; longer than `max_cell_chars` →
   `text[:max_cell_chars] + f"…[cut, {len(text):,} chars total]"`, flag `True`.
 - Char budget (rendered with `tabulate(..., tablefmt="simple",
-  disable_numparse=True)` in step 7): column width = max(len(header), longest
-  line of any cell); line width = `sum(widths) + 2 * (ncols - 1)`; lines =
+  disable_numparse=True)` in step 7): column width = max(len(header) + 2,
+  longest line of any cell) — tabulate pads headers by `MIN_PADDING` (2); line width = `sum(widths) + 2 * (ncols - 1)`; lines =
   2 (header + separator) + sum of row heights (row height = most lines in any
   cell). Admit a row only if `lines_after × (width_after + 1) ≤
   max_output_chars`, using the running maximum widths including the new row.
@@ -143,7 +143,8 @@ the char budget); counted rows beyond them are discarded.
   error with `record_errors=True` records the error and continues.
 - Char budget: `tabulate(rows, headers="keys", tablefmt="simple",
   disable_numparse=True)` length ≤ `max_output_chars`, including a later row
-  that widens an earlier non-last column and a multi-line cell; the first row
+  that widens an earlier non-last column, a multi-line cell, and a column whose
+  header is wider than every cell in it; the first row
   wider than the budget → `rows == []`, `display_limit == "chars"`.
 - `cell_text` cuts with the marker and reports the flag; `None` → `""`.
 - `counting_time_limit(30) == 5.0`, `counting_time_limit(4) == 2.0`.
