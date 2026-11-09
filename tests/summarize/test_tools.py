@@ -21,6 +21,7 @@ from mcp.shared.memory import create_connected_server_and_client_session
 
 from mcp_tools_sql.config.models import ResolvedTargets
 from mcp_tools_sql.server import FastMCPSink
+from mcp_tools_sql.sql_ast.summarize_queries import ColumnMeta
 from mcp_tools_sql.summarize import SummarizeTools
 from mcp_tools_sql.summarize.render import (
     DISTINCT_GATE_ROWS,
@@ -28,7 +29,6 @@ from mcp_tools_sql.summarize.render import (
     distinct_gate_note,
 )
 from mcp_tools_sql.summarize.source import TYPES_PROBED_NOTE
-from mcp_tools_sql.summarize.sql import ColumnMeta
 from mcp_tools_sql.summarize.tools import _DESCRIPTION, _counts_inconsistent
 from tests.summarize.tool_helpers import call_summarize as _call_summarize
 from tests.summarize.tool_helpers import client_for as _client_for

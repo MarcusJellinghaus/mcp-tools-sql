@@ -286,7 +286,10 @@ def test_probed_string_is_nvarchar_on_tsql_not_lob() -> None:
     every string column of its distinct count, length stats, and value list on
     exactly the path where the probe is the only type resolver.
     """
-    from mcp_tools_sql.summarize.sql import build_scalar_sql, build_value_list_sql
+    from mcp_tools_sql.sql_ast.summarize_queries import (
+        build_scalar_sql,
+        build_value_list_sql,
+    )
 
     ref = _ref("SELECT * FROM t", "tsql")
     metas, error = probe_columns(_backend(["s"], [("hello",)]), ref, None, "tsql")
@@ -570,7 +573,7 @@ def test_describe_carries_system_type_name_verbatim(
 
 def test_described_bigint_still_drives_the_sum_guard() -> None:
     """``bigint`` must stay integer-like for the T-SQL ``CAST(... AS BIGINT)``."""
-    from mcp_tools_sql.summarize.sql import _is_integer_type
+    from mcp_tools_sql.sql_ast.summarize_queries import _is_integer_type
 
     assert _is_integer_type("bigint") is True
     assert _is_integer_type("decimal(10,2)") is False

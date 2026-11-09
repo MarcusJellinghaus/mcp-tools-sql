@@ -26,7 +26,7 @@ from dataclasses import dataclass
 from typing import Any, Literal
 
 from mcp_tools_sql.formatting import format_rows
-from mcp_tools_sql.summarize.sql import ColumnMeta
+from mcp_tools_sql.sql_ast.summarize_queries import ColumnMeta
 
 # Display cap for a single rendered value; longer values are truncated with an
 # ellipsis. Counts printed alongside are never truncated.

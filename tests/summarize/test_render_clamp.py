@@ -15,13 +15,13 @@ from unittest.mock import MagicMock
 
 import pytest
 
+from mcp_tools_sql.sql_ast.summarize_queries import Category, ColumnMeta
 from mcp_tools_sql.summarize.render import (
     ColumnProfile,
     inconsistent_counts_note,
     render_deep,
     render_triage,
 )
-from mcp_tools_sql.summarize.sql import Category, ColumnMeta
 from tests.summarize.tool_helpers import call_summarize, client_for
 
 

@@ -6,7 +6,11 @@ from typing import get_args
 
 import pytest
 
-from mcp_tools_sql.summarize.sql import Category, ColumnMeta, categorize_type
+from mcp_tools_sql.sql_ast.summarize_queries import (
+    Category,
+    ColumnMeta,
+    categorize_type,
+)
 
 # (declared_type, dialect, expected_category)
 _CASES = [
@@ -71,7 +75,7 @@ def test_categorize_type_returns_a_category_literal() -> None:
 
 def test_build_table_ref_tsql_includes_schema() -> None:
     """T-SQL table ref bracket-quotes both schema and table."""
-    from mcp_tools_sql.summarize.sql import build_table_ref
+    from mcp_tools_sql.sql_ast.summarize_queries import build_table_ref
 
     ref = build_table_ref("dbo", "t", "tsql")
     assert ref.sql(dialect="tsql") == "[dbo].[t]"
@@ -79,7 +83,7 @@ def test_build_table_ref_tsql_includes_schema() -> None:
 
 def test_build_table_ref_tsql_quotes_names_with_spaces() -> None:
     """T-SQL table ref survives spaces/reserved words via quoting."""
-    from mcp_tools_sql.summarize.sql import build_table_ref
+    from mcp_tools_sql.sql_ast.summarize_queries import build_table_ref
 
     ref = build_table_ref("Sales", "Order Details", "tsql")
     assert ref.sql(dialect="tsql") == "[Sales].[Order Details]"
@@ -87,7 +91,7 @@ def test_build_table_ref_tsql_quotes_names_with_spaces() -> None:
 
 def test_build_table_ref_sqlite_omits_schema() -> None:
     """SQLite has no schema namespace, so only the table renders."""
-    from mcp_tools_sql.summarize.sql import build_table_ref
+    from mcp_tools_sql.sql_ast.summarize_queries import build_table_ref
 
     ref = build_table_ref("ignored", "t", "sqlite")
     assert ref.sql(dialect="sqlite") == '"t"'
@@ -98,7 +102,7 @@ def test_build_table_ref_sqlite_omits_schema() -> None:
 
 def test_metadata_sql_tsql_uses_information_schema() -> None:
     """T-SQL metadata query reads INFORMATION_SCHEMA.COLUMNS with bound params."""
-    from mcp_tools_sql.summarize.sql import metadata_sql
+    from mcp_tools_sql.sql_ast.summarize_queries import metadata_sql
 
     sql = metadata_sql("tsql")
     assert "INFORMATION_SCHEMA.COLUMNS" in sql
@@ -108,7 +112,7 @@ def test_metadata_sql_tsql_uses_information_schema() -> None:
 
 def test_metadata_sql_sqlite_uses_pragma_table_info() -> None:
     """SQLite metadata query reads pragma_table_info with a bound table."""
-    from mcp_tools_sql.summarize.sql import metadata_sql
+    from mcp_tools_sql.sql_ast.summarize_queries import metadata_sql
 
     sql = metadata_sql("sqlite")
     assert "pragma_table_info(:table)" in sql
@@ -119,7 +123,7 @@ def test_metadata_sql_sqlite_uses_pragma_table_info() -> None:
 
 def test_build_count_sql_tsql_no_predicate() -> None:
     """Unfiltered T-SQL count aliases row_count over the bracketed table."""
-    from mcp_tools_sql.summarize.sql import build_count_sql, build_table_ref
+    from mcp_tools_sql.sql_ast.summarize_queries import build_count_sql, build_table_ref
 
     ref = build_table_ref("dbo", "t", "tsql")
     sql = build_count_sql(ref, None, "tsql")
@@ -128,7 +132,7 @@ def test_build_count_sql_tsql_no_predicate() -> None:
 
 def test_build_count_sql_sqlite_no_predicate() -> None:
     """Unfiltered SQLite count omits schema and double-quotes the table."""
-    from mcp_tools_sql.summarize.sql import build_count_sql, build_table_ref
+    from mcp_tools_sql.sql_ast.summarize_queries import build_count_sql, build_table_ref
 
     ref = build_table_ref("ignored", "t", "sqlite")
     sql = build_count_sql(ref, None, "sqlite")
@@ -137,7 +141,7 @@ def test_build_count_sql_sqlite_no_predicate() -> None:
 
 def test_build_count_sql_includes_predicate() -> None:
     """A validated predicate renders into the count query's WHERE clause."""
-    from mcp_tools_sql.summarize.sql import (
+    from mcp_tools_sql.sql_ast.summarize_queries import (
         build_count_sql,
         build_table_ref,
         validate_where,
@@ -156,7 +160,7 @@ def test_build_count_sql_includes_predicate() -> None:
 @pytest.mark.parametrize("where", [None, "", "   "])
 def test_validate_where_blank_returns_no_predicate(where: str | None) -> None:
     """None/blank where yields (None, None) -- no filter, no error."""
-    from mcp_tools_sql.summarize.sql import build_table_ref, validate_where
+    from mcp_tools_sql.sql_ast.summarize_queries import build_table_ref, validate_where
 
     ref = build_table_ref("dbo", "t", "sqlite")
     assert validate_where(where, ref, None, "sqlite") == (None, None)
@@ -164,7 +168,7 @@ def test_validate_where_blank_returns_no_predicate(where: str | None) -> None:
 
 def test_validate_where_valid_predicate_returns_ast() -> None:
     """A bound predicate returns a re-rendered AST, never the raw text."""
-    from mcp_tools_sql.summarize.sql import build_table_ref, validate_where
+    from mcp_tools_sql.sql_ast.summarize_queries import build_table_ref, validate_where
 
     ref = build_table_ref("dbo", "t", "sqlite")
     predicate, error = validate_where("status = :s", ref, {"s": "open"}, "sqlite")
@@ -181,7 +185,7 @@ def test_validate_where_rejects_write_smuggling() -> None:
     ``read_only_violation`` AST gate is the defence-in-depth backstop). Either
     way the predicate is refused and no data query is built.
     """
-    from mcp_tools_sql.summarize.sql import build_table_ref, validate_where
+    from mcp_tools_sql.sql_ast.summarize_queries import build_table_ref, validate_where
 
     ref = build_table_ref("dbo", "t", "sqlite")
     predicate, error = validate_where("id IN (DELETE FROM t)", ref, None, "sqlite")
@@ -208,7 +212,7 @@ def test_validate_where_rejects_passthrough_source(
     fragment: str, function: str, dialect: str
 ) -> None:
     """A predicate reaching a linked server is rejected: the far end is opaque."""
-    from mcp_tools_sql.summarize.sql import build_table_ref, validate_where
+    from mcp_tools_sql.sql_ast.summarize_queries import build_table_ref, validate_where
 
     ref = build_table_ref("dbo", "t", dialect)
     predicate, error = validate_where(fragment, ref, None, dialect)
@@ -221,7 +225,7 @@ def test_validate_where_rejects_passthrough_source(
 @pytest.mark.parametrize("dialect", ["sqlite", "tsql"])
 def test_validate_where_accepts_column_named_openquery(dialect: str) -> None:
     """A column merely *named* ``openquery`` is an identifier, not a call."""
-    from mcp_tools_sql.summarize.sql import build_table_ref, validate_where
+    from mcp_tools_sql.sql_ast.summarize_queries import build_table_ref, validate_where
 
     ref = build_table_ref("dbo", "t", dialect)
     predicate, error = validate_where("openquery = 1", ref, None, dialect)
@@ -231,7 +235,7 @@ def test_validate_where_accepts_column_named_openquery(dialect: str) -> None:
 
 def test_validate_where_rejects_statement_terminator() -> None:
     """A stacked statement is rejected before any query runs."""
-    from mcp_tools_sql.summarize.sql import build_table_ref, validate_where
+    from mcp_tools_sql.sql_ast.summarize_queries import build_table_ref, validate_where
 
     ref = build_table_ref("dbo", "t", "sqlite")
     predicate, error = validate_where("1=1); DROP TABLE t --", ref, None, "sqlite")
@@ -247,7 +251,7 @@ def test_validate_where_rejects_union_breakout() -> None:
     pass, but its root is a ``UNION`` with no ``where`` arg. The re-extraction
     must return an error string rather than raise.
     """
-    from mcp_tools_sql.summarize.sql import build_table_ref, validate_where
+    from mcp_tools_sql.sql_ast.summarize_queries import build_table_ref, validate_where
 
     ref = build_table_ref("dbo", "t", "sqlite")
     predicate, error = validate_where(
@@ -260,7 +264,7 @@ def test_validate_where_rejects_union_breakout() -> None:
 
 def test_validate_where_missing_param_verdict() -> None:
     """An unbound :name without params fails via basic_preflight."""
-    from mcp_tools_sql.summarize.sql import build_table_ref, validate_where
+    from mcp_tools_sql.sql_ast.summarize_queries import build_table_ref, validate_where
 
     ref = build_table_ref("dbo", "t", "sqlite")
     predicate, error = validate_where("x = :missing", ref, None, "sqlite")
@@ -284,7 +288,7 @@ def test_validate_where_untokenizable_verdict(where: str) -> None:
     a subclass -- so a narrower catch in ``basic_preflight`` would let it
     escape out of ``summarize``.
     """
-    from mcp_tools_sql.summarize.sql import build_table_ref, validate_where
+    from mcp_tools_sql.sql_ast.summarize_queries import build_table_ref, validate_where
 
     ref = build_table_ref("dbo", "t", "sqlite")
     predicate, error = validate_where(where, ref, None, "sqlite")
@@ -309,7 +313,7 @@ def test_validate_where_zero_statement_predicate_verdict(where: str) -> None:
     empty ``WHERE`` as a ``ParseError``. What matters is that the tool still
     answers with a verdict rather than letting an exception escape.
     """
-    from mcp_tools_sql.summarize.sql import build_table_ref, validate_where
+    from mcp_tools_sql.sql_ast.summarize_queries import build_table_ref, validate_where
 
     ref = build_table_ref("dbo", "t", "sqlite")
     predicate, error = validate_where(where, ref, None, "sqlite")
@@ -326,8 +330,8 @@ def test_validate_where_against_a_derived_table_source() -> None:
     checked against the columns it will really filter) and still return the
     predicate AST alone.
     """
+    from mcp_tools_sql.sql_ast.summarize_queries import validate_where
     from mcp_tools_sql.summarize.source import validate_source
-    from mcp_tools_sql.summarize.sql import validate_where
 
     ref, _notes, source_error = validate_source("SELECT a, b FROM t", None, "sqlite")
     assert source_error is None
@@ -363,7 +367,10 @@ def _meta(
 
 def test_scalar_numeric_tsql_casts_mean_and_sum() -> None:
     """Numeric on T-SQL casts mean to FLOAT and integer sum to BIGINT."""
-    from mcp_tools_sql.summarize.sql import build_scalar_sql, build_table_ref
+    from mcp_tools_sql.sql_ast.summarize_queries import (
+        build_scalar_sql,
+        build_table_ref,
+    )
 
     ref = build_table_ref("dbo", "t", "tsql")
     sql = build_scalar_sql(
@@ -377,7 +384,10 @@ def test_scalar_numeric_tsql_casts_mean_and_sum() -> None:
 
 def test_scalar_numeric_non_integer_tsql_sum_uncast() -> None:
     """A decimal/money numeric leaves SUM uncast (no lossy FLOAT/BIGINT cast)."""
-    from mcp_tools_sql.summarize.sql import build_scalar_sql, build_table_ref
+    from mcp_tools_sql.sql_ast.summarize_queries import (
+        build_scalar_sql,
+        build_table_ref,
+    )
 
     ref = build_table_ref("dbo", "t", "tsql")
     sql = build_scalar_sql(
@@ -389,7 +399,10 @@ def test_scalar_numeric_non_integer_tsql_sum_uncast() -> None:
 
 def test_scalar_numeric_sqlite_sum_uncast() -> None:
     """On SQLite the numeric sum is plain SUM(c) with no BIGINT cast."""
-    from mcp_tools_sql.summarize.sql import build_scalar_sql, build_table_ref
+    from mcp_tools_sql.sql_ast.summarize_queries import (
+        build_scalar_sql,
+        build_table_ref,
+    )
 
     ref = build_table_ref("x", "t", "sqlite")
     sql = build_scalar_sql(
@@ -407,7 +420,10 @@ def test_scalar_numeric_sqlite_sum_uncast() -> None:
 
 def test_scalar_string_lengths_and_empty_per_dialect() -> None:
     """String uses LEN on T-SQL, LENGTH on SQLite, and an LTRIM/RTRIM empty test."""
-    from mcp_tools_sql.summarize.sql import build_scalar_sql, build_table_ref
+    from mcp_tools_sql.sql_ast.summarize_queries import (
+        build_scalar_sql,
+        build_table_ref,
+    )
 
     tsql = build_scalar_sql(
         [_meta("name", "nvarchar", "string")],
@@ -436,7 +452,10 @@ def test_scalar_string_lengths_and_empty_per_dialect() -> None:
 
 def test_scalar_boolean_has_no_value_min_max() -> None:
     """Boolean emits true/false tallies but never MIN/MAX (T-SQL forbids it)."""
-    from mcp_tools_sql.summarize.sql import build_scalar_sql, build_table_ref
+    from mcp_tools_sql.sql_ast.summarize_queries import (
+        build_scalar_sql,
+        build_table_ref,
+    )
 
     sql = build_scalar_sql(
         [_meta("flag", "bit", "boolean")],
@@ -453,7 +472,10 @@ def test_scalar_boolean_has_no_value_min_max() -> None:
 
 def test_scalar_other_lob_tsql_uses_datalength_no_distinct() -> None:
     """Other/LOB on T-SQL profiles byte size via DATALENGTH, no distinct/min/max."""
-    from mcp_tools_sql.summarize.sql import build_scalar_sql, build_table_ref
+    from mcp_tools_sql.sql_ast.summarize_queries import (
+        build_scalar_sql,
+        build_table_ref,
+    )
 
     sql = build_scalar_sql(
         [_meta("data", "varbinary", "other")],
@@ -471,7 +493,10 @@ def test_scalar_other_lob_tsql_uses_datalength_no_distinct() -> None:
 
 def test_scalar_other_sqlite_rows_and_nulls_only() -> None:
     """Other on SQLite yields only the non-null tally (no DATALENGTH, no distinct)."""
-    from mcp_tools_sql.summarize.sql import build_scalar_sql, build_table_ref
+    from mcp_tools_sql.sql_ast.summarize_queries import (
+        build_scalar_sql,
+        build_table_ref,
+    )
 
     sql = build_scalar_sql(
         [_meta("data", "BLOB", "other")],
@@ -487,7 +512,10 @@ def test_scalar_other_sqlite_rows_and_nulls_only() -> None:
 
 def test_scalar_include_distinct_gate() -> None:
     """include_distinct toggles COUNT(DISTINCT for non-other columns."""
-    from mcp_tools_sql.summarize.sql import build_scalar_sql, build_table_ref
+    from mcp_tools_sql.sql_ast.summarize_queries import (
+        build_scalar_sql,
+        build_table_ref,
+    )
 
     ref = build_table_ref("x", "t", "sqlite")
     cols = [_meta("amount", "INTEGER", "numeric")]
@@ -499,7 +527,7 @@ def test_scalar_include_distinct_gate() -> None:
 
 def test_scalar_multi_column_alias_indices_and_predicate() -> None:
     """Multiple columns get c0__/c1__ prefixes and the predicate reaches WHERE."""
-    from mcp_tools_sql.summarize.sql import (
+    from mcp_tools_sql.sql_ast.summarize_queries import (
         build_scalar_sql,
         build_table_ref,
         validate_where,
@@ -524,7 +552,7 @@ def test_scalar_multi_column_alias_indices_and_predicate() -> None:
 
 def test_clamp_n_within_range_unchanged() -> None:
     """A value already in [1, 50] passes through with an empty note."""
-    from mcp_tools_sql.summarize.sql import clamp_n
+    from mcp_tools_sql.sql_ast.summarize_queries import clamp_n
 
     assert clamp_n(20) == (20, "")
 
@@ -532,14 +560,14 @@ def test_clamp_n_within_range_unchanged() -> None:
 @pytest.mark.parametrize("n", [1, 50])
 def test_clamp_n_bounds_inclusive(n: int) -> None:
     """Both bounds are inclusive -- no note at exactly 1 or 50."""
-    from mcp_tools_sql.summarize.sql import clamp_n
+    from mcp_tools_sql.sql_ast.summarize_queries import clamp_n
 
     assert clamp_n(n) == (n, "")
 
 
 def test_clamp_n_above_cap_notes() -> None:
     """Above the hard cap, n is pinned to 50 with a non-empty note."""
-    from mcp_tools_sql.summarize.sql import clamp_n
+    from mcp_tools_sql.sql_ast.summarize_queries import clamp_n
 
     value, note = clamp_n(500)
     assert value == 50
@@ -548,7 +576,7 @@ def test_clamp_n_above_cap_notes() -> None:
 
 def test_clamp_n_zero_floored_to_one() -> None:
     """n=0 is floored to 1 (no empty 'top values:' list) with a note."""
-    from mcp_tools_sql.summarize.sql import clamp_n
+    from mcp_tools_sql.sql_ast.summarize_queries import clamp_n
 
     value, note = clamp_n(0)
     assert value == 1
@@ -557,7 +585,7 @@ def test_clamp_n_zero_floored_to_one() -> None:
 
 def test_clamp_n_negative_floored_to_one() -> None:
     """n<0 is floored to 1 (no 'TOP -1') with a note."""
-    from mcp_tools_sql.summarize.sql import clamp_n
+    from mcp_tools_sql.sql_ast.summarize_queries import clamp_n
 
     value, note = clamp_n(-5)
     assert value == 1
@@ -569,7 +597,10 @@ def test_clamp_n_negative_floored_to_one() -> None:
 
 def test_value_list_top_sqlite_group_by_total_order_limit() -> None:
     """Top list on SQLite: GROUP BY, COUNT(*) DESC + column ASC tiebreak, LIMIT."""
-    from mcp_tools_sql.summarize.sql import build_table_ref, build_value_list_sql
+    from mcp_tools_sql.sql_ast.summarize_queries import (
+        build_table_ref,
+        build_value_list_sql,
+    )
 
     ref = build_table_ref("x", "t", "sqlite")
     sql = build_value_list_sql(
@@ -585,7 +616,10 @@ def test_value_list_top_sqlite_group_by_total_order_limit() -> None:
 
 def test_value_list_top_tsql_uses_top_n() -> None:
     """Top list on T-SQL emits TOP n (not LIMIT) with the bracketed tiebreak."""
-    from mcp_tools_sql.summarize.sql import build_table_ref, build_value_list_sql
+    from mcp_tools_sql.sql_ast.summarize_queries import (
+        build_table_ref,
+        build_value_list_sql,
+    )
 
     ref = build_table_ref("dbo", "t", "tsql")
     sql = build_value_list_sql(
@@ -599,7 +633,10 @@ def test_value_list_top_tsql_uses_top_n() -> None:
 
 def test_value_list_sample_sqlite_distinct_no_freq_excludes_null() -> None:
     """Sample list: SELECT DISTINCT, no freq, literal IS NOT NULL, column ORDER BY."""
-    from mcp_tools_sql.summarize.sql import build_table_ref, build_value_list_sql
+    from mcp_tools_sql.sql_ast.summarize_queries import (
+        build_table_ref,
+        build_value_list_sql,
+    )
 
     ref = build_table_ref("x", "t", "sqlite")
     sql = build_value_list_sql(
@@ -615,7 +652,10 @@ def test_value_list_sample_sqlite_distinct_no_freq_excludes_null() -> None:
 
 def test_value_list_sample_tsql_top_n() -> None:
     """Sample list on T-SQL emits TOP n and the bracketed IS NOT NULL test."""
-    from mcp_tools_sql.summarize.sql import build_table_ref, build_value_list_sql
+    from mcp_tools_sql.sql_ast.summarize_queries import (
+        build_table_ref,
+        build_value_list_sql,
+    )
 
     ref = build_table_ref("dbo", "t", "tsql")
     sql = build_value_list_sql(
@@ -629,7 +669,7 @@ def test_value_list_sample_tsql_top_n() -> None:
 
 def test_value_list_top_predicate_in_where() -> None:
     """A validated predicate renders into the top list's WHERE clause."""
-    from mcp_tools_sql.summarize.sql import (
+    from mcp_tools_sql.sql_ast.summarize_queries import (
         build_table_ref,
         build_value_list_sql,
         validate_where,
@@ -646,7 +686,7 @@ def test_value_list_top_predicate_in_where() -> None:
 
 def test_value_list_sample_predicate_and_combined() -> None:
     """Sample list AND-combines the null test with a supplied predicate."""
-    from mcp_tools_sql.summarize.sql import (
+    from mcp_tools_sql.sql_ast.summarize_queries import (
         build_table_ref,
         build_value_list_sql,
         validate_where,

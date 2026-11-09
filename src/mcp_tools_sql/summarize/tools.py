@@ -1,6 +1,6 @@
 """``SummarizeTools``: orchestration and registration for ``summarize_columns``.
 
-This module assembles the summarize package's SQL (``summarize/sql.py``) and
+This module assembles the summarize package's SQL (``sql_ast/summarize_queries.py``) and
 rendering (``summarize/render.py``) layers into the single ``summarize_columns``
 MCP tool. It mirrors ``count_tools.CountTools``: a :func:`build_tool_fn`-assembled
 tool that resolves its ``(connection, database)`` target per call via
@@ -36,6 +36,14 @@ from pydantic import Field
 from mcp_tools_sql.backends.base import QueryTimeoutError, to_dialect
 from mcp_tools_sql.formatting import TIMEOUT_HINT_NARROWER
 from mcp_tools_sql.query_helpers import build_target_params
+from mcp_tools_sql.sql_ast.summarize_queries import (
+    ColumnMeta,
+    build_count_sql,
+    build_scalar_sql,
+    build_value_list_sql,
+    clamp_n,
+    validate_where,
+)
 from mcp_tools_sql.summarize.render import (
     COLUMN_CAP,
     DISTINCT_GATE_ROWS,
@@ -54,14 +62,6 @@ from mcp_tools_sql.summarize.source import (
     Source,
     build_query_source,
     build_table_source,
-)
-from mcp_tools_sql.summarize.sql import (
-    ColumnMeta,
-    build_count_sql,
-    build_scalar_sql,
-    build_value_list_sql,
-    clamp_n,
-    validate_where,
 )
 from mcp_tools_sql.tool_builder import build_tool_fn
 from mcp_tools_sql.tool_logging import log_tool_call

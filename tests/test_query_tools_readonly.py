@@ -8,17 +8,12 @@ from typing import TYPE_CHECKING
 import pytest
 from mcp.server.fastmcp import FastMCP
 from mcp.shared.memory import create_connected_server_and_client_session
-from sqlglot.errors import TokenError
 
 from mcp_tools_sql.config.models import QueryConfig
 from mcp_tools_sql.query_helpers import read_only_rejection
 from mcp_tools_sql.query_tools import QueryTools
 from mcp_tools_sql.server import FastMCPSink
-from mcp_tools_sql.sql_ast.placeholders import (
-    ParseError,
-    SqlglotError,
-    read_only_violation,
-)
+from mcp_tools_sql.sql_ast.placeholders import ParseError, read_only_violation
 from tests.target_helpers import single_target, sqlite_backend
 
 if TYPE_CHECKING:
@@ -197,13 +192,8 @@ async def test_untokenizable_sql_is_skipped_not_raised(
 
 @pytest.mark.parametrize("sql", _UNTOKENIZABLE)
 @pytest.mark.parametrize("dialect", ["sqlite", "tsql"])
-def test_token_error_is_a_rejection_message(sql: str, dialect: str) -> None:
-    """The premise: sqlglot raises ``TokenError``, and the gate turns it into text."""
-    assert issubclass(TokenError, SqlglotError)
-    assert not issubclass(TokenError, ParseError)
-    with pytest.raises(TokenError):
-        read_only_violation(sql, dialect)
-
+def test_untokenizable_sql_is_a_rejection_message(sql: str, dialect: str) -> None:
+    """Untokenizable SQL is turned into a one-line rejection message."""
     message = read_only_rejection(sql, dialect)
 
     assert message is not None

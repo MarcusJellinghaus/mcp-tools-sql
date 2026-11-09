@@ -68,14 +68,14 @@ from mcp_tools_sql.sql_ast.placeholders import (
     has_leading_cte,
     substitute_named_with_literals,
 )
-from mcp_tools_sql.summarize.render import table_not_found_message
-from mcp_tools_sql.summarize.sql import (
+from mcp_tools_sql.sql_ast.summarize_queries import (
     ColumnMeta,
     SourceRef,
     build_table_ref,
     categorize_type,
     metadata_sql,
 )
+from mcp_tools_sql.summarize.render import table_not_found_message
 
 try:
     import pyodbc  # pylint: disable=import-error
