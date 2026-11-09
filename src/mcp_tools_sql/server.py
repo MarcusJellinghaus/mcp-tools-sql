@@ -70,7 +70,12 @@ def build_tool_server(args: argparse.Namespace) -> tuple[ToolServer, Path]:
     """
     qpath = discover_query_config(args.config, project_dir=Path.cwd())
     toolset = build_toolset(qpath, args.database_config)
-    return ToolServer(toolset), qpath
+    try:
+        server = ToolServer(toolset)
+    except BaseException:
+        toolset.close()
+        raise
+    return server, qpath
 
 
 def run_server(args: argparse.Namespace) -> None:

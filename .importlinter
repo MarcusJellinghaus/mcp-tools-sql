@@ -44,8 +44,9 @@ forbidden_modules =
     mcp_tools_sql.toolset
     mcp_tools_sql.server
 
-# Only the MCP server imports the mcp SDK; toolkits, toolset, CLI and
-# verification stay importable without it (agent-workbench export path).
+# Only the MCP server imports the mcp SDK directly; toolkits, toolset,
+# verification and utils stay importable without it (agent-workbench export
+# path). The CLI still reaches mcp indirectly via server.
 [importlinter:contract:no_mcp_on_export_path]
 name = No mcp on the export path
 type = forbidden

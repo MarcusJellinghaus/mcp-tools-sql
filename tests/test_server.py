@@ -25,7 +25,12 @@ from mcp_tools_sql.schema_tools import (
     PROGRAMMATIC_BUILTIN_TOOLS,
     load_default_queries,
 )
-from mcp_tools_sql.server import ToolServer, build_tool_server, run_server
+from mcp_tools_sql.server import (
+    FastMCPSink,
+    ToolServer,
+    build_tool_server,
+    run_server,
+)
 from mcp_tools_sql.toolset import SqlToolset, assemble_toolset
 
 
@@ -511,6 +516,33 @@ def test_build_tool_server_raises_for_unknown_connection(tmp_path: Path) -> None
     )
     with pytest.raises(ValueError):
         build_tool_server(args)
+
+
+def test_build_tool_server_closes_toolset_when_registration_fails(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """A failure inside `ToolServer(toolset)` closes the toolset and re-raises."""
+    args = _write_sqlite_configs(tmp_path)
+    close_called = _counting_close_all(monkeypatch)
+
+    def failing_add(self: FastMCPSink, spec: object) -> None:
+        raise RuntimeError("registration failed")
+
+    monkeypatch.setattr(FastMCPSink, "add", failing_add)
+
+    with pytest.raises(RuntimeError, match="registration failed"):
+        build_tool_server(args)
+    assert close_called["n"] == 1
+
+
+def test_toolset_is_hashable(tmp_path: Path) -> None:
+    """`SqlToolset` uses identity semantics, so it can live in a set."""
+    args = _write_sqlite_configs(tmp_path)
+    qcfg = load_query_config(args.config)
+    dbcfg = load_database_config(args.database_config)
+    targets = resolve_targets(qcfg, dbcfg)
+    with assemble_toolset(qcfg, targets, BackendRegistry(), False) as toolset:
+        assert toolset in {toolset}
 
 
 def test_close_delegates_to_registry_close_all(

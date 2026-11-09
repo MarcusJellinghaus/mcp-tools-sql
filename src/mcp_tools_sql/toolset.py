@@ -56,7 +56,7 @@ _VERIFY_NOTE = (
 )
 
 
-@dataclass(frozen=True)
+@dataclass(frozen=True, eq=False)
 class SqlToolset:
     """Every SQL tool spec plus the objects they were built from.
 
