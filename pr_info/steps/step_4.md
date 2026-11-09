@@ -29,11 +29,12 @@ def register(self, sink: ToolSink) -> None: ...
 | `ValidationTools` | `group="sql.validation"`, `name="validate_sql"`, `description=_DESCRIPTION` |
 | `CountTools` | `group="sql.profiling"`, `name="count_records"` |
 | `SummarizeTools` | `group="sql.profiling"`, `name="summarize_columns"` |
-| `QueryTools` | `group="sql.query"`, `name=f"query_{name}"`, `description=config.description.strip() or f"Run configured query `{name}`."` |
-| `UpdateTools` | `group="sql.update"`, `read_only=False`, `name=f"update_{name}"`, `description=cfg.description.strip() or f"Run configured update `{name}`."` |
+| `QueryTools` | `group="sql.query"`, `name=f"query_{name}"`, `description=config.description if config.description.strip() else f"Run configured query `{name}`."` |
+| `UpdateTools` | `group="sql.update"`, `read_only=False`, `name=f"update_{name}"`, `description=cfg.description if cfg.description.strip() else f"Run configured update `{name}`."` |
 
 Pass the same description to `build_tool_fn(..., doc)` as to `tool_spec`.
 Treat whitespace-only as empty (`.strip()`), the same test `verify` uses in step 3, so the WARN row matches what the toolkit does.
+Never strip a non-empty description: it passes through unchanged (e.g. a TOML `"""..."""` description keeps its trailing newline), so the MCP tool list stays identical to today.
 
 ## HOW
 - Toolkits import `from mcp_tools_sql.utils.tool_spec import ToolSink, tool_spec` (`ToolSink` under `TYPE_CHECKING` is fine).
@@ -45,7 +46,7 @@ Treat whitespace-only as empty (`.strip()`), the same test `verify` uses in step
 ## ALGORITHM (QueryTools.register, unchanged except the end)
 ```
 for name, config in queries: validate name, resolve target, read-only gate (skip on rejection)
-    description = config.description.strip() or f"Run configured query `{name}`."
+    description = config.description if config.description.strip() else f"Run configured query `{name}`."
     fn = build_tool_fn(name, sig_params, body, description)
     sink.add(tool_spec(fn, group="sql.query", read_only=True,
                        name=f"query_{name}", description=description))
@@ -53,6 +54,7 @@ for name, config in queries: validate name, resolve target, read-only gate (skip
 
 ## Tests (new, in `tests/test_query_tools.py` and `tests/test_update_tools.py`)
 - A query and an update with `description=""` or `description="  "` (parametrized) register with the fallback description (via `ToolCollector`, check `spec.description`).
+- A query and an update whose description has leading/trailing whitespace (e.g. `"Lists rows.\n"`, as a TOML multi-line string yields) keep it unchanged: `spec.description` (via `ToolCollector`) and the FastMCP tool's description (via `FastMCPSink`, `list_tools()`) both equal the raw config string.
 - `test_query_limits_tools.py` description-less queries now exercise the fallback; adjust any assertion on description text if present.
 
 ## DATA
