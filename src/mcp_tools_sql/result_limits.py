@@ -189,10 +189,16 @@ def collect(  # pylint: disable=too-many-locals,too-many-branches,too-many-state
             if count.matched == 0 and stop == "timeout":
                 count.error = str(exc)
                 count.timed_out = True
+            elif count.matched == 0:
+                # Cut by the counting deadline before any match: nothing counted.
+                count.queried = False
         except Exception as exc:  # pylint: disable=broad-exception-caught
             if not record_errors:
                 raise
             count.error = str(exc)
+            # The footer omits errored databases, so drop their partial count.
+            counted -= count.matched
+            count.matched = 0
         finally:
             gen.close()
 

@@ -288,7 +288,9 @@ class MSSQLBackend(DatabaseBackend):
         :meth:`execute_readonly_query`. Execute and the fetch loop run under
         the connection's statement timeout; *counting* is ignored (the
         caller checks the clock between batches). The cursor is closed in
-        ``finally``, so closing the generator early releases it. A
+        ``finally``, so closing the generator early releases it; an early
+        close cancels the statement first so the driver does not drain the
+        pending rows. A
         :class:`QueryTimeoutError` is raised if execute or a fetch hit the
         statement timeout; never continue fetching after one.
 
@@ -310,6 +312,13 @@ class MSSQLBackend(DatabaseBackend):
                 columns = [d[0] for d in cursor.description]
                 while batch := cursor.fetchmany(FETCH_BATCH_SIZE):
                     yield [dict(zip(columns, row, strict=True)) for row in batch]
+        except GeneratorExit:
+            # Closed early: cancel so close() does not drain the pending rows.
+            try:
+                cursor.cancel()
+            except Exception:  # pylint: disable=broad-exception-caught
+                logger.debug("MSSQL cursor cancel failed", exc_info=True)
+            raise
         finally:
             cursor.close()
 

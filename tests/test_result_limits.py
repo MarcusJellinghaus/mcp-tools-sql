@@ -13,6 +13,7 @@ from tabulate import tabulate
 from mcp_tools_sql.backends.base import Deadline, QueryTimeoutError
 from mcp_tools_sql.backends.sqlite import SQLiteBackend
 from mcp_tools_sql.config.models import ConnectionConfig, LimitsConfig
+from mcp_tools_sql.formatting import render_limited
 from mcp_tools_sql.result_limits import (
     COUNTING_TIME_LIMIT_MAX,
     Source,
@@ -416,6 +417,74 @@ class TestFanOut:
         assert result.sources[1].matched == 3
         assert result.stop == "end"
         assert len(result.rows) == 5
+
+    def test_error_mid_count_drops_partial_count(self) -> None:
+        result = collect(
+            [
+                _source("a", [_rows(2), _rows(3)], error=RuntimeError("boom")),
+                _source("b", [_rows(4)]),
+            ],
+            max_rows=1,
+            limits=_limits(),
+            counting_seconds=5.0,
+            record_errors=True,
+        )
+        a, b = result.sources
+        assert (a.error, a.matched) == ("boom", 0)
+        assert (b.matched, b.complete) == (4, True)
+        assert result.total == 4
+        out = render_limited(
+            result,
+            max_rows=1,
+            max_rows_hard=100,
+            has_sql_params=False,
+            filter_column="",
+            builtin=True,
+            fanout=True,
+            max_output_chars=80_000,
+            max_cell_chars=500,
+        )
+        assert "of 4 rows" in out
+        assert "Matched: b 4." in out
+
+    def test_counting_deadline_before_any_match_is_not_queried(
+        self, clock: _Clock
+    ) -> None:
+        def _advance() -> None:
+            clock.now = 10.0
+
+        result = collect(
+            [
+                _source("a", [_rows(5)], enforces_counting=True),
+                _source(
+                    "b",
+                    [],
+                    before_error=_advance,
+                    error=QueryTimeoutError(30),
+                    enforces_counting=True,
+                ),
+            ],
+            max_rows=2,
+            limits=_limits(),
+            counting_seconds=5.0,
+            record_errors=True,
+        )
+        assert result.stop == "counting"
+        b = result.sources[1]
+        assert (b.queried, b.error, b.timed_out) == (False, "", False)
+        out = render_limited(
+            result,
+            max_rows=2,
+            max_rows_hard=100,
+            has_sql_params=False,
+            filter_column="",
+            builtin=True,
+            fanout=True,
+            max_output_chars=80_000,
+            max_cell_chars=500,
+        )
+        assert "Matched: a 5, b not queried (limit reached)." in out
+        assert "b 0+" not in out
 
     def test_error_reraised_without_record_errors(self) -> None:
         closed: list[str] = []
