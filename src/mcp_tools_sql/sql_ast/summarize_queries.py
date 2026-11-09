@@ -36,11 +36,47 @@ from mcp_tools_sql.sql_ast.placeholders import (
 
 Category = Literal["numeric", "temporal", "string", "boolean", "other"]
 
-# What every query builder here does ``.from_()`` on: a persisted table
-# (``schema=``/``table=``) or a derived table wrapping a user SELECT
-# (``sql=``, built by ``summarize/source.py``). Both render identically inside
-# a ``FROM`` clause, so no builder branches on which one it got.
-SourceRef = exp.Table | exp.Subquery
+
+@dataclass(frozen=True)
+class SourceRef:
+    """What every query builder here does ``.from_()`` on.
+
+    Wraps a persisted table (``schema=``/``table=``) or a derived table
+    wrapping a user SELECT (``sql=``, built by
+    :func:`~mcp_tools_sql.sql_ast.source_queries.parse_source`). Both render
+    identically inside a ``FROM`` clause, so no builder branches on which one
+    it got. The sqlglot node stays private to ``sql_ast``.
+    """
+
+    _node: exp.Table | exp.Subquery
+
+    def sql(self, dialect: str) -> str:
+        """Render the reference for ``dialect``.
+
+        Returns:
+            The rendered table or ``(<source>) AS src`` reference.
+        """
+        return self._node.sql(dialect=dialect)
+
+    @property
+    def is_query(self) -> bool:
+        """Whether this is a derived table over a query, not a persisted table."""
+        return isinstance(self._node, exp.Subquery)
+
+
+@dataclass(frozen=True)
+class Predicate:
+    """A validated ``WHERE`` predicate returned by :func:`validate_where`."""
+
+    _node: exp.Expression
+
+    def sql(self, dialect: str) -> str:
+        """Render the predicate for ``dialect``.
+
+        Returns:
+            The rendered predicate expression.
+        """
+        return self._node.sql(dialect=dialect)
 
 
 @dataclass(frozen=True)
@@ -138,7 +174,7 @@ _METADATA_SQL: dict[str, str] = {
 }
 
 
-def build_table_ref(schema: str, table: str, dialect: str) -> exp.Table:
+def build_table_ref(schema: str, table: str, dialect: str) -> SourceRef:
     """Build the dialect table reference for the target table.
 
     Identifiers are always quoted (``exp.to_identifier(name, quoted=True)``) so
@@ -154,13 +190,15 @@ def build_table_ref(schema: str, table: str, dialect: str) -> exp.Table:
         dialect: Backend dialect, ``"sqlite"`` or ``"tsql"``.
 
     Returns:
-        The :class:`exp.Table` node for the target, ready to render or to feed
-        into a larger query.
+        The :class:`SourceRef` for the target table, ready to render or to
+        feed into a builder.
     """
     this = exp.to_identifier(table, quoted=True)
     if dialect == "tsql":
-        return exp.Table(this=this, db=exp.to_identifier(schema, quoted=True))
-    return exp.Table(this=this)
+        return SourceRef(
+            exp.Table(this=this, db=exp.to_identifier(schema, quoted=True))
+        )
+    return SourceRef(exp.Table(this=this))
 
 
 def validate_where(
@@ -168,7 +206,7 @@ def validate_where(
     table_ref: SourceRef,
     params: dict[str, Any] | None,
     dialect: str,
-) -> tuple[exp.Expression | None, str | None]:
+) -> tuple[Predicate | None, str | None]:
     """Validate an optional ``where`` predicate, fail-closed.
 
     Reuses the exact gate ``count_records`` applies: the predicate is wrapped in
@@ -193,7 +231,7 @@ def validate_where(
         dialect: Backend dialect, ``"sqlite"`` or ``"tsql"``.
 
     Returns:
-        ``(predicate_ast, None)`` on success, ``(None, error_message)`` on a
+        ``(predicate, None)`` on success, ``(None, error_message)`` on a
         failed check, and ``(None, None)`` when ``where`` is ``None`` or blank.
     """
     if not where or where.strip() == "":
@@ -209,7 +247,7 @@ def validate_where(
     where_clause = parsed.args.get("where") if isinstance(parsed, exp.Select) else None
     if where_clause is None:
         return (None, "Invalid SQL. ValidationError: where must be a single predicate")
-    return (where_clause.this, None)
+    return (Predicate(where_clause.this), None)
 
 
 def metadata_sql(dialect: str) -> str:
@@ -231,7 +269,7 @@ def metadata_sql(dialect: str) -> str:
 
 def build_count_sql(
     table_ref: SourceRef,
-    predicate: exp.Expression | None,
+    predicate: Predicate | None,
     dialect: str,
 ) -> str:
     """Build and render the filtered ``SELECT COUNT(*)`` for the target.
@@ -251,10 +289,10 @@ def build_count_sql(
         The rendered count query, dialect-targeted.
     """
     query = exp.select(exp.alias_(exp.Count(this=exp.Star()), "row_count")).from_(
-        table_ref
+        table_ref._node
     )
     if predicate is not None:
-        query = query.where(predicate)
+        query = query.where(predicate._node)
     return query.sql(dialect=dialect)
 
 
@@ -506,7 +544,7 @@ _DISPATCH: dict[Category, _ScalarBuilder] = {
 def build_scalar_sql(
     columns: list[ColumnMeta],
     table_ref: SourceRef,
-    predicate: exp.Expression | None,
+    predicate: Predicate | None,
     dialect: str,
     *,
     include_distinct: bool,
@@ -540,9 +578,9 @@ def build_scalar_sql(
         aliases += _DISPATCH[meta.category](
             idx, col_ref, meta.declared_type, dialect, include_distinct
         )
-    query = exp.select(*aliases).from_(table_ref)
+    query = exp.select(*aliases).from_(table_ref._node)
     if predicate is not None:
-        query = query.where(predicate)
+        query = query.where(predicate._node)
     return query.sql(dialect=dialect)
 
 
@@ -594,7 +632,7 @@ def clamp_n(n: int) -> tuple[int, str]:
 def build_value_list_sql(
     col: ColumnMeta,
     table_ref: SourceRef,
-    predicate: exp.Expression | None,
+    predicate: Predicate | None,
     n: int,
     dialect: str,
     *,
@@ -644,7 +682,7 @@ def build_value_list_sql(
         query = exp.select(
             exp.alias_(ref.copy(), "value"),
             exp.alias_(exp.Count(this=exp.Star()), "freq"),
-        ).from_(table_ref.copy())
+        ).from_(table_ref._node.copy())
         query = query.group_by(ref.copy()).order_by(
             exp.Count(this=exp.Star()).desc(), ref.asc()
         )
@@ -652,10 +690,10 @@ def build_value_list_sql(
         query = (
             exp.select(exp.alias_(ref.copy(), "value"))
             .distinct()
-            .from_(table_ref.copy())
+            .from_(table_ref._node.copy())
             .order_by(ref.asc())
         )
         query = query.where(exp.Is(this=ref.copy(), expression=exp.Null(), negate=True))
     if predicate is not None:
-        query = query.where(predicate)
+        query = query.where(predicate._node)
     return query.limit(n).sql(dialect=dialect)

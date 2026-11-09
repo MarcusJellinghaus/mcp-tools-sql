@@ -38,6 +38,7 @@ from mcp_tools_sql.formatting import TIMEOUT_HINT_NARROWER
 from mcp_tools_sql.query_helpers import build_target_params
 from mcp_tools_sql.sql_ast.summarize_queries import (
     ColumnMeta,
+    Predicate,
     build_count_sql,
     build_scalar_sql,
     build_value_list_sql,
@@ -415,7 +416,7 @@ def _run(
     backend: DatabaseBackend,
     rec: Any,
     source: Source,
-    predicate: Any,
+    predicate: Predicate | None,
     params: dict[str, Any] | None,
     columns: list[str] | None,
     n: int,
@@ -439,7 +440,7 @@ def _run(
         backend: The resolved backend to execute read-only queries on.
         rec: The open :class:`ToolCallRecord` to record the profiled shape on.
         source: The resolved :class:`Source` to profile.
-        predicate: The validated ``where`` predicate AST, or ``None``.
+        predicate: The validated ``where`` predicate, or ``None``.
         params: Bound values for the predicate's ``:name`` placeholders.
         columns: Requested column names, ``None`` for all, ``[]`` an error.
         n: Requested value-list length (clamped in-pipeline).

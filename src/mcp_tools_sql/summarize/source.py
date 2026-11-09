@@ -58,15 +58,17 @@ from datetime import date, datetime
 from decimal import Decimal
 from typing import TYPE_CHECKING, Any
 
-import sqlglot
-from sqlglot import exp
-
 from mcp_tools_sql.sql_ast.placeholders import (
     LEADING_CTE_REJECTION,
     arbitrary_sql_violation,
     basic_preflight,
     has_leading_cte,
     substitute_named_with_literals,
+)
+from mcp_tools_sql.sql_ast.source_queries import (
+    build_probe_sql,
+    parse_source,
+    source_batch_sql,
 )
 from mcp_tools_sql.sql_ast.summarize_queries import (
     ColumnMeta,
@@ -97,10 +99,6 @@ if TYPE_CHECKING:
 # one non-NULL value per column to decide its type, and it runs before the
 # (potentially expensive) profiling passes.
 PROBE_ROWS: int = 5
-
-# Alias given to the derived table wrapping the user's source. Mirrors
-# ``count_records``' ``AS count_sub``.
-_SOURCE_ALIAS: str = "src"
 
 # Declared type recorded when no sampled value could decide one.
 UNKNOWN_TYPE: str = "unknown"
@@ -195,8 +193,8 @@ class Source:
     it.
 
     Attributes:
-        ref: What every query builder does ``.from_()`` on: an ``exp.Table``
-            for a persisted table, an aliased ``exp.Subquery`` for a query.
+        ref: What every query builder does ``.from_()`` on: a persisted table,
+            or an aliased derived table for a query.
         label: The source descriptor used in status messages
             (``dbo.orders`` / ``main.orders`` -- always ``schema.table``, on
             both dialects, because the messages print the schema on both), or
@@ -324,7 +322,7 @@ def build_query_source(
 
 
 def _describe_or_none(
-    backend: DatabaseBackend, ref: exp.Subquery, params: dict[str, Any] | None
+    backend: DatabaseBackend, ref: SourceRef, params: dict[str, Any] | None
 ) -> list[ColumnMeta] | None:
     """Run :func:`describe_columns`, collapsing every failure to ``None``.
 
@@ -352,7 +350,7 @@ def _describe_or_none(
 
 def validate_source(
     sql: str, params: dict[str, Any] | None, dialect: str
-) -> tuple[exp.Subquery | None, list[str], str | None]:
+) -> tuple[SourceRef | None, list[str], str | None]:
     """Validate a user SELECT and return it as an aliased derived table.
 
     Gates, in order: :func:`basic_preflight` (empty / parse / multi-statement /
@@ -386,26 +384,16 @@ def validate_source(
         verdict = arbitrary_sql_violation(sql, dialect)
     if verdict is not None:
         return (None, [], verdict)
-    parsed = sqlglot.parse_one(sql, read=dialect)
-    if not isinstance(parsed, (exp.Select, exp.Union)):
+    parsed = parse_source(sql, dialect)
+    if parsed.ref is None:
         return (None, [], ROOT_REJECTION)
     if dialect == "tsql" and has_leading_cte(sql, dialect):
         return (None, [], LEADING_CTE_REJECTION)
 
-    notes: list[str] = []
-    # T-SQL ``TOP``, SQLite ``LIMIT`` and ``OFFSET ... FETCH`` all land in the
-    # statement's ``limit`` / ``offset`` args, so one check covers all three.
-    row_limited = bool(parsed.args.get("limit") or parsed.args.get("offset"))
-    if not row_limited and parsed.args.get("order"):
-        parsed.set("order", None)
-        notes.append(ORDER_BY_STRIPPED_NOTE)
-    if row_limited:
+    notes = [ORDER_BY_STRIPPED_NOTE] if parsed.order_stripped else []
+    if parsed.row_limited:
         notes.append(ROW_LIMITED_NOTE)
-
-    ref = exp.Subquery(
-        this=parsed, alias=exp.TableAlias(this=exp.to_identifier(_SOURCE_ALIAS))
-    )
-    return (ref, notes, None)
+    return (parsed.ref, notes, None)
 
 
 def _declared_type_for(value: Any, dialect: str) -> str:
@@ -494,7 +482,7 @@ def _name_rejection(names: list[str]) -> str | None:
 
 def probe_columns(
     backend: DatabaseBackend,
-    ref: exp.Subquery,
+    ref: SourceRef,
     params: dict[str, Any] | None,
     dialect: str,
 ) -> tuple[list[ColumnMeta] | None, str | None]:
@@ -521,9 +509,7 @@ def probe_columns(
         ``(None, error_message)`` when the projection has duplicate or unnamed
         columns.
     """
-    probe_sql = (
-        exp.select(exp.Star()).from_(ref.copy()).limit(PROBE_ROWS).sql(dialect=dialect)
-    )
+    probe_sql = build_probe_sql(ref, PROBE_ROWS, dialect)
     names, rows = backend.execute_readonly_query_with_columns(probe_sql, params)
     rejection = _name_rejection(names)
     if rejection is not None:
@@ -555,7 +541,7 @@ def probe_columns(
 
 
 def describe_columns(
-    backend: DatabaseBackend, ref: exp.Subquery, params: dict[str, Any] | None
+    backend: DatabaseBackend, ref: SourceRef, params: dict[str, Any] | None
 ) -> tuple[list[ColumnMeta] | None, str | None]:
     """Resolve a T-SQL source's output columns from the describe DMF.
 
@@ -587,9 +573,7 @@ def describe_columns(
         nothing or described a projection the pipeline cannot address per
         column. The reason is a fallback trigger, not caller-facing text.
     """
-    batch = substitute_named_with_literals(
-        ref.this.sql(dialect="tsql"), params or {}, "tsql"
-    )
+    batch = substitute_named_with_literals(source_batch_sql(ref), params or {}, "tsql")
     rows = backend.execute_readonly_query(DMF_SQL, {"src": batch})
     if not rows:
         return (None, _EMPTY_DESCRIBE)

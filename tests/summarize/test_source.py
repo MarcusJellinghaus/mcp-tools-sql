@@ -24,12 +24,12 @@ from typing import Any
 from unittest.mock import MagicMock
 
 import pytest
-from sqlglot import exp
 
 from mcp_tools_sql.sql_ast.placeholders import (
     LEADING_CTE_REJECTION,
     translate_named_to_qmark,
 )
+from mcp_tools_sql.sql_ast.summarize_queries import SourceRef
 from mcp_tools_sql.summarize.source import (
     DMF_FALLBACK_NOTE,
     DMF_SQL,
@@ -49,7 +49,7 @@ from mcp_tools_sql.summarize.source import (
 )
 
 
-def _ref(sql: str, dialect: str, params: dict[str, Any] | None = None) -> exp.Subquery:
+def _ref(sql: str, dialect: str, params: dict[str, Any] | None = None) -> SourceRef:
     """Validate ``sql`` and return its reference, asserting it was accepted.
 
     Returns:
@@ -89,7 +89,8 @@ def test_plain_select_becomes_aliased_subquery(dialect: str, rendered: str) -> N
 
     assert error is None
     assert notes == []
-    assert isinstance(ref, exp.Subquery)
+    assert ref is not None
+    assert ref.is_query
     assert ref.sql(dialect=dialect) == rendered
 
 
@@ -731,7 +732,7 @@ def test_build_table_source_from_catalog_rows(
     assert [m.ordinal for m in built.metas] == [0, 1]
     assert built.notes == []
     assert built.types_probed is False
-    assert isinstance(built.ref, exp.Table)
+    assert not built.ref.is_query
 
     meta_sql, meta_params = backend.execute_readonly_query.call_args[0]
     assert meta_params == {"schema": schema, "table": "orders"}
