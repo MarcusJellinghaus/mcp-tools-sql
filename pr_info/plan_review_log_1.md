@@ -27,3 +27,11 @@ Checking tabulate's column padding. The plan's char-budget formula depends on it
 Verdict(decision='tasks', tasks=["In pr_info/steps/step_6.md:78, change the char-budget column width formula to `max(len(header) + 2, longest line of any cell)`. tabulate's minimum column width is the header length plus MIN_PADDING (2 for the formats used), so this keeps the rendered table at or under `max_output_chars`. Add a case to the char-budget tests in step 6 and step 8 where the header is the widest entry in a column, and assert that the rendered length is at most `max_output_chars`."], escalate_reason=None)
 **Changes**:
 applied
+
+## Round 4 — 2026-11-09
+**Findings**:
+Plan files read; checking the SQL Server read-only path that the step 5 override must preserve.pr_info/steps/step_2.md:92 — medium — The `execute_readonly_query` and `execute_query` timeout tests use a streaming recursive CTE (`SELECT x FROM c LIMIT 500000000`). `fetchall()` keeps every row produced before the 1 s deadline, which could be millions of tuples per test. Several of these tests run in parallel under `-n auto` (steps 2 and 5 too), so CI memory use may get high and the tests may flake. Use a non-streaming form for the fetchall-path tests, e.g. `SELECT count(*) FROM (… LIMIT 500000000)` as step 8 already does. Keep the streaming form only where a test needs rows before the timeout (step 5's batched-read test).
+**Decisions**:
+Verdict(decision='dismiss', tasks=[], escalate_reason=None)
+**Changes**:
+dismiss
