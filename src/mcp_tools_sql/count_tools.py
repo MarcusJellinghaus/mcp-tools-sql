@@ -26,7 +26,7 @@ from typing import TYPE_CHECKING, Annotated, Any
 
 from pydantic import Field
 
-from mcp_tools_sql.backends.base import QueryTimeoutError, to_dialect
+from mcp_tools_sql.backends.base import BackendError, QueryTimeoutError, to_dialect
 from mcp_tools_sql.formatting import TIMEOUT_HINT_NARROWER
 from mcp_tools_sql.query_helpers import build_target_params
 from mcp_tools_sql.sql_ast.placeholders import (
@@ -47,7 +47,11 @@ try:
 except ImportError:
     _PYODBC_ERROR = ()
 
-_INVALID_SQL_EXC: tuple[type[BaseException], ...] = (sqlite3.Error, *_PYODBC_ERROR)
+_INVALID_SQL_EXC: tuple[type[BaseException], ...] = (
+    BackendError,
+    sqlite3.Error,
+    *_PYODBC_ERROR,
+)
 
 if TYPE_CHECKING:
     from mcp_tools_sql.backends.registry import BackendRegistry
@@ -143,7 +147,8 @@ class CountTools:
                 except QueryTimeoutError as exc:
                     return f"{exc} {TIMEOUT_HINT_NARROWER}"
                 except _INVALID_SQL_EXC as exc:
-                    return f"Invalid SQL. {type(exc).__name__}: {exc}"
+                    name = getattr(exc, "original_class", type(exc).__name__)
+                    return f"Invalid SQL. {name}: {exc}"
                 except (KeyError, TypeError, ValueError) as exc:
                     return f"Invalid parameters. {type(exc).__name__}: {exc}"
                 except RuntimeError as exc:

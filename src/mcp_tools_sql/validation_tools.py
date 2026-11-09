@@ -9,6 +9,7 @@ from typing import TYPE_CHECKING, Annotated, Any
 from pydantic import Field
 
 from mcp_tools_sql.backends.base import (
+    BackendError,
     QueryTimeoutError,
     to_dialect,
     translate_timeout,
@@ -31,7 +32,11 @@ try:
 except ImportError:
     _PYODBC_ERROR = ()
 
-_INVALID_SQL_EXC: tuple[type[BaseException], ...] = (sqlite3.Error, *_PYODBC_ERROR)
+_INVALID_SQL_EXC: tuple[type[BaseException], ...] = (
+    BackendError,
+    sqlite3.Error,
+    *_PYODBC_ERROR,
+)
 
 _SESSION_KEYWORDS = frozenset({"USE", "SET", "DECLARE"})
 
@@ -200,7 +205,8 @@ class ValidationTools:
                 except QueryTimeoutError as exc:
                     return f"{exc} {TIMEOUT_HINT_NARROWER}"
                 except _INVALID_SQL_EXC as exc:
-                    return f"Invalid SQL. {type(exc).__name__}: {exc}"
+                    name = getattr(exc, "original_class", type(exc).__name__)
+                    return f"Invalid SQL. {name}: {exc}"
                 except (KeyError, TypeError, ValueError) as exc:
                     return f"Invalid parameters. {type(exc).__name__}: {exc}"
                 except RuntimeError as exc:

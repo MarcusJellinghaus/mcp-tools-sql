@@ -58,6 +58,7 @@ from datetime import date, datetime
 from decimal import Decimal
 from typing import TYPE_CHECKING, Any
 
+from mcp_tools_sql.backends.base import BackendError
 from mcp_tools_sql.sql_ast.placeholders import (
     LEADING_CTE_REJECTION,
     arbitrary_sql_violation,
@@ -90,7 +91,11 @@ except ImportError:
 # here rather than in ``summarize/tools.py`` because the DMF -> probe fallback
 # below has to catch exactly the same family: ``tools.py`` imports this module,
 # so the reverse edge would be an import cycle.
-INVALID_SQL_EXC: tuple[type[BaseException], ...] = (sqlite3.Error, *_PYODBC_ERROR)
+INVALID_SQL_EXC: tuple[type[BaseException], ...] = (
+    BackendError,
+    sqlite3.Error,
+    *_PYODBC_ERROR,
+)
 
 if TYPE_CHECKING:
     from mcp_tools_sql.backends.base import DatabaseBackend

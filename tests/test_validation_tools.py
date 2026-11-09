@@ -10,6 +10,7 @@ import pytest
 from mcp.server.fastmcp import FastMCP
 from mcp.shared.memory import create_connected_server_and_client_session
 
+from mcp_tools_sql.backends.base import BackendConnectionError
 from mcp_tools_sql.backends.mssql import MSSQLBackend
 from mcp_tools_sql.backends.sqlite import SQLiteBackend
 from mcp_tools_sql.config.models import ConnectionConfig
@@ -47,6 +48,22 @@ async def _call_validate(
         args["database"] = database
     result = await client.call_tool("validate_sql", args)
     return result.content[0].text  # type: ignore[no-any-return]
+
+
+@pytest.mark.asyncio
+async def test_backend_error_renders_original_class() -> None:
+    """A neutral backend error from ``explain`` renders with the driver class."""
+    backend = MagicMock()
+    backend.explain.side_effect = BackendConnectionError(
+        "no such table: x", original_class="OperationalError"
+    )
+    mcp = FastMCP("test-validate-backend-error")
+    ValidationTools(*single_target(backend)).register(FastMCPSink(mcp))
+    async with create_connected_server_and_client_session(
+        mcp, raise_exceptions=True
+    ) as client:
+        text = await _call_validate(client, "SELECT * FROM x")
+    assert text == "Invalid SQL. OperationalError: no such table: x"
 
 
 # ---------------------------------------------------------------------------

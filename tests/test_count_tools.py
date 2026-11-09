@@ -10,6 +10,7 @@ import pytest
 from mcp.server.fastmcp import FastMCP
 from mcp.shared.memory import create_connected_server_and_client_session
 
+from mcp_tools_sql.backends.base import BackendConnectionError
 from mcp_tools_sql.backends.sqlite import SQLiteBackend
 from mcp_tools_sql.config.models import ConnectionConfig, ResolvedTargets
 from mcp_tools_sql.count_tools import CountTools
@@ -384,6 +385,22 @@ async def test_mssql_select_into_rejected_without_execution() -> None:
     assert text.startswith("Not read-only.")
     assert "SELECT ... INTO" in text
     backend.execute_readonly_query.assert_not_called()
+
+
+@pytest.mark.asyncio
+async def test_backend_error_renders_original_class() -> None:
+    """A neutral backend error renders as ``Invalid SQL.`` with the driver class."""
+    backend = MagicMock()
+    backend.execute_readonly_query.side_effect = BackendConnectionError(
+        "no such table: x", original_class="OperationalError"
+    )
+    mcp = FastMCP("test-count-backend-error")
+    CountTools(*single_target(backend)).register(FastMCPSink(mcp))
+    async with create_connected_server_and_client_session(
+        mcp, raise_exceptions=True
+    ) as client:
+        text = await _call_count(client, "SELECT * FROM x")
+    assert text == "Invalid SQL. OperationalError: no such table: x"
 
 
 # ---------------------------------------------------------------------------

@@ -389,7 +389,8 @@ class SummarizeTools:
                         and isinstance(built, Source)
                         and built.types_probed
                     )
-                    message = f"Invalid SQL. {type(exc).__name__}: {exc}"
+                    name = getattr(exc, "original_class", type(exc).__name__)
+                    message = f"Invalid SQL. {name}: {exc}"
                     return (message + LOB_HINT) if probed else message
                 except (KeyError, TypeError, ValueError) as exc:
                     return f"Invalid parameters. {type(exc).__name__}: {exc}"

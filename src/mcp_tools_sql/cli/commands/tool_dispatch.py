@@ -8,6 +8,8 @@ from typing import TYPE_CHECKING, Any
 
 from pydantic import ValidationError
 
+from mcp_tools_sql.backends.base import BackendConnectionError
+
 if TYPE_CHECKING:
     from mcp_tools_sql.utils.tool_spec import ToolSpec
 
@@ -16,13 +18,19 @@ try:
 
     _CONNECTION_EXC: tuple[type[BaseException], ...] = (
         RuntimeError,
+        BackendConnectionError,
         sqlite3.OperationalError,
         sqlite3.InterfaceError,
         pyodbc.OperationalError,
         pyodbc.InterfaceError,
     )
 except ImportError:
-    _CONNECTION_EXC = (RuntimeError, sqlite3.OperationalError, sqlite3.InterfaceError)
+    _CONNECTION_EXC = (
+        RuntimeError,
+        BackendConnectionError,
+        sqlite3.OperationalError,
+        sqlite3.InterfaceError,
+    )
 
 _REJECTED_EXC: tuple[type[BaseException], ...] = (KeyError, TypeError, ValueError)
 

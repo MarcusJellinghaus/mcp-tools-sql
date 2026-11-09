@@ -12,6 +12,7 @@ from typing import Annotated, Any
 import pytest
 from pydantic import Field
 
+from mcp_tools_sql.backends.base import BackendConnectionError, BackendError
 from mcp_tools_sql.cli.commands.tool_dispatch import (
     EXIT_BACKEND,
     EXIT_CONFIG,
@@ -186,6 +187,26 @@ def test_classify_exception_backend_default() -> None:
     """`classify_exception` falls back to `EXIT_BACKEND` for anything else."""
     assert classify_exception(sqlite3.ProgrammingError("x")) == EXIT_BACKEND
     assert classify_exception(Exception("x")) == EXIT_BACKEND  # pylint: disable=broad-exception-raised
+
+
+def test_classify_exception_backend_errors() -> None:
+    """Neutral backend errors bucket like the driver errors they translate."""
+    connection = BackendConnectionError("x", original_class="OperationalError")
+    assert classify_exception(connection) == EXIT_CONFIG
+    other = BackendError("x", original_class="ProgrammingError")
+    assert classify_exception(other) == EXIT_BACKEND
+
+
+async def _raises_backend_error() -> str:
+    raise BackendError("bad SQL", original_class="ProgrammingError")
+
+
+def test_backend_error_message_uses_original_class() -> None:
+    """`invoke_tool` names the driver class, not `BackendError`."""
+    tool = _spec(_raises_backend_error)
+    code, message = asyncio.run(invoke_tool(tool, {}))
+    assert code == EXIT_BACKEND
+    assert message == "ProgrammingError: bad SQL"
 
 
 @pytest.mark.skipif(

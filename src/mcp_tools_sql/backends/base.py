@@ -23,6 +23,43 @@ class QueryTimeoutError(Exception):
         super().__init__(f"Query aborted after {seconds} s (statement timeout).")
 
 
+class BackendError(Exception):
+    """A database driver error translated at the backend boundary.
+
+    Built from the driver exception's ``args``, so ``str()`` is identical.
+
+    Attributes:
+        original_class: The driver exception class name, e.g.
+            ``"OperationalError"``.
+    """
+
+    def __init__(self, *args: object, original_class: str) -> None:
+        super().__init__(*args)
+        self.original_class = original_class
+
+
+class BackendConnectionError(BackendError):
+    """Driver OperationalError / InterfaceError (connection-shaped)."""
+
+
+def wrap_driver_error(
+    exc: BaseException, connection_types: tuple[type[BaseException], ...]
+) -> BackendError:
+    """Build the neutral exception for a driver exception.
+
+    Args:
+        exc: The exception raised by the driver.
+        connection_types: Driver exception types that are connection-shaped.
+
+    Returns:
+        A :class:`BackendConnectionError` when *exc* is one of
+        *connection_types*, otherwise a plain :class:`BackendError`; either
+        keeps *exc*'s ``args`` and class name.
+    """
+    cls = BackendConnectionError if isinstance(exc, connection_types) else BackendError
+    return cls(*exc.args, original_class=type(exc).__name__)
+
+
 @dataclass
 class Deadline:
     """Caller-set counting deadline (time.monotonic()), None = not armed."""
