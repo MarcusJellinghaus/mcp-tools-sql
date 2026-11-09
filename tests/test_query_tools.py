@@ -2,7 +2,6 @@
 
 from __future__ import annotations
 
-import sqlite3
 from collections.abc import Iterator
 from datetime import datetime
 from pathlib import Path
@@ -22,6 +21,7 @@ from mcp_tools_sql.config.models import (
 from mcp_tools_sql.query_tools import QueryTools
 from mcp_tools_sql.server import FastMCPSink
 from mcp_tools_sql.utils.tool_spec import ToolCollector
+from tests.sqlite_fixtures import create_db
 from tests.target_helpers import (
     RecordingRegistry,
     make_target,
@@ -588,12 +588,11 @@ async def test_query_tool_binds_datetime_param(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
     """ISO 8601 string from MCP caller is parsed to datetime and passed through."""
-    db_path = tmp_path / "events.db"
-    conn = sqlite3.connect(str(db_path))
-    conn.execute("CREATE TABLE events (id INTEGER PRIMARY KEY, occurred_at TEXT)")
-    conn.execute("INSERT INTO events VALUES (1, '2025-01-01T00:00:00')")
-    conn.commit()
-    conn.close()
+    db_path = create_db(
+        tmp_path / "events.db",
+        "CREATE TABLE events (id INTEGER PRIMARY KEY, occurred_at TEXT);"
+        "INSERT INTO events VALUES (1, '2025-01-01T00:00:00');",
+    )
 
     backend = sqlite_backend(db_path)
     captured: dict[str, Any] = {}

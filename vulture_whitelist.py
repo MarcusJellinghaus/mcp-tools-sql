@@ -15,7 +15,6 @@ Review this list periodically - items may become used or truly dead over time.
 # =============================================================================
 _.pytestmark
 _.sqlite_db
-_.sqlite_memory_db
 _.side_effect
 _.linux_platform
 _.stub_create_backend

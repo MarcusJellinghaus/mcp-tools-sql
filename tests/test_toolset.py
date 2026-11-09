@@ -2,7 +2,6 @@
 
 from __future__ import annotations
 
-import sqlite3
 from pathlib import Path
 from typing import Any
 
@@ -12,6 +11,7 @@ from pydantic import ValidationError
 from mcp_tools_sql.backends.registry import BackendRegistry
 from mcp_tools_sql.toolset import SqlToolset, build_toolset
 from mcp_tools_sql.utils.tool_spec import ToolSpec
+from tests.sqlite_fixtures import create_db
 
 _QUERIES = (
     "\n[queries.foo]\n"
@@ -41,11 +41,11 @@ _UPDATES = (
 
 
 def _make_db(path: Path) -> None:
-    conn = sqlite3.connect(str(path))
-    conn.execute("CREATE TABLE customers (id INTEGER PRIMARY KEY, name TEXT)")
-    conn.execute("INSERT INTO customers VALUES (1, 'Alice')")
-    conn.commit()
-    conn.close()
+    create_db(
+        path,
+        "CREATE TABLE customers (id INTEGER PRIMARY KEY, name TEXT);"
+        "INSERT INTO customers VALUES (1, 'Alice');",
+    )
 
 
 def _write_configs(

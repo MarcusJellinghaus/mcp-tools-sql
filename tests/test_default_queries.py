@@ -1,13 +1,13 @@
 """Tests for default_queries.toml loading and SQLite pragma binding."""
 
 import logging
-import sqlite3
 from pathlib import Path
 
 import pytest
 
 from mcp_tools_sql.config.models import BUILTIN_MAX_ROWS_HARD
 from mcp_tools_sql.schema_tools import load_default_queries
+from tests.sqlite_fixtures import query
 
 EXPECTED_NAMES = {"read_schemas", "read_tables", "read_columns", "read_relations"}
 
@@ -96,34 +96,24 @@ class TestSqlitePragmaBinding:
 
     def test_pragma_table_info_named_param(self, sqlite_db: Path) -> None:
         """Verify pragma_table_info(:table) works with named param binding."""
-        conn = sqlite3.connect(str(sqlite_db))
-        conn.row_factory = sqlite3.Row
-        try:
-            cursor = conn.execute(
-                'SELECT name, type, "notnull", dflt_value, pk '
-                "FROM pragma_table_info(:table)",
-                {"table": "customers"},
-            )
-            rows = cursor.fetchall()
-            col_names = [row["name"] for row in rows]
-            assert "id" in col_names
-            assert "name" in col_names
-            assert "country" in col_names
-        finally:
-            conn.close()
+        rows = query(
+            sqlite_db,
+            'SELECT name, type, "notnull", dflt_value, pk '
+            "FROM pragma_table_info(:table)",
+            {"table": "customers"},
+        )
+        col_names = [row[0] for row in rows]
+        assert "id" in col_names
+        assert "name" in col_names
+        assert "country" in col_names
 
     def test_pragma_foreign_key_list_named_param(self, sqlite_db: Path) -> None:
         """Verify pragma_foreign_key_list(:table) works with named param binding."""
-        conn = sqlite3.connect(str(sqlite_db))
-        conn.row_factory = sqlite3.Row
-        try:
-            cursor = conn.execute(
-                'SELECT id, "from", "table", "to" FROM pragma_foreign_key_list(:table)',
-                {"table": "orders"},
-            )
-            rows = cursor.fetchall()
-            assert len(rows) >= 1
-            row = rows[0]
-            assert row["table"] == "customers"
-        finally:
-            conn.close()
+        rows = query(
+            sqlite_db,
+            'SELECT id, "from", "table", "to" FROM pragma_foreign_key_list(:table)',
+            {"table": "orders"},
+        )
+        assert len(rows) >= 1
+        row = rows[0]
+        assert row[2] == "customers"

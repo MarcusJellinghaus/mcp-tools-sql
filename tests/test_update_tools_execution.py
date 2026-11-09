@@ -2,7 +2,6 @@
 
 from __future__ import annotations
 
-import sqlite3
 from pathlib import Path
 from typing import Any
 
@@ -17,6 +16,7 @@ from mcp_tools_sql.config.models import (
 )
 from mcp_tools_sql.server import FastMCPSink
 from mcp_tools_sql.update_tools import UpdateTools
+from tests.sqlite_fixtures import create_db
 from tests.target_helpers import single_target, sqlite_backend
 
 # ---------------------------------------------------------------------------
@@ -206,14 +206,12 @@ async def test_key_not_found_returns_no_row_text(sqlite_db: Path) -> None:
 
 @pytest.mark.asyncio
 async def test_multiple_rows_returns_warning_token(tmp_path: Path) -> None:
-    db_path = tmp_path / "multi.db"
-
-    conn = sqlite3.connect(str(db_path))
-    conn.execute("CREATE TABLE multi_key_test (k TEXT, v TEXT)")
-    conn.execute("INSERT INTO multi_key_test VALUES ('dup', 'a')")
-    conn.execute("INSERT INTO multi_key_test VALUES ('dup', 'b')")
-    conn.commit()
-    conn.close()
+    db_path = create_db(
+        tmp_path / "multi.db",
+        "CREATE TABLE multi_key_test (k TEXT, v TEXT);"
+        "INSERT INTO multi_key_test VALUES ('dup', 'a');"
+        "INSERT INTO multi_key_test VALUES ('dup', 'b');",
+    )
 
     backend = sqlite_backend(db_path)
     updates = {

@@ -3,7 +3,6 @@
 from __future__ import annotations
 
 import argparse
-import sqlite3
 from pathlib import Path
 
 import pytest
@@ -17,18 +16,18 @@ from mcp_tools_sql.config.loader import (
 )
 from mcp_tools_sql.server import ToolServer, build_tool_server
 from mcp_tools_sql.toolset import assemble_toolset
+from tests.sqlite_fixtures import create_db
 
 _RESTART_FRAGMENT = "the running tools keep the config they were built with"
 
 
 def _write_configs(tmp_path: Path, *, with_query: bool) -> argparse.Namespace:
     """Create a valid SQLite project + database config and return parsed args."""
-    db = tmp_path / "test.db"
-    conn = sqlite3.connect(str(db))
-    conn.execute("CREATE TABLE customers (id INTEGER PRIMARY KEY, name TEXT)")
-    conn.execute("INSERT INTO customers VALUES (1, 'Alice')")
-    conn.commit()
-    conn.close()
+    db = create_db(
+        tmp_path / "test.db",
+        "CREATE TABLE customers (id INTEGER PRIMARY KEY, name TEXT);"
+        "INSERT INTO customers VALUES (1, 'Alice');",
+    )
 
     qcfg = tmp_path / "mcp-tools-sql.toml"
     text = 'connection = "default"\n'
