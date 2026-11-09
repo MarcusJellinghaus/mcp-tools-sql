@@ -11,6 +11,7 @@ rows plus one batch.
 
 from __future__ import annotations
 
+import copy
 import time
 from collections.abc import Callable, Generator
 from dataclasses import dataclass
@@ -144,12 +145,18 @@ def collect(  # pylint: disable=too-many-locals,too-many-branches,too-many-state
             continue
         count = SourceCount(src.database)
         counts.append(count)
+        # Display state before this source, restored if it fails.
+        rows_before = len(rows)
+        budget_before = copy.copy(budget)
+        display_before = (display_full, display_limit, cells_cut, counting.at)
         gen = src.open(counting)
         try:
             for batch in gen:
                 for row in filter_rows(batch):
                     if counted == limits.max_count_rows:
                         stop = "max_count"  # this extra row proves "more"
+                        if count.matched == 0:
+                            count.queried = False
                         break
                     counted += 1
                     count.matched += 1
@@ -196,9 +203,13 @@ def collect(  # pylint: disable=too-many-locals,too-many-branches,too-many-state
             if not record_errors:
                 raise
             count.error = str(exc)
-            # The footer omits errored databases, so drop their partial count.
+            # The footer omits errored databases, so drop their partial count
+            # and the display rows they contributed.
             counted -= count.matched
             count.matched = 0
+            del rows[rows_before:]
+            budget = budget_before
+            display_full, display_limit, cells_cut, counting.at = display_before
         finally:
             gen.close()
 

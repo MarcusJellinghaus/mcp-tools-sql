@@ -416,7 +416,7 @@ class TestFanOut:
         assert result.sources[0].error == "boom"
         assert result.sources[1].matched == 3
         assert result.stop == "end"
-        assert len(result.rows) == 5
+        assert len(result.rows) == 3
 
     def test_error_mid_count_drops_partial_count(self) -> None:
         result = collect(
@@ -446,6 +446,62 @@ class TestFanOut:
         )
         assert "of 4 rows" in out
         assert "Matched: b 4." in out
+
+    def test_error_drops_display_rows_of_failed_database(self) -> None:
+        result = collect(
+            [
+                _source("a", [_rows(80)], error=RuntimeError("boom")),
+                _source("b", [_rows(30, start=100)]),
+            ],
+            max_rows=50,
+            limits=_limits(),
+            counting_seconds=5.0,
+            record_errors=True,
+        )
+        assert [r["id"] for r in result.rows] == [str(i) for i in range(100, 130)]
+        assert result.total == 30
+        assert result.complete is True
+        assert result.display_limit == ""
+        out = render_limited(
+            result,
+            max_rows=50,
+            max_rows_hard=100,
+            has_sql_params=False,
+            filter_column="",
+            builtin=True,
+            fanout=True,
+            max_output_chars=80_000,
+            max_cell_chars=500,
+        )
+        assert "Output truncated" not in out
+        assert "a: boom" in out
+
+    def test_max_count_on_first_row_of_next_database_is_not_queried(self) -> None:
+        result = collect(
+            [
+                _source("a", [_rows(100)]),
+                _source("b", [_rows(7)]),
+            ],
+            max_rows=5,
+            limits=_limits(max_count_rows=100),
+            counting_seconds=5.0,
+        )
+        assert result.stop == "max_count"
+        b = result.sources[1]
+        assert (b.matched, b.queried) == (0, False)
+        out = render_limited(
+            result,
+            max_rows=5,
+            max_rows_hard=100,
+            has_sql_params=False,
+            filter_column="",
+            builtin=True,
+            fanout=True,
+            max_output_chars=80_000,
+            max_cell_chars=500,
+        )
+        assert "Matched: a 100, b not queried (limit reached)." in out
+        assert "b 0+" not in out
 
     def test_counting_deadline_before_any_match_is_not_queried(
         self, clock: _Clock
