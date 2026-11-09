@@ -19,3 +19,12 @@ Checking the plan's claims against the source: placeholders, mssql, sqlite, tool
 Verdict(decision='tasks', tasks=['In pr_info/steps/step_3.md (~line 44, HOW): take `@translate_parse_errors` off `validate_where`. `basic_preflight` runs on the probe first (summarize/sql.py:201-208) and returns an `(None, "Invalid SQL. TokenError ...")` verdict, so a parse error never reaches `validate_where`. In the parametrized test (~line 80), drop `validate_where` from the functions expected to raise `SqlParseError` on `"SELECT \'unterminated"`. Add a separate test that `validate_where` returns the invalid-SQL verdict for that input.'], escalate_reason=None)
 **Changes**:
 applied
+
+## Round 3 — 2026-11-09
+**Findings**:
+Round 3 review: plan files and issue read; now verifying steps 7–8 claims against `backends/mssql.py` before reporting.Checking remaining test imports of sqlglot against the plan's file lists, then reporting.`pr_info/steps/step_2.md:28` — medium — The moved owner test `test_token_error_is_sibling_of_parse_error` keeps "the same raising call as today", which is `read_only_violation(sql, dialect)` under `pytest.raises(TokenError)`. Step 3 decorates `read_only_violation`, so from then on it raises `SqlParseError`, and this test breaks in step 3. Step 3's test-update rule (`step_3.md:58-61`) covers only `pytest.raises(ParseError)`. Fix: make the premise call raw sqlglot (`sqlglot.parse_one` / tokenizer) so the test keeps checking the sqlglot premise across step 3.
+`pr_info/steps/step_3.md:58` — medium — `tests/test_query_tools_readonly.py:223` and `:251` are non-owner tests that keep importing `ParseError` from the placeholders module after step 2. Once step 3 drops the re-export, the whole module fails at import (collection). The rule here only says where owner tests should import from. State that these two `pytest.raises(ParseError)` sites change to `pytest.raises(SqlParseError)` with no sqlglot import. `str(excinfo.value)` stays identical, so the multi-line/ANSI premise at `:254-255` still holds.
+**Decisions**:
+Verdict(decision='dismiss', tasks=[], escalate_reason=None)
+**Changes**:
+dismiss
