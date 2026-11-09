@@ -405,6 +405,41 @@ class TestConnectionConfigValidationErrors:
         assert config.default_database == "sales"
 
 
+_CONFLICTING_CONNECTION = {
+    "backend": "mssql",
+    "host": "h",
+    "database": "a",
+    "databases": ["b"],
+    "password": "s3cret-pw",
+}
+
+
+class TestCredentialsHiddenInErrors:
+    """Validation errors never echo connection input such as passwords."""
+
+    def test_database_config_hides_password(self) -> None:
+        """A nested connection error does not print the password."""
+        with pytest.raises(ValidationError) as exc_info:
+            DatabaseConfig.model_validate(
+                {"connections": {"c": dict(_CONFLICTING_CONNECTION)}}
+            )
+        assert "s3cret-pw" not in str(exc_info.value)
+
+    def test_connection_config_hides_password(self) -> None:
+        """Direct connection validation does not print the password."""
+        with pytest.raises(ValidationError) as exc_info:
+            ConnectionConfig.model_validate(dict(_CONFLICTING_CONNECTION))
+        assert "s3cret-pw" not in str(exc_info.value)
+
+    def test_error_still_names_problem(self) -> None:
+        """The error text still describes the conflict."""
+        with pytest.raises(ValidationError) as exc_info:
+            DatabaseConfig.model_validate(
+                {"connections": {"c": dict(_CONFLICTING_CONNECTION)}}
+            )
+        assert "conflicts" in str(exc_info.value)
+
+
 class TestConnectionConfigBackwardCompat:
     """Existing single-database configs keep loading unchanged."""
 

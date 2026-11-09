@@ -5,20 +5,18 @@ from __future__ import annotations
 import importlib.metadata
 import platform
 import sys
-from typing import Any
 
-from mcp_tools_sql.verification._helpers import make_entry
+from mcp_tools_sql.verification._helpers import CheckResult, make_entry
 
 
-def verify_environment() -> dict[str, Any]:
+def verify_environment() -> dict[str, CheckResult]:
     """Report Python version, virtualenv status, and key package versions.
 
     Returns:
-        Standard verifier result dict with entries for ``python_version``,
-        ``os``, ``virtualenv``, ``mcp_tools_sql``, ``mcp_coder_utils`` and
-        an ``overall_ok`` flag.
+        Verifier rows for ``python_version``, ``os``, ``virtualenv``,
+        ``mcp_tools_sql`` and ``mcp_coder_utils``.
     """
-    result: dict[str, Any] = {}
+    result: dict[str, CheckResult] = {}
 
     py_version = (
         f"{sys.version_info.major}.{sys.version_info.minor}.{sys.version_info.micro}"
@@ -54,7 +52,4 @@ def verify_environment() -> dict[str, Any]:
                 install_hint=hint,
             )
 
-    result["overall_ok"] = all(
-        entry["ok"] for key, entry in result.items() if key != "overall_ok"
-    )
     return result

@@ -194,19 +194,46 @@ the config models.
 ### `verify` — validate setup without starting the server
 
 ```text
-mcp-tools-sql [--config PATH] [--database-config PATH] verify
+mcp-tools-sql [--config PATH] [--database-config PATH] verify [--output-format text|json] [--short]
 ```
 
 `verify` runs a series of checks and prints the result section by
-section. It accepts no subcommand-level flags — supply `--config` and
-`--database-config` on the top-level `mcp-tools-sql` command.
+section. Supply `--config` and `--database-config` on the top-level
+`mcp-tools-sql` command.
+
+| Flag | Meaning |
+|------|---------|
+| `--output-format text` | Default. Human-readable sections, as in the examples below. |
+| `--output-format json` | Print the full `verify_all` result as one JSON document on stdout, and nothing else. The shape is documented in [python-api.md](python-api.md). |
+| `--short` | Text output only (ignored with `--output-format json`). Print one summary line, then only the `[ERR]` / `[WARN]` rows, grouped under their `=== SECTION ===` headers. No trailing `N checks passed` line. Same exit codes as the full output. |
+
+When everything passes, `--short` prints a single line:
+
+```text
+$ mcp-tools-sql verify --short
+Config loaded. Connections: A, B, C reachable. 12 queries, 3 updates OK.
+```
+
+The entries part reads `not checked (connection failed)` when the
+`CONNECTION` section failed, and ends in
+`(not exposed: allow_updates=false)` when updates are disabled.
+
+For scripts, the exit codes are the contract and are the same in every
+output format: see [Exit codes](#exit-codes-1).
+
+The running MCP server also exposes the checks as a `verify` tool, so the
+LLM can diagnose a failing query itself. The tool returns the `--short`
+output plus a note. It re-reads the config files from disk on every call,
+while the server keeps the config it loaded at startup: config edits need a
+server restart to take effect. A config that stops the server from starting
+can't be diagnosed through the tool; run `mcp-tools-sql verify` for that.
 
 Sections, in order:
 
 | Section | Purpose |
 |---------|---------|
 | `ENVIRONMENT` | Python version, virtualenv status, installed package versions of `mcp_tools_sql` and `mcp_coder_utils`. |
-| `CONFIG` | Project query config and database config: resolved path, parse status, sensitive-key warning when credentials are detected in the project query config. |
+| `CONFIG` | Project query config and database config: resolved path, parse status, sensitive-key warning when credentials are detected in the project query config. Each `[queries.*]` / `[updates.*]` entry is validated on its own: an invalid entry gets a `queries.<name>.parse` / `updates.<name>.parse` row (a non-table `queries` / `updates` value gets `queries.parse` / `updates.parse`), and the remaining entries still go through every other check. |
 | `DEPENDENCIES` | Backend-conditional checks (e.g. `pyodbc` and an ODBC driver for `mssql`, `psycopg` for `postgresql`, none for `sqlite`). |
 | `BUILTIN` | Built-in default queries load successfully and have at least one tool registered. |
 | `CONNECTION` | Backend-shape checks (host/port/database/path/credentials), then `SELECT 1` against the configured database. A sqlite `path` of `:memory:` reports `[WARN]`: every fresh connection to `:memory:` is a new, empty database, so read paths silently return zero rows while `updates.*` still writes to the persistent connection. On Linux only, when the connection uses `backend = "mssql"` with `trusted_connection = true`, an extra `kerberos_ticket` row runs `klist -s` and reports `[ERR]` when no cached Kerberos ticket is found. |
@@ -304,7 +331,7 @@ mcp-tools-sql tool <name> [--flag value ...]
 
 Lists, describes, and invokes every tool the current config would register
 with the MCP server — schema introspection, `query_*`, `update_*`,
-`validate_sql`, `count_records`, `summarize_columns`, `read_databases` —
+`validate_sql`, `count_records`, `summarize_columns`, `read_databases`, `verify` —
 without an MCP client or LLM. Supply `--config` and `--database-config` on
 the top-level `mcp-tools-sql` command, as with `verify`.
 

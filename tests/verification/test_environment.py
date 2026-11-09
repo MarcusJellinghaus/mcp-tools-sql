@@ -6,6 +6,7 @@ import platform
 import sys
 
 from mcp_tools_sql.verification import verify_environment
+from mcp_tools_sql.verification._helpers import checks_ok
 
 
 def test_verify_environment_returns_python_version() -> None:
@@ -28,10 +29,10 @@ def test_verify_environment_returns_os() -> None:
     assert sys.platform in result["os"]["value"]
 
 
-def test_verify_environment_overall_ok_true_when_packages_present() -> None:
+def test_verify_environment_checks_ok_when_packages_present() -> None:
     """`mcp_tools_sql` and `mcp_coder_utils` resolve in the test environment."""
     result = verify_environment()
 
     assert result["mcp_tools_sql"]["ok"] is True
     assert result["mcp_coder_utils"]["ok"] is True
-    assert result["overall_ok"] is True
+    assert checks_ok(result) is True

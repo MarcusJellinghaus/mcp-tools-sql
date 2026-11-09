@@ -2,13 +2,15 @@
 
 from __future__ import annotations
 
-from typing import Any
-
 from mcp_tools_sql.backends.base import DatabaseBackend
 from mcp_tools_sql.backends.registry import BackendRegistry
 from mcp_tools_sql.config.models import ResolvedTargets, UpdateConfig
 from mcp_tools_sql.identifiers import IDENTIFIER_PATTERN, identifier_error
-from mcp_tools_sql.verification._helpers import make_entry, make_skipped_entry
+from mcp_tools_sql.verification._helpers import (
+    CheckResult,
+    make_entry,
+    make_skipped_entry,
+)
 
 
 def _list_table_columns(
@@ -51,7 +53,7 @@ def verify_one_update(
     targets: ResolvedTargets,
     registry: BackendRegistry,
     reachable: dict[tuple[str, str], bool],
-) -> dict[str, Any]:
+) -> dict[str, CheckResult]:
     """Per-entry validation for a single update against its own pinned target.
 
     The identifier checks run statically (independent of connectivity). When
@@ -64,9 +66,8 @@ def verify_one_update(
         Dict containing 1 row on the bad-identifier branch (``<name>.table``)
         or 3 rows on the missing-table / skip / happy branches
         (``<name>.table``, ``<name>.key_column``, ``<name>.fields``).
-        No ``overall_ok``.
     """
-    result: dict[str, Any] = {}
+    result: dict[str, CheckResult] = {}
     bad_idents: list[str] = []
     if not IDENTIFIER_PATTERN.match(ucfg.table):
         bad_idents.append(ucfg.table)
@@ -176,7 +177,7 @@ def verify_updates(
     targets: ResolvedTargets,
     registry: BackendRegistry,
     reachable: dict[tuple[str, str], bool],
-) -> dict[str, Any]:
+) -> dict[str, CheckResult]:
     """Per-update validation: table exists, key column exists, fields exist.
 
     Each update is validated against its own resolved target; updates pinned to
@@ -185,17 +186,11 @@ def verify_updates(
     verdict.
 
     Returns:
-        Standard verifier result dict with three rows per update
-        (``<name>.table``, ``<name>.key_column``, ``<name>.fields``) and
-        an ``overall_ok`` flag. When the table is missing, all three rows
-        are emitted as ``[ERR]`` rather than skipped.
+        Three rows per update (``<name>.table``, ``<name>.key_column``,
+        ``<name>.fields``). When the table is missing, all three rows are
+        emitted as ``[ERR]`` rather than skipped.
     """
-    result: dict[str, Any] = {}
+    result: dict[str, CheckResult] = {}
     for name, ucfg in updates.items():
         result.update(verify_one_update(name, ucfg, targets, registry, reachable))
-    result["overall_ok"] = all(
-        entry["ok"] or entry.get("warn", False)
-        for key, entry in result.items()
-        if key != "overall_ok"
-    )
     return result

@@ -5,13 +5,16 @@ from __future__ import annotations
 import logging
 import socket
 import sys
-from typing import Any
 
 from mcp_tools_sql.backends.base import DatabaseBackend
 from mcp_tools_sql.backends.mssql import build_sanitized_connection_string
 from mcp_tools_sql.config.models import ResolvedTarget
 from mcp_tools_sql.utils.subprocess_runner import CommandOptions, execute_subprocess
-from mcp_tools_sql.verification._helpers import make_entry, make_warn_entry
+from mcp_tools_sql.verification._helpers import (
+    CheckResult,
+    make_entry,
+    make_warn_entry,
+)
 
 logger = logging.getLogger(__name__)
 
@@ -54,7 +57,7 @@ def _is_memory_path(path: str) -> bool:
     return ":memory:" in lowered or "mode=memory" in lowered
 
 
-def _required_str_entry(value: str, *, required_error: str) -> dict[str, Any]:
+def _required_str_entry(value: str, *, required_error: str) -> CheckResult:
     """Build a make_entry for a required string field, with control-char check.
 
     If ``value`` contains control characters, returns an ``ok=False`` entry
@@ -133,7 +136,7 @@ def verify_connection(
     backend: DatabaseBackend | None,
     *,
     probe_error: str = "",
-) -> dict[str, Any]:
+) -> dict[str, CheckResult]:
     """Verify connectivity for a single ``(connection, database)`` target.
 
     Emits the config-derived rows (backend, driver, host/port, the per-pair
@@ -144,10 +147,10 @@ def verify_connection(
     failed) the ``select_1`` row fails with *probe_error*.
 
     Returns:
-        A verifier result dict for this pair, including ``overall_ok``.
+        Verifier rows for this pair.
     """
     connection = target.config
-    result: dict[str, Any] = {}
+    result: dict[str, CheckResult] = {}
     result["backend"] = make_entry(ok=True, value=connection.backend)
 
     if connection.backend == "mssql":
@@ -237,7 +240,4 @@ def verify_connection(
         except Exception as exc:  # pylint: disable=broad-except
             result["select_1"] = make_entry(ok=False, value="failed", error=str(exc))
 
-    result["overall_ok"] = all(
-        entry["ok"] for key, entry in result.items() if key != "overall_ok"
-    )
     return result

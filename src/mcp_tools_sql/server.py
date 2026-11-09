@@ -25,10 +25,15 @@ from mcp_tools_sql.schema_tools import (
     load_default_queries,
 )
 from mcp_tools_sql.summarize import SummarizeTools
+from mcp_tools_sql.tool_logging import log_tool_call
 from mcp_tools_sql.update_tools import UpdateTools
 from mcp_tools_sql.validation_tools import ValidationTools
+from mcp_tools_sql.verification import verify_all
+from mcp_tools_sql.verification.render import render_short
 
 if TYPE_CHECKING:
+    from collections.abc import Awaitable, Callable
+
     from mcp_tools_sql.config.models import QueryFileConfig, ResolvedTargets
 
 logger = logging.getLogger(__name__)
@@ -41,6 +46,19 @@ _READ_DATABASES_DESC = (
     "it does not exist."
 )
 
+_VERIFY_DESC = (
+    "Re-run the `mcp-tools-sql verify` checks against the config files on disk: config "
+    "parse, dependencies, connectivity of every configured connection, EXPLAIN of every "
+    "configured query, update tables/columns. Returns a short summary plus every failing "
+    "or warning row. Use it after a query fails to check config and connectivity. Takes "
+    "a few seconds."
+)
+
+_RESTART_NOTE = (
+    "Note: verify re-read the config files from disk; this server keeps using the config "
+    "it loaded at startup. Config edits need a server restart to take effect."
+)
+
 
 class ToolServer:
     """MCP server that exposes SQL tools to Claude Code."""
@@ -51,11 +69,16 @@ class ToolServer:
         targets: ResolvedTargets,
         registry: BackendRegistry,
         allow_updates: bool,
+        *,
+        query_config_path: Path | None = None,
+        database_config_path: Path | None = None,
     ) -> None:
         self._config = config
         self._targets = targets
         self._registry = registry
         self._allow_updates = allow_updates
+        self._query_config_path = query_config_path
+        self._database_config_path = database_config_path
         self._mcp = FastMCP("mcp-tools-sql")
 
     @property
@@ -85,6 +108,34 @@ class ToolServer:
                 name="read_databases",
                 description=_READ_DATABASES_DESC,
             )
+        self._mcp.add_tool(
+            self._build_verify_tool(), name="verify", description=_VERIFY_DESC
+        )
+
+    def _build_verify_tool(self) -> Callable[[], Awaitable[str]]:
+        """Build the ``verify`` tool over the config paths given at construction.
+
+        The tool re-reads the configs from disk with its own backend registry;
+        it never touches the server's registry. ``None`` paths fall back to
+        the same discovery ``verify_all`` uses.
+
+        Returns:
+            An async callable returning the short verify summary.
+        """
+        qpath = self._query_config_path
+        dbpath = self._database_config_path
+
+        async def verify() -> str:
+            """Re-run the verify checks and return the short summary.
+
+            Returns:
+                The short summary followed by the restart note.
+            """
+            async with log_tool_call("verify"):
+                result = verify_all(qpath, dbpath)
+            return f"{render_short(result)}\n\n{_RESTART_NOTE}"
+
+        return verify
 
     def _register_configured_tools(self) -> None:
         QueryTools(self._registry, self._targets, self._config.queries).register(
@@ -115,6 +166,9 @@ def create_server(
     targets: ResolvedTargets,
     registry: BackendRegistry,
     allow_updates: bool,
+    *,
+    query_config_path: Path | None = None,
+    database_config_path: Path | None = None,
 ) -> ToolServer:
     """Factory: build and return a configured ToolServer.
 
@@ -126,6 +180,8 @@ def create_server(
         targets=targets,
         registry=registry,
         allow_updates=allow_updates,
+        query_config_path=query_config_path,
+        database_config_path=database_config_path,
     )
 
 
@@ -140,7 +196,14 @@ def build_tool_server(args: argparse.Namespace) -> tuple[ToolServer, Path]:
     dbcfg = load_database_config(args.database_config)
     targets = resolve_targets(qcfg, dbcfg)
     registry = BackendRegistry()
-    server = ToolServer(qcfg, targets, registry, dbcfg.security.allow_updates)
+    server = ToolServer(
+        qcfg,
+        targets,
+        registry,
+        dbcfg.security.allow_updates,
+        query_config_path=qpath,
+        database_config_path=args.database_config,
+    )
     return server, qpath
 
 

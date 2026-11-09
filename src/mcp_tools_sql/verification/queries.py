@@ -10,6 +10,8 @@ from mcp_tools_sql.backends.registry import BackendRegistry
 from mcp_tools_sql.config.models import QueryConfig, QueryParamConfig, ResolvedTargets
 from mcp_tools_sql.query_helpers import extract_sql_params, read_only_rejection
 from mcp_tools_sql.verification._helpers import (
+    CheckResult,
+    is_passing,
     make_entry,
     make_skipped_entry,
     make_skipped_not_read_only_entry,
@@ -81,7 +83,7 @@ def _check_params_well_formed(
     return (not errors, "; ".join(errors))
 
 
-def _positive_entry(field: str, value: int) -> dict[str, Any]:
+def _positive_entry(field: str, value: int) -> CheckResult:
     """Build a verifier entry asserting ``value > 0`` for ``field``.
 
     Returns:
@@ -98,7 +100,7 @@ def _positive_entry(field: str, value: int) -> dict[str, Any]:
 
 def _read_only_rows(
     name: str, qcfg: QueryConfig, pinned_backend: str
-) -> dict[str, Any]:
+) -> dict[str, CheckResult]:
     """Build one ``<name>.read_only[<backend>]`` row per declared variant.
 
     The variant set is the pinned backend plus every declared
@@ -113,7 +115,7 @@ def _read_only_rows(
         Dict of read-only rows keyed by ``<name>.read_only[<backend>]``.
     """
     variants = [pinned_backend] + [k for k in qcfg.backends if k != pinned_backend]
-    rows: dict[str, Any] = {}
+    rows: dict[str, CheckResult] = {}
     for variant in variants:
         try:
             dialect = to_dialect(variant)
@@ -137,7 +139,7 @@ def verify_one_query(
     targets: ResolvedTargets,
     registry: BackendRegistry,
     reachable: dict[tuple[str, str], bool],
-) -> dict[str, Any]:
+) -> dict[str, CheckResult]:
     """Per-entry validation for a single query against its own pinned target.
 
     Resolves the query's pinned ``(connection, database)`` target and, when
@@ -156,9 +158,9 @@ def verify_one_query(
         ``<name>.max_rows_default`` and ``<name>.max_rows_hard``, in that
         order. An unresolvable pin yields a single un-suffixed
         ``<name>.read_only`` row instead, since no variant set can be formed
-        without a target. No ``overall_ok``.
+        without a target.
     """
-    result: dict[str, Any] = {}
+    result: dict[str, CheckResult] = {}
     try:
         target = targets.resolve_pinned(qcfg.connection or None, qcfg.database or None)
     except ValueError as exc:
@@ -185,7 +187,7 @@ def verify_one_query(
     read_only_rows = _read_only_rows(name, qcfg, target.backend_name)
     pinned_row = read_only_rows[f"{name}.read_only[{target.backend_name}]"]
 
-    if not pinned_row["ok"]:
+    if not is_passing(pinned_row):
         result[f"{name}.sql"] = make_skipped_not_read_only_entry()
     elif reachable.get((target.connection, target.database), False):
         backend = registry.backend_for(target)
@@ -221,7 +223,7 @@ def verify_queries(
     targets: ResolvedTargets,
     registry: BackendRegistry,
     reachable: dict[tuple[str, str], bool],
-) -> dict[str, Any]:
+) -> dict[str, CheckResult]:
     """Per-query validation: SQL EXPLAIN, params well-formed, row limits > 0.
 
     Each query is EXPLAINed against its own resolved target; queries pinned to
@@ -230,15 +232,9 @@ def verify_queries(
     verdict.
 
     Returns:
-        Standard verifier result dict with the rows described by
-        :func:`verify_one_query` for each query, plus an ``overall_ok`` flag.
+        The rows described by :func:`verify_one_query` for each query.
     """
-    result: dict[str, Any] = {}
+    result: dict[str, CheckResult] = {}
     for name, qcfg in queries.items():
         result.update(verify_one_query(name, qcfg, targets, registry, reachable))
-    result["overall_ok"] = all(
-        entry["ok"] or entry.get("warn", False)
-        for key, entry in result.items()
-        if key != "overall_ok"
-    )
     return result

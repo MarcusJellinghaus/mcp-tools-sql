@@ -18,6 +18,7 @@ from mcp_tools_sql.config.models import (
     ResolvedTargets,
 )
 from mcp_tools_sql.verification import verify_queries
+from mcp_tools_sql.verification._helpers import checks_ok
 from mcp_tools_sql.verification.queries import verify_one_query
 
 from .conftest import StubRegistry, all_reachable_map, make_targets
@@ -43,7 +44,7 @@ def test_verify_queries_valid_sqlite(
     assert result["list_customers.sql"]["ok"] is True
     assert result["list_customers.params"]["ok"] is True
     assert result["list_customers.max_rows_default"]["ok"] is True
-    assert result["overall_ok"] is True
+    assert checks_ok(result) is True
 
 
 def test_verify_queries_detects_invalid_sql(
@@ -68,7 +69,7 @@ def test_verify_queries_detects_invalid_sql(
 
     assert result["broken.sql"]["ok"] is False
     assert result["broken.sql"]["error"]
-    assert result["overall_ok"] is False
+    assert checks_ok(result) is False
 
 
 def test_verify_queries_detects_param_mismatch(
@@ -91,7 +92,7 @@ def test_verify_queries_detects_param_mismatch(
     assert result["mismatch.params"]["ok"] is False
     assert "foo" in result["mismatch.params"]["error"]
     assert "bar" in result["mismatch.params"]["error"]
-    assert result["overall_ok"] is False
+    assert checks_ok(result) is False
 
 
 def test_verify_queries_detects_invalid_param_type(
@@ -113,7 +114,7 @@ def test_verify_queries_detects_invalid_param_type(
 
     assert result["bad_type.params"]["ok"] is False
     assert "bool" in result["bad_type.params"]["error"]
-    assert result["overall_ok"] is False
+    assert checks_ok(result) is False
 
 
 def test_verify_queries_rejects_filter_and_max_rows_as_non_sql_params(
@@ -143,7 +144,7 @@ def test_verify_queries_rejects_filter_and_max_rows_as_non_sql_params(
 
     assert result["with_filter.params"]["ok"] is False
     assert "not used in SQL" in result["with_filter.params"]["error"]
-    assert result["overall_ok"] is False
+    assert checks_ok(result) is False
 
 
 def test_verify_queries_detects_missing_max_rows_default(
@@ -163,7 +164,7 @@ def test_verify_queries_detects_missing_max_rows_default(
 
     assert result["no_max.max_rows_default"]["ok"] is False
     assert "max_rows_default" in result["no_max.max_rows_default"]["error"]
-    assert result["overall_ok"] is False
+    assert checks_ok(result) is False
 
 
 def test_verify_queries_detects_non_positive_max_rows_hard(
@@ -191,7 +192,7 @@ def test_verify_queries_detects_non_positive_max_rows_hard(
     assert result["no_hard.max_rows_hard"]["ok"] is False
     assert "max_rows_hard" in result["no_hard.max_rows_hard"]["error"]
     assert result["healthy.max_rows_hard"]["ok"] is True
-    assert result["overall_ok"] is False
+    assert checks_ok(result) is False
 
 
 def test_verify_queries_unresolvable_pin_emits_all_four_rows(
@@ -215,7 +216,7 @@ def test_verify_queries_unresolvable_pin_emits_all_four_rows(
         assert result[f"bad_pin.{suffix}"]["ok"] is False
         assert "nope" in result[f"bad_pin.{suffix}"]["error"]
     assert result["bad_pin.max_rows_hard"]["value"] == "(skipped)"
-    assert result["overall_ok"] is False
+    assert checks_ok(result) is False
 
 
 def test_verify_queries_unimplemented_backend_explain_fails_cleanly() -> None:
@@ -234,7 +235,7 @@ def test_verify_queries_unimplemented_backend_explain_fails_cleanly() -> None:
     result = verify_queries(queries, targets, registry, all_reachable_map(targets))
 
     assert result["any.sql"]["ok"] is False
-    assert result["overall_ok"] is False
+    assert checks_ok(result) is False
 
 
 def test_verify_one_query_matches_bulk_happy_path(
@@ -259,9 +260,8 @@ def test_verify_one_query_matches_bulk_happy_path(
         all_reachable,
     )
 
-    bulk_without_overall = {k: v for k, v in bulk.items() if k != "overall_ok"}
-    assert list(one.keys()) == list(bulk_without_overall.keys())
-    assert one == bulk_without_overall
+    assert list(one.keys()) == list(bulk.keys())
+    assert one == bulk
 
 
 # ---------------------------------------------------------------------------
@@ -323,15 +323,16 @@ def test_verify_queries_skips_query_pinned_to_unreachable_connection(
 
     # Pinned-to-down query is skipped, naming the connection; not blanked.
     skip = result["pinned_down.sql"]
-    assert skip.get("warn") is True
+    assert skip["ok"] is False
+    assert skip["severity"] == "warning"
     assert "prod" in skip["value"]
     assert "skipped" in skip["value"]
     # Static checks still run for the skipped query.
     assert result["pinned_down.params"]["ok"] is True
     assert result["pinned_down.max_rows_default"]["ok"] is True
 
-    # Skip alone does not flip overall_ok.
-    assert result["overall_ok"] is True
+    # Skip alone does not fail the section.
+    assert checks_ok(result) is True
 
 
 def test_verify_queries_two_databases_each_explained_against_own_target(
@@ -378,7 +379,7 @@ def test_verify_queries_two_databases_each_explained_against_own_target(
 
     assert result["on_sales.sql"]["ok"] is True
     assert result["on_hr.sql"]["ok"] is True
-    assert result["overall_ok"] is True
+    assert checks_ok(result) is True
 
 
 # ---------------------------------------------------------------------------
@@ -404,8 +405,8 @@ def test_read_only_row_passes_for_clean_select(
     row = result["clean.read_only[sqlite]"]
     assert row["ok"] is True
     assert row["value"] == "read-only"
-    assert row["error"] == ""
-    assert result["overall_ok"] is True
+    assert "error" not in row
+    assert checks_ok(result) is True
 
 
 def test_read_only_row_fails_for_delete(
@@ -427,7 +428,7 @@ def test_read_only_row_fails_for_delete(
     assert row["ok"] is False
     assert row["value"] == "failed"
     assert row["error"]
-    assert result["overall_ok"] is False
+    assert checks_ok(result) is False
 
 
 @pytest.mark.parametrize(
@@ -459,7 +460,7 @@ def test_read_only_row_fails_for_untokenizable_sql(
     assert row["value"] == "failed"
     assert "could not be parsed as sqlite" in row["error"]
     assert "\n" not in row["error"]
-    assert result["overall_ok"] is False
+    assert checks_ok(result) is False
 
 
 @pytest.mark.parametrize(
@@ -493,12 +494,12 @@ def test_sql_row_skipped_when_query_is_not_read_only(
     assert explain.call_count == 0
     row = result["wipe.sql"]
     assert row["value"] == "(skipped)"
-    assert row.get("warn") is True
-    assert row["ok"] is True
+    assert row["severity"] == "warning"
+    assert row["ok"] is False
     # The read_only row, not the skipped .sql row, carries the reason and the
     # failing exit code.
     assert result["wipe.read_only[sqlite]"]["ok"] is False
-    assert result["overall_ok"] is False
+    assert checks_ok(result) is False
 
 
 def test_sql_row_explained_when_query_is_read_only(
@@ -521,7 +522,7 @@ def test_sql_row_explained_when_query_is_read_only(
 
     assert explain.call_count == 1
     assert result["fine.sql"]["value"] == "EXPLAIN ok"
-    assert result["overall_ok"] is True
+    assert checks_ok(result) is True
 
 
 def test_read_only_row_per_backend_variant(
@@ -543,7 +544,7 @@ def test_read_only_row_per_backend_variant(
     assert result["mixed.read_only[sqlite]"]["ok"] is True
     assert result["mixed.read_only[mssql]"]["ok"] is False
     assert result["mixed.read_only[mssql]"]["error"]
-    assert result["overall_ok"] is False
+    assert checks_ok(result) is False
 
 
 def test_read_only_row_warns_for_unmappable_backend(
@@ -563,10 +564,31 @@ def test_read_only_row_warns_for_unmappable_backend(
     result = verify_queries(queries, sqlite_targets, sqlite_registry, all_reachable)
 
     row = result["odd.read_only[postgresql]"]
-    assert row["warn"] is True
+    assert row["ok"] is False
+    assert row["severity"] == "warning"
     assert row["value"] == "(unknown backend)"
     assert "postgresql" in row["error"]
-    assert result["overall_ok"] is True
+    assert checks_ok(result) is True
+
+
+def test_sql_row_not_skipped_when_pinned_variant_is_unknown_backend() -> None:
+    """A warning ``read_only`` row on the pinned variant does not skip EXPLAIN."""
+    backend = MagicMock(name="pg_backend")
+    backend.explain.return_value = None
+    conn = ConnectionConfig(backend="postgresql", host="localhost", database="db")
+    targets = make_targets(backend_name="postgresql", config=conn)
+    queries = {
+        "pg": QueryConfig(sql="SELECT 1", params={}, max_rows_default=10),
+    }
+
+    result = verify_queries(
+        queries, targets, StubRegistry(backend), all_reachable_map(targets)
+    )
+
+    assert result["pg.read_only[postgresql]"]["severity"] == "warning"
+    assert result["pg.sql"]["value"] != "(skipped)"
+    assert result["pg.sql"]["value"] == "EXPLAIN ok"
+    assert backend.explain.call_count == 1
 
 
 def test_read_only_row_unsuffixed_when_pin_unresolvable(
@@ -592,7 +614,7 @@ def test_read_only_row_unsuffixed_when_pin_unresolvable(
     assert row["value"] == "(skipped)"
     assert row["error"]
     assert result["lost.params"]["value"] == "(skipped)"
-    assert result["overall_ok"] is False
+    assert checks_ok(result) is False
 
 
 def test_read_only_rows_sit_between_sql_and_params(

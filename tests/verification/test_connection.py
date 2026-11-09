@@ -13,6 +13,7 @@ from mcp_tools_sql.backends.sqlite import SQLiteBackend
 from mcp_tools_sql.config.models import ConnectionConfig, ResolvedTarget
 from mcp_tools_sql.utils.subprocess_runner import CommandResult
 from mcp_tools_sql.verification import verify_connection
+from mcp_tools_sql.verification._helpers import checks_ok
 
 
 def _target(
@@ -60,7 +61,7 @@ def test_verify_connection_sqlite_select_1_ok(tmp_path: Path) -> None:
         assert result["path"]["ok"] is True
         assert result["select_1"]["ok"] is True
         assert result["select_1"]["value"] == "ok"
-        assert result["overall_ok"] is True
+        assert checks_ok(result) is True
     finally:
         backend.close()
 
@@ -74,17 +75,17 @@ def test_verify_connection_sqlite_missing_path() -> None:
         assert result["path"]["ok"] is False
         assert "must be set" in result["path"]["error"]
         assert result["select_1"]["ok"] is False
-        assert result["overall_ok"] is False
+        assert checks_ok(result) is False
     finally:
         backend.close()
 
 
 def test_verify_connection_sqlite_memory_path_warns(ok_backend: MagicMock) -> None:
-    """path=':memory:' → path row warns but stays ok (must not suppress QUERIES)."""
+    """path=':memory:' → path row is a warning (must not suppress QUERIES)."""
     config = ConnectionConfig(backend="sqlite", path=":memory:")
     result = verify_connection(_target(config), ok_backend)
-    assert result["path"]["ok"] is True
-    assert result["path"]["warn"] is True
+    assert result["path"]["ok"] is False
+    assert result["path"]["severity"] == "warning"
     assert result["path"]["value"] == ":memory:"
     assert "empty" in result["path"]["error"].lower()
 
@@ -107,32 +108,32 @@ def test_verify_connection_sqlite_memory_uri_warns(
     """
     config = ConnectionConfig(backend="sqlite", path=path)
     result = verify_connection(_target(config), ok_backend)
-    assert result["path"]["ok"] is True
-    assert result["path"]["warn"] is True
+    assert result["path"]["ok"] is False
+    assert result["path"]["severity"] == "warning"
     assert result["path"]["value"] == path
     assert "empty" in result["path"]["error"].lower()
 
 
-def test_verify_connection_sqlite_memory_path_keeps_overall_ok() -> None:
-    """A ':memory:' path leaves ``overall_ok`` True when every other row passes."""
+def test_verify_connection_sqlite_memory_path_keeps_checks_ok() -> None:
+    """A ':memory:' path leaves ``checks_ok`` True when every other row passes."""
     config = ConnectionConfig(backend="sqlite", path=":memory:")
     backend = create_backend(config)
     try:
         result = verify_connection(_target(config), backend)
         assert result["select_1"]["ok"] is True
-        assert result["overall_ok"] is True
+        assert checks_ok(result) is True
     finally:
         backend.close()
 
 
 def test_verify_connection_sqlite_file_path_has_no_warn(tmp_path: Path) -> None:
-    """A normal file path → unchanged ok row with no ``warn`` key."""
+    """A normal file path → plain ok row, not a warning."""
     db_path = tmp_path / "real.sqlite"
     db_path.write_bytes(b"")
     config = _sqlite_connection(db_path)
     result = verify_connection(_target(config), MagicMock())
     assert result["path"]["ok"] is True
-    assert "warn" not in result["path"]
+    assert result["path"]["severity"] == "error"
 
 
 def test_verify_connection_sqlite_empty_path_still_fails() -> None:
@@ -141,7 +142,7 @@ def test_verify_connection_sqlite_empty_path_still_fails() -> None:
     result = verify_connection(_target(config), MagicMock())
     assert result["path"]["ok"] is False
     assert "must be set" in result["path"]["error"]
-    assert "warn" not in result["path"]
+    assert result["path"]["severity"] == "error"
 
 
 def test_verify_connection_none_backend_uses_probe_error() -> None:
@@ -160,7 +161,7 @@ def test_verify_connection_none_backend_uses_probe_error() -> None:
     )
     assert result["select_1"]["ok"] is False
     assert "Unsupported backend" in result["select_1"]["error"]
-    assert result["overall_ok"] is False
+    assert checks_ok(result) is False
 
 
 def test_verify_connection_none_backend_default_error() -> None:

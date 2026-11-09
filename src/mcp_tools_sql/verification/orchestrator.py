@@ -4,20 +4,24 @@ from __future__ import annotations
 
 import logging
 from pathlib import Path
-from typing import Any
 
 from mcp_tools_sql.backends.base import DatabaseBackend
 from mcp_tools_sql.backends.registry import BackendRegistry
-from mcp_tools_sql.config.loader import (
-    discover_query_config,
-    load_database_config,
-    load_query_config,
-    resolve_targets,
+from mcp_tools_sql.config.loader import resolve_targets
+from mcp_tools_sql.config.models import ResolvedTargets
+from mcp_tools_sql.verification._helpers import (
+    CheckResult,
+    VerifyResult,
+    VerifySection,
+    VerifySummary,
+    checks_ok,
+    make_entry,
 )
-from mcp_tools_sql.config.models import QueryFileConfig, ResolvedTargets
-from mcp_tools_sql.verification._helpers import make_entry
 from mcp_tools_sql.verification.builtin import verify_builtin
-from mcp_tools_sql.verification.config_files import verify_config_files
+from mcp_tools_sql.verification.config_files import (
+    LoadedConfigs,
+    verify_config_files,
+)
 from mcp_tools_sql.verification.connection import verify_connection
 from mcp_tools_sql.verification.dependencies import verify_dependencies
 from mcp_tools_sql.verification.environment import verify_environment
@@ -27,81 +31,74 @@ from mcp_tools_sql.verification.updates import verify_updates
 logger = logging.getLogger(__name__)
 
 
-def _resolve_targets_for_verify(
-    config_path: Path | None,
-    db_config_path: Path | None,
-) -> ResolvedTargets | None:
+def _resolve_loaded_targets(loaded: LoadedConfigs) -> ResolvedTargets | None:
     """Best-effort target resolution for the CONNECTION section.
 
     Returns:
-        Resolved :class:`ResolvedTargets`, or ``None`` if configs cannot
-        be loaded or the file-default connection cannot be resolved.
+        Resolved :class:`ResolvedTargets`, or ``None`` if either config did
+        not load or the file-default connection cannot be resolved.
     """
+    if loaded.query_config is None or loaded.db_config is None:
+        return None
     try:
-        resolved_query = discover_query_config(config_path, project_dir=Path.cwd())
-        qcfg = load_query_config(resolved_query)
-        dbcfg = load_database_config(db_config_path)
-        return resolve_targets(qcfg, dbcfg)
-    except (ValueError, OSError) as exc:
+        return resolve_targets(loaded.query_config, loaded.db_config)
+    except ValueError as exc:
         logger.debug("Could not resolve targets: %s", exc)
         return None
 
 
-def _load_query_config_for_counts(
-    config_path: Path | None,
-) -> tuple[int, int]:
-    """Return ``(query_count, update_count)`` from the project query config.
+def _build_summary(
+    loaded: LoadedConfigs,
+    reachable: dict[tuple[str, str], bool],
+) -> VerifySummary:
+    """Condense connection reachability, entry counts and ``allow_updates``.
 
     Returns:
-        ``(0, 0)`` if the config cannot be loaded.
+        A :class:`VerifySummary`; a connection is ``True`` only when every one
+        of its database probes passed.
     """
-    try:
-        resolved_query = discover_query_config(config_path, project_dir=Path.cwd())
-        qcfg = load_query_config(resolved_query)
-        return len(qcfg.queries), len(qcfg.updates)
-    except (ValueError, OSError) as exc:
-        logger.debug("Could not load query config for counts: %s", exc)
-        return 0, 0
-
-
-def _load_query_config_for_m2(
-    config_path: Path | None,
-) -> QueryFileConfig | None:
-    """Return the parsed :class:`QueryFileConfig` or ``None`` on failure."""
-    try:
-        resolved_query = discover_query_config(config_path, project_dir=Path.cwd())
-        return load_query_config(resolved_query)
-    except (ValueError, OSError) as exc:
-        logger.debug("Could not load query config for M2: %s", exc)
-        return None
+    connections: dict[str, bool] = {}
+    for (conn, _db), ok in reachable.items():
+        connections[conn] = connections.get(conn, True) and ok
+    qc = loaded.query_config
+    return {
+        "connections": connections,
+        "query_count": len(qc.queries) if qc else 0,
+        "update_count": len(qc.updates) if qc else 0,
+        "allow_updates": loaded.allow_updates,
+    }
 
 
 def collect_install_instructions(
-    sections: list[tuple[str, dict[str, Any]]],
-) -> dict[str, Any]:
-    """Aggregate non-empty ``install_hint`` strings from failed entries.
+    sections: list[VerifySection],
+) -> dict[str, CheckResult]:
+    """Aggregate non-empty ``install_hint`` strings from ERR rows.
 
     Returns:
-        Result dict with one entry per unique install hint, preserving
-        the order in which they were first seen. ``overall_ok`` is always
-        ``True`` because this section is informational.
+        One passing ``hint_<i>`` row per unique install hint, preserving the
+        order in which they were first seen.
     """
     hints: list[str] = []
-    for _title, section in sections:
-        for key, entry in section.items():
-            if key == "overall_ok":
-                continue
+    for section in sections:
+        for entry in section["checks"].values():
             hint = entry.get("install_hint", "")
-            if hint and not entry["ok"]:
+            if hint and not entry["ok"] and entry["severity"] == "error":
                 hints.append(hint)
 
     unique_hints = list(dict.fromkeys(hints))
-    result: dict[str, Any] = {
+    return {
         f"hint_{i}": make_entry(ok=True, value=hint)
         for i, hint in enumerate(unique_hints)
     }
-    result["overall_ok"] = True
-    return result
+
+
+def _section(title: str, checks: dict[str, CheckResult]) -> VerifySection:
+    """Wrap verifier rows into a titled section whose ``ok`` follows the rows.
+
+    Returns:
+        A :class:`VerifySection`.
+    """
+    return {"title": title, "ok": checks_ok(checks), "checks": checks}
 
 
 def render_skip_m2_summary(query_count: int, update_count: int) -> str:
@@ -119,23 +116,24 @@ def render_skip_m2_summary(query_count: int, update_count: int) -> str:
 def _verify_connections(
     targets: ResolvedTargets,
     registry: BackendRegistry,
-) -> tuple[dict[str, Any], bool, dict[tuple[str, str], bool]]:
+) -> tuple[dict[str, CheckResult], bool, dict[tuple[str, str], bool]]:
     """Probe every ``(connection, database)`` pair via the registry.
 
-    Merges each pair's rows into one CONNECTION result dict, prefixing every
+    Merges each pair's rows into one CONNECTION rows dict, prefixing every
     row key with the pair label (``<connection>/<database>``) so a single
     section carries one row-group per pair. The registry owns backend
     lifecycle; on backend-creation failure the pair's ``select_1`` row records
     the error and probing continues.
 
     Returns:
-        Tuple ``(connection_result, default_ok, reachable)`` where
+        Tuple ``(connection_checks, default_ok, reachable)`` where
         ``default_ok`` is True when the file-default target's probe passed (so
         M2 may run against it), and ``reachable`` maps each
         ``(connection, database)`` pair to whether its probe passed (consumed
-        by the per-target M2 verifiers).
+        by the per-target M2 verifiers). A pair passes when every one of its
+        rows is passing (warnings included, see :func:`checks_ok`).
     """
-    result: dict[str, Any] = {}
+    result: dict[str, CheckResult] = {}
     default_ok = False
     reachable: dict[tuple[str, str], bool] = {}
     for target in targets.targets:
@@ -148,40 +146,42 @@ def _verify_connections(
             backend = None
             probe_error = str(exc)
         pair_result = verify_connection(target, backend, probe_error=probe_error)
-        pair_ok = pair_result.get("overall_ok", False)
+        pair_ok = checks_ok(pair_result)
         reachable[(target.connection, target.database)] = pair_ok
         if target.is_default:
             default_ok = pair_ok
         for key, entry in pair_result.items():
-            if key == "overall_ok":
-                continue
             result[f"{label}.{key}"] = entry
-    result["overall_ok"] = all(
-        entry["ok"] for key, entry in result.items() if key != "overall_ok"
-    )
     return result, default_ok, reachable
 
 
 def verify_all(
     config_path: Path | None,
     db_config_path: Path | None,
-) -> tuple[list[tuple[str, dict[str, Any]]], str | None]:
-    """Run every verification section and return ``(sections, skip_summary)``.
+    project_dir: Path | None = None,
+) -> VerifyResult:
+    """Run every verification section and return a :class:`VerifyResult`.
 
     Owns canonical section ordering:
     ENVIRONMENT → CONFIG → DEPENDENCIES → BUILTIN → CONNECTION →
     QUERIES → UPDATES → INSTALL INSTRUCTIONS.
 
+    The configs are loaded once (entry by entry) and shared by every later
+    section. Without ``config_path``, the query config is discovered under
+    ``project_dir`` (default: the current directory).
+
     Returns:
-        Tuple ``(sections, skip_summary)`` where ``sections`` is the list
-        of ``(title, result_dict)`` pairs, and ``skip_summary`` is the
-        one-line message printed when the M2 sections were skipped (or
-        ``None`` on the happy path).
+        A :class:`VerifyResult` whose ``sections`` follow the order above.
+        ``skipped_queries`` / ``skipped_updates`` hold the unchecked entry
+        counts when the default connection failed, else ``None``.
+        ``summary`` condenses reachability, entry counts and ``allow_updates``.
     """
-    sections: list[tuple[str, dict[str, Any]]] = []
-    sections.append(("ENVIRONMENT", verify_environment()))
-    sections.append(("CONFIG", verify_config_files(config_path, db_config_path)))
-    resolved_targets = _resolve_targets_for_verify(config_path, db_config_path)
+    project_dir = project_dir or Path.cwd()
+    sections: list[VerifySection] = []
+    sections.append(_section("ENVIRONMENT", verify_environment()))
+    loaded = verify_config_files(config_path, db_config_path, project_dir)
+    sections.append(_section("CONFIG", loaded.checks))
+    resolved_targets = _resolve_loaded_targets(loaded)
     default_target = resolved_targets.default if resolved_targets is not None else None
     backend = default_target.backend_name if default_target is not None else "unknown"
     configured_driver = (
@@ -189,50 +189,59 @@ def verify_all(
         if default_target is not None and backend == "mssql"
         else ""
     )
-    sections.append(("DEPENDENCIES", verify_dependencies(backend, configured_driver)))
-    sections.append(("BUILTIN", verify_builtin()))
+    sections.append(
+        _section("DEPENDENCIES", verify_dependencies(backend, configured_driver))
+    )
+    sections.append(_section("BUILTIN", verify_builtin()))
 
-    skip_summary: str | None = None
-    if resolved_targets is not None:
+    skipped_queries: int | None = None
+    skipped_updates: int | None = None
+    reachable: dict[tuple[str, str], bool] = {}
+    # Targets resolve only when both configs loaded, so query_config is set.
+    query_config = loaded.query_config
+    if resolved_targets is not None and query_config is not None:
         registry = BackendRegistry()
         try:
-            connection_result, default_ok, reachable = _verify_connections(
+            connection_checks, default_ok, reachable = _verify_connections(
                 resolved_targets, registry
             )
-            sections.append(("CONNECTION", connection_result))
+            sections.append(_section("CONNECTION", connection_checks))
             if default_ok:
-                query_config = _load_query_config_for_m2(config_path)
-                if query_config is not None:
-                    sections.append(
-                        (
-                            "QUERIES",
-                            verify_queries(
-                                query_config.queries,
-                                resolved_targets,
-                                registry,
-                                reachable,
-                            ),
-                        )
+                sections.append(
+                    _section(
+                        "QUERIES",
+                        verify_queries(
+                            query_config.queries,
+                            resolved_targets,
+                            registry,
+                            reachable,
+                        ),
                     )
-                    sections.append(
-                        (
-                            "UPDATES",
-                            verify_updates(
-                                query_config.updates,
-                                resolved_targets,
-                                registry,
-                                reachable,
-                            ),
-                        )
+                )
+                sections.append(
+                    _section(
+                        "UPDATES",
+                        verify_updates(
+                            query_config.updates,
+                            resolved_targets,
+                            registry,
+                            reachable,
+                        ),
                     )
+                )
             else:
-                n_queries, n_updates = _load_query_config_for_counts(config_path)
-                skip_summary = render_skip_m2_summary(n_queries, n_updates)
+                skipped_queries = len(query_config.queries)
+                skipped_updates = len(query_config.updates)
         finally:
             registry.close_all()
 
-    install_section = collect_install_instructions(sections)
-    if any(key != "overall_ok" for key in install_section):
-        sections.append(("INSTALL INSTRUCTIONS", install_section))
+    install_checks = collect_install_instructions(sections)
+    if install_checks:
+        sections.append(_section("INSTALL INSTRUCTIONS", install_checks))
 
-    return sections, skip_summary
+    return {
+        "sections": sections,
+        "skipped_queries": skipped_queries,
+        "skipped_updates": skipped_updates,
+        "summary": _build_summary(loaded, reachable),
+    }

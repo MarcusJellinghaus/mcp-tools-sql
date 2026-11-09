@@ -15,6 +15,7 @@ from mcp_tools_sql.config.models import (
     UpdateKeyConfig,
 )
 from mcp_tools_sql.verification import verify_updates
+from mcp_tools_sql.verification._helpers import checks_ok
 from mcp_tools_sql.verification.updates import verify_one_update
 
 from .conftest import StubRegistry
@@ -41,7 +42,7 @@ def test_verify_updates_valid_sqlite(
     assert result["set_customer_name.table"]["ok"] is True
     assert result["set_customer_name.key_column"]["ok"] is True
     assert result["set_customer_name.fields"]["ok"] is True
-    assert result["overall_ok"] is True
+    assert checks_ok(result) is True
 
 
 def test_verify_updates_detects_missing_table(
@@ -63,7 +64,7 @@ def test_verify_updates_detects_missing_table(
     assert "Table not found" in result["bad_update.table"]["error"]
     assert result["bad_update.key_column"]["ok"] is False
     assert result["bad_update.fields"]["ok"] is False
-    assert result["overall_ok"] is False
+    assert checks_ok(result) is False
 
 
 def test_verify_updates_detects_missing_key_column(
@@ -85,7 +86,7 @@ def test_verify_updates_detects_missing_key_column(
     assert result["bad_key.key_column"]["ok"] is False
     assert "nonexistent_id" in result["bad_key.key_column"]["value"]
     assert result["bad_key.fields"]["ok"] is True
-    assert result["overall_ok"] is False
+    assert checks_ok(result) is False
 
 
 def test_verify_updates_detects_missing_field_column(
@@ -110,7 +111,7 @@ def test_verify_updates_detects_missing_field_column(
     assert result["bad_field.key_column"]["ok"] is True
     assert result["bad_field.fields"]["ok"] is False
     assert "nonexistent_field" in result["bad_field.fields"]["error"]
-    assert result["overall_ok"] is False
+    assert checks_ok(result) is False
 
 
 def test_verify_updates_no_updates_configured(
@@ -118,11 +119,11 @@ def test_verify_updates_no_updates_configured(
     sqlite_registry: BackendRegistry,
     all_reachable: dict[tuple[str, str], bool],
 ) -> None:
-    """Empty updates dict → empty result, overall_ok=True."""
+    """Empty updates dict → empty result that still counts as passing."""
     result = verify_updates({}, sqlite_targets, sqlite_registry, all_reachable)
 
-    assert [k for k in result if k != "overall_ok"] == []
-    assert result["overall_ok"] is True
+    assert result == {}
+    assert checks_ok(result) is True
 
 
 def test_verify_updates_rejects_invalid_table_identifier(
@@ -145,7 +146,7 @@ def test_verify_updates_rejects_invalid_table_identifier(
     assert "orders; DROP TABLE x" in result["bad.table"]["error"]
     assert "bad.key_column" not in result
     assert "bad.fields" not in result
-    assert result["overall_ok"] is False
+    assert checks_ok(result) is False
 
 
 def test_verify_updates_rejects_invalid_schema_identifier(
@@ -296,9 +297,8 @@ def test_verify_one_update_matches_bulk(
         name, update, sqlite_targets, sqlite_registry, all_reachable
     )
 
-    bulk_without_overall = {k: v for k, v in bulk.items() if k != "overall_ok"}
-    assert list(one.keys()) == list(bulk_without_overall.keys())
-    assert one == bulk_without_overall
+    assert list(one.keys()) == list(bulk.keys())
+    assert one == bulk
 
 
 # ---------------------------------------------------------------------------
@@ -358,11 +358,12 @@ def test_verify_updates_skips_update_pinned_to_unreachable_connection(
     # Pinned-to-down update → three skip rows naming the connection.
     for suffix in ("table", "key_column", "fields"):
         entry = result[f"pinned_down.{suffix}"]
-        assert entry.get("warn") is True
+        assert entry["ok"] is False
+        assert entry["severity"] == "warning"
         assert "prod" in entry["value"]
 
-    # Skip alone does not flip overall_ok.
-    assert result["overall_ok"] is True
+    # Skip alone does not fail the section.
+    assert checks_ok(result) is True
 
 
 def test_verify_updates_bad_identifier_still_fires_for_unreachable_target(

@@ -542,9 +542,10 @@ def test_run_server_reads_allow_updates_from_database_config(
         targets: object,
         registry: object,
         allow_updates: bool,
+        **kwargs: Path | None,
     ) -> None:
         recorded["allow_updates"] = allow_updates
-        original_init(self, config, targets, registry, allow_updates)  # type: ignore[arg-type]
+        original_init(self, config, targets, registry, allow_updates, **kwargs)  # type: ignore[arg-type]
 
     monkeypatch.setattr(ToolServer, "__init__", recording_init)
     monkeypatch.setattr(ToolServer, "run", lambda self: None)

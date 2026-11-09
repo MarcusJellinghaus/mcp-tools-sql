@@ -2,20 +2,17 @@
 
 from __future__ import annotations
 
-from typing import Any
-
 from mcp_tools_sql.schema_tools import load_default_queries
-from mcp_tools_sql.verification._helpers import make_entry
+from mcp_tools_sql.verification._helpers import CheckResult, make_entry
 
 
-def verify_builtin() -> dict[str, Any]:
+def verify_builtin() -> dict[str, CheckResult]:
     """Report status of built-in default queries.
 
     Returns:
-        Verifier result dict with ``default_queries_loaded`` and
-        ``tools_registered_count`` entries plus ``overall_ok``.
+        Verifier rows ``default_queries_loaded`` and ``tools_registered_count``.
     """
-    result: dict[str, Any] = {}
+    result: dict[str, CheckResult] = {}
     try:
         queries = load_default_queries()
         result["default_queries_loaded"] = make_entry(
@@ -26,7 +23,6 @@ def verify_builtin() -> dict[str, Any]:
         result["tools_registered_count"] = make_entry(
             ok=True, value=f"{len(queries)} tools"
         )
-        result["overall_ok"] = bool(queries)
     except Exception as exc:  # pylint: disable=broad-except
         result["default_queries_loaded"] = make_entry(
             ok=False, value="(error)", error=str(exc)
@@ -34,5 +30,4 @@ def verify_builtin() -> dict[str, Any]:
         result["tools_registered_count"] = make_entry(
             ok=False, value="(skipped)", error="default_queries_loaded failed"
         )
-        result["overall_ok"] = False
     return result

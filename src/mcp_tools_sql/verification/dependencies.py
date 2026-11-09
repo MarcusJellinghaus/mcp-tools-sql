@@ -4,13 +4,13 @@ from __future__ import annotations
 
 from typing import Any
 
-from mcp_tools_sql.verification._helpers import make_entry
+from mcp_tools_sql.verification._helpers import CheckResult, make_entry
 
 
 def verify_dependencies(
     backend: str,
     configured_driver: str = "",
-) -> dict[str, Any]:
+) -> dict[str, CheckResult]:
     """Backend-conditional check of optional/extra dependencies.
 
     Args:
@@ -24,8 +24,7 @@ def verify_dependencies(
             ``"SQL Server"``.
 
     Returns:
-        Standard verifier result dict with backend-specific entries
-        and an ``overall_ok`` flag.
+        Backend-specific verifier rows.
     """
     if backend == "unknown":
         return {
@@ -33,13 +32,11 @@ def verify_dependencies(
                 ok=False,
                 error="cannot determine backend without valid config",
             ),
-            "overall_ok": False,
         }
 
     if backend == "sqlite":
         return {
             "info": make_entry(ok=True, value="(no optional dependencies for sqlite)"),
-            "overall_ok": True,
         }
 
     if backend == "mssql":
@@ -54,17 +51,16 @@ def verify_dependencies(
             value=backend,
             error=f"unknown backend {backend!r}",
         ),
-        "overall_ok": False,
     }
 
 
-def _verify_dependencies_mssql(configured_driver: str) -> dict[str, Any]:
+def _verify_dependencies_mssql(configured_driver: str) -> dict[str, CheckResult]:
     """Check for ``pyodbc`` and the configured (or any) ``SQL Server`` driver.
 
     Returns:
-        Verifier result dict for the mssql backend.
+        Verifier rows for the mssql backend.
     """
-    result: dict[str, Any] = {}
+    result: dict[str, CheckResult] = {}
     pyodbc_module: Any = None
     try:
         import pyodbc  # pylint: disable=import-outside-toplevel
@@ -89,20 +85,17 @@ def _verify_dependencies_mssql(configured_driver: str) -> dict[str, Any]:
     else:
         result["odbc_driver"] = _check_odbc_driver(pyodbc_module, configured_driver)
 
-    result["overall_ok"] = all(
-        entry["ok"] for key, entry in result.items() if key != "overall_ok"
-    )
     return result
 
 
-def _check_odbc_driver(pyodbc_module: Any, configured_driver: str) -> dict[str, Any]:
+def _check_odbc_driver(pyodbc_module: Any, configured_driver: str) -> CheckResult:
     """Build the ``odbc_driver`` row, comparing config against installed drivers.
 
     When ``configured_driver`` is non-empty, the row fails if that exact name
     is not present in ``pyodbc.drivers()`` and the error lists what is.
 
     Returns:
-        A verifier entry dict.
+        A verifier row.
     """
     install_hint = (
         "Install Microsoft ODBC Driver 18 for SQL Server "
@@ -136,13 +129,13 @@ def _check_odbc_driver(pyodbc_module: Any, configured_driver: str) -> dict[str, 
     return make_entry(ok=True, value=sql_server_driver)
 
 
-def _verify_dependencies_postgresql() -> dict[str, Any]:
+def _verify_dependencies_postgresql() -> dict[str, CheckResult]:
     """Check for the ``psycopg`` package.
 
     Returns:
-        Verifier result dict for the postgresql backend.
+        Verifier rows for the postgresql backend.
     """
-    result: dict[str, Any] = {}
+    result: dict[str, CheckResult] = {}
     try:
         import psycopg  # pylint: disable=import-outside-toplevel
 
@@ -156,7 +149,4 @@ def _verify_dependencies_postgresql() -> dict[str, Any]:
             install_hint="pip install mcp-tools-sql[postgresql]",
         )
 
-    result["overall_ok"] = all(
-        entry["ok"] for key, entry in result.items() if key != "overall_ok"
-    )
     return result
