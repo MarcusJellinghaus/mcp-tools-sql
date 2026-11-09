@@ -30,6 +30,7 @@ PROGRAMMATIC_BUILTIN_TOOLS: tuple[str, ...] = (
     "validate_sql",
     "count_records",
     "summarize_columns",
+    "verify",
 )
 
 

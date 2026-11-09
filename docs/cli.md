@@ -221,6 +221,13 @@ The entries part reads `not checked (connection failed)` when the
 For scripts, the exit codes are the contract and are the same in every
 output format: see [Exit codes](#exit-codes-1).
 
+The running MCP server also exposes the checks as a `verify` tool, so the
+LLM can diagnose a failing query itself. The tool returns the `--short`
+output plus a note. It re-reads the config files from disk on every call,
+while the server keeps the config it loaded at startup: config edits need a
+server restart to take effect. A config that stops the server from starting
+can't be diagnosed through the tool; run `mcp-tools-sql verify` for that.
+
 Sections, in order:
 
 | Section | Purpose |
@@ -324,7 +331,7 @@ mcp-tools-sql tool <name> [--flag value ...]
 
 Lists, describes, and invokes every tool the current config would register
 with the MCP server — schema introspection, `query_*`, `update_*`,
-`validate_sql`, `count_records`, `summarize_columns`, `read_databases` —
+`validate_sql`, `count_records`, `summarize_columns`, `read_databases`, `verify` —
 without an MCP client or LLM. Supply `--config` and `--database-config` on
 the top-level `mcp-tools-sql` command, as with `verify`.
 
