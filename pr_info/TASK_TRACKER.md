@@ -65,9 +65,9 @@ This tracks **Feature Implementation** consisting of multiple **Tasks**.
 
 ### Step 8: Import contracts: no `mcp` on the export path — [step_8.md](./steps/step_8.md)
 
-- [ ] Implementation (tests + production code)
-- [ ] Quality checks: pylint, pytest, mypy — fix all issues
-- [ ] Commit message prepared
+- [x] Implementation (tests + production code)
+- [x] Quality checks: pylint, pytest, mypy — fix all issues
+- [x] Commit message prepared
 
 ### Step 9: Docs — [step_9.md](./steps/step_9.md)
 
