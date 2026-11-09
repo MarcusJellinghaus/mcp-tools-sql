@@ -2,13 +2,14 @@
 
 from __future__ import annotations
 
+import inspect
 import sqlite3
 from typing import TYPE_CHECKING, Any
 
 from pydantic import ValidationError
 
 if TYPE_CHECKING:
-    from mcp.server.fastmcp.tools.base import Tool
+    from mcp_tools_sql.utils.tool_spec import ToolSpec
 
 try:
     import pyodbc  # pylint: disable=import-error
@@ -45,17 +46,24 @@ def classify_exception(exc: BaseException) -> int:
     return EXIT_BACKEND
 
 
-async def invoke_tool(tool: Tool, kwargs: dict[str, Any]) -> tuple[int, str]:
-    """Call ``tool.fn`` with the same validation path the MCP server uses.
+async def invoke_tool(spec: ToolSpec, kwargs: dict[str, Any]) -> tuple[int, str]:
+    """Validate ``kwargs`` against ``spec.args_model``, then call ``spec.fn``.
+
+    Every model field is passed to ``spec.fn``, so omitted optional
+    arguments arrive as their defaults (including the ``_UNSET`` sentinel).
 
     Returns:
         An ``(exit_code, text)`` pair — the text to print on either success
         or failure.
     """
     try:
-        result = await tool.fn_metadata.call_fn_with_arg_validation(
-            tool.fn, tool.is_async, kwargs, None
-        )
+        validated = spec.args_model.model_validate(kwargs)
+        call_kwargs = {
+            field: getattr(validated, field) for field in spec.args_model.model_fields
+        }
+        result = spec.fn(**call_kwargs)
+        if inspect.isawaitable(result):
+            result = await result
         return EXIT_OK, str(result)
     except ValidationError as exc:
         return EXIT_REJECTED, str(exc)

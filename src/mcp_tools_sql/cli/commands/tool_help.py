@@ -2,11 +2,14 @@
 
 from __future__ import annotations
 
+import warnings
 from collections.abc import Sequence
 from typing import TYPE_CHECKING, Any
 
+from pydantic.json_schema import PydanticJsonSchemaWarning
+
 if TYPE_CHECKING:
-    from mcp.server.fastmcp.tools.base import Tool
+    from mcp_tools_sql.utils.tool_spec import ToolSpec
 
 EXIT_CODE_HELP = """\
 Exit codes:
@@ -30,7 +33,7 @@ def _first_line(text: str) -> str:
     return ""
 
 
-def render_overview(tools: Sequence[Tool]) -> str:
+def render_overview(specs: Sequence[ToolSpec]) -> str:
     """Render the tool listing plus the exit-code table.
 
     Returns:
@@ -38,12 +41,26 @@ def render_overview(tools: Sequence[Tool]) -> str:
         padded to a common width), followed by a blank line and
         `EXIT_CODE_HELP`.
     """
-    sorted_tools = sorted(tools, key=lambda t: t.name)
-    width = max((len(t.name) for t in sorted_tools), default=0)
+    sorted_specs = sorted(specs, key=lambda s: s.name)
+    width = max((len(s.name) for s in sorted_specs), default=0)
     lines = [
-        f"{t.name.ljust(width)}  {_first_line(t.description)}" for t in sorted_tools
+        f"{s.name.ljust(width)}  {_first_line(s.description)}" for s in sorted_specs
     ]
     return "\n".join(lines) + "\n\n" + EXIT_CODE_HELP
+
+
+def _parameters_schema(spec: ToolSpec) -> dict[str, Any]:
+    """Return the JSON schema of ``spec.args_model``.
+
+    Defaults that are not JSON-serialisable (the ``_UNSET`` sentinel) are
+    dropped from the schema; pydantic's warning about that is suppressed.
+
+    Returns:
+        The model's JSON schema dict.
+    """
+    with warnings.catch_warnings():
+        warnings.simplefilter("ignore", PydanticJsonSchemaWarning)
+        return spec.args_model.model_json_schema()
 
 
 def _param_line(name: str, schema: dict[str, Any], required: set[str]) -> str:
@@ -68,16 +85,17 @@ def _param_line(name: str, schema: dict[str, Any], required: set[str]) -> str:
     return line
 
 
-def render_tool_detail(tool: Tool) -> str:
+def render_tool_detail(spec: ToolSpec) -> str:
     """Render the detail block for one tool's `--help`.
 
     Returns:
-        The tool's full docstring followed by one block per parameter
+        The tool's full description followed by one block per parameter
         (required/optional, type, choices, default, description).
     """
-    required = set(tool.parameters.get("required", []))
-    properties = tool.parameters.get("properties", {})
-    lines = [tool.name, "", tool.description.strip()]
+    schema = _parameters_schema(spec)
+    required = set(schema.get("required", []))
+    properties = schema.get("properties", {})
+    lines = [spec.name, "", spec.description.strip()]
     if properties:
         lines.append("")
         lines.append("Parameters:")

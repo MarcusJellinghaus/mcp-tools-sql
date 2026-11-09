@@ -42,10 +42,6 @@ def run(args: argparse.Namespace) -> int:
 
     Returns:
         Process exit code.
-
-    Raises:
-        RuntimeError: If the tool vanishes between listing and lookup
-            (defensive guard, not expected in practice).
     """
     try:
         server, _qpath = build_tool_server(args)
@@ -58,23 +54,21 @@ def run(args: argparse.Namespace) -> int:
         )
         return 1
     try:
-        tools = server.mcp._tool_manager.list_tools()
+        specs = {spec.name: spec for spec in server.toolset.specs}
         tool_argv: list[str] = args.tool_argv
         if not tool_argv or tool_argv[0] in _HELP_TOKENS:
-            print(render_overview(tools))
+            print(render_overview(list(specs.values())))
             return 0
-        name_parser = _build_name_parser([t.name for t in tools])
+        name_parser = _build_name_parser(list(specs))
         ns = name_parser.parse_args(tool_argv)
-        tool = server.mcp._tool_manager.get_tool(ns.name)
-        if tool is None:
-            raise RuntimeError(f"tool {ns.name!r} vanished between listing and lookup")
+        spec = specs[ns.name]
         if ns.rest and ns.rest[0] in _HELP_TOKENS:
-            print(render_tool_detail(tool))
+            print(render_tool_detail(spec))
             return 0
-        parser = build_tool_argparser(tool, prog=f"mcp-tools-sql tool {ns.name}")
+        parser = build_tool_argparser(spec, prog=f"mcp-tools-sql tool {ns.name}")
         tool_ns = parser.parse_args(ns.rest)
         kwargs = build_kwargs(tool_ns)
-        exit_code, output = asyncio.run(invoke_tool(tool, kwargs))
+        exit_code, output = asyncio.run(invoke_tool(spec, kwargs))
         print(output)
         return exit_code
     finally:

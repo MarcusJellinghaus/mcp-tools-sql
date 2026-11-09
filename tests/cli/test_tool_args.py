@@ -6,7 +6,6 @@ import inspect
 from typing import Annotated, Any, Literal
 
 import pytest
-from mcp.server.fastmcp.tools.base import Tool
 from pydantic import Field
 
 from mcp_tools_sql.cli.commands.tool_args import (
@@ -15,16 +14,17 @@ from mcp_tools_sql.cli.commands.tool_args import (
     build_tool_argparser,
 )
 from mcp_tools_sql.tool_builder import _UNSET, build_tool_fn
+from mcp_tools_sql.utils.tool_spec import ToolSpec, tool_spec
 
 
 async def _body(**kwargs: Any) -> str:
     return str(kwargs)
 
 
-def _build_tool(sig_params: list[inspect.Parameter]) -> Tool:
-    """Build a `Tool` from hand-built signature parameters."""
+def _build_tool(sig_params: list[inspect.Parameter]) -> ToolSpec:
+    """Build a `ToolSpec` from hand-built signature parameters."""
     fn = build_tool_fn("t", sig_params, _body, "Test tool.")
-    return Tool.from_function(fn)
+    return tool_spec(fn, group="t", read_only=True)
 
 
 def test_required_str_param_is_required() -> None:
