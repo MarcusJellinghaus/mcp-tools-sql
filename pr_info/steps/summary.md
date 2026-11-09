@@ -35,7 +35,9 @@ LLM's context window.
   never extended.
 - Which deadline fired is decided by the caller from the clock (counting deadline
   passed → `counting stopped`, else `stopped: statement timeout`), so the
-  exception needs no `reason` attribute.
+  exception needs no `reason` attribute. The clock rule applies only to sources
+  whose backend enforces the counting deadline (`Source.enforces_counting`,
+  SQLite); on SQL Server a `QueryTimeoutError` is always the statement timeout.
 - Tool-aware callers add the hint; backends never do.
 
 ### 3. Batched read (`DatabaseBackend.iter_readonly_batches`)
@@ -105,7 +107,7 @@ LLM's context window.
 | Topic | Decision |
 |---|---|
 | Fan-out vs single target | One `collect` over a list of sources |
-| Which deadline fired | Inferred by the caller from the clock; no exception attribute |
+| Which deadline fired | Inferred by the caller from the clock, SQLite sources only (`Source.enforces_counting`); no exception attribute |
 | SQLite deadline | Per-statement context manager, handler cleared in `finally` |
 | Exception module | `backends/base.py` (no new `backends/errors.py`) |
 | Built-in `max_rows_hard` check | `Field(ge=BUILTIN_MAX_ROWS_HARD)` + sync test |

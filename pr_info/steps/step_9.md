@@ -33,7 +33,7 @@ def _tagged_batches(
 ```
 
 ## HOW
-- `fanout`: build `sources = [Source(t.database, functools.partial(_tagged_batches, registry, t, resolved_sql, stripped or None)) for t in fan_targets]`.
+- `fanout`: build `sources = [Source(t.database, functools.partial(_tagged_batches, registry, t, resolved_sql, stripped or None), enforces_counting=t.backend_name == "sqlite") for t in fan_targets]`.
 - `collect(sources, max_rows=requested, limits=limits,
   counting_seconds=counting_time_limit(fan_targets[0].config.query_timeout_seconds),
   filter_rows=..., record_errors=True)`. The old outer `try/except Exception`

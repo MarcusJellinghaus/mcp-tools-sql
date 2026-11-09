@@ -16,7 +16,10 @@ translates driver timeouts from its raw SHOWPLAN cursor. Run pylint, pytest
 - `src/mcp_tools_sql/update_tools.py`
 - `tach.toml` – add `{ path = "mcp_tools_sql.formatting" }` to `count_tools`
   `depends_on`
-- Tests: `tests/test_tool_timeouts.py` (new)
+- Tests: `tests/test_tool_timeouts.py` (new);
+  `tests/test_validation_tools.py` – the three existing `_explain(...)` calls
+  (around lines 277, 303, 327) pass the new required `timeout_seconds`
+  argument (e.g. `30`), otherwise they fail with `TypeError`
 
 ## WHAT
 ```python

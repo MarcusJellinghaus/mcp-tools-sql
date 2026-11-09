@@ -53,6 +53,7 @@ COUNTING_TIME_LIMIT_MAX: float = 5.0
 class Source:
     database: str
     open: Callable[[Deadline], Generator[list[dict[str, Any]], None, None]]
+    enforces_counting: bool = False  # backend interrupts at the counting deadline (SQLite)
 
 def counting_time_limit(timeout_seconds: int) -> float: ...  # min(5.0, timeout / 2)
 
@@ -84,7 +85,10 @@ def collect(
   `Deadline` for all sources).
 - Always close each source generator in `finally` (`gen.close()`).
 - `QueryTimeoutError` is caught inside the source loop: label it `"counting"`
-  if `counting.at` is set and passed, else `"timeout"`. Mark the source
+  only if `src.enforces_counting` and `counting.at` is set and passed, else
+  `"timeout"`. On backends that do not enforce the counting deadline (SQL
+  Server checks it only between batches), a `QueryTimeoutError` is always the
+  statement timeout. Mark the source
   incomplete; if it had no matched rows and the label is `"timeout"`, set
   `error=str(exc)`, `timed_out=True`. Stop counting.
 - Any other exception: record `error=str(exc)` and continue with the next source
@@ -123,7 +127,9 @@ the char budget); counted rows beyond them are discarded.
 - Counting time limit passed between batches → `stop == "counting"`, shown rows
   kept, `complete is False`.
 - `QueryTimeoutError` during counting (after the counting deadline) →
-  `"counting"`; before it → `"timeout"`; after some matched rows during display
+  `"counting"` for a source with `enforces_counting=True`, `"timeout"` for
+  one with `enforces_counting=False`; before the counting deadline →
+  `"timeout"` either way; after some matched rows during display
   → rows kept, `stop == "timeout"`; before any matched row → `error`,
   `timed_out`.
 - Fan-out: two sources share `max_rows` and `max_count_rows`; the second source
@@ -137,6 +143,6 @@ the char budget); counted rows beyond them are discarded.
 - `cell_text` cuts with the marker and reports the flag; `None` → `""`.
 - `counting_time_limit(30) == 5.0`, `counting_time_limit(4) == 2.0`.
 - SQLite integration (real `SQLiteBackend`, `query_timeout_seconds=2`, source
-  opening `iter_readonly_batches`): a counting phase that would outlast the
+  opening `iter_readonly_batches`, `enforces_counting=True`): a counting phase that would outlast the
   counting time limit (1 s) is cut mid-batch → `stop == "counting"`; elapsed
   time < 2 s.

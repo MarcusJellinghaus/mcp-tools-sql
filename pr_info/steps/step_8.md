@@ -34,6 +34,7 @@ async def execute_and_format(
     limits: LimitsConfig,
     builtin: bool,
     timeout_seconds: int,
+    enforces_counting: bool,   # backend_name == "sqlite"
 ) -> str: ...
 
 def build_query_body(
@@ -55,6 +56,10 @@ SchemaTools(registry, targets, *, limits: LimitsConfig | None = None)
   construct them without limits keep working.
 - `QueryTools.register` passes `timeout_seconds=target.config.query_timeout_seconds`.
   The pinned schema path passes `target.config.query_timeout_seconds`.
+- `enforces_counting=(backend_name == "sqlite")`: `build_query_body` uses its
+  `backend_name`, the pinned schema path `target.backend_name`. It becomes
+  `Source.enforces_counting`, so a SQL Server timeout is never labelled
+  `counting stopped`.
 - `ToolServer._register_builtin_tools` / `_register_configured_tools` pass
   `limits=self._config.limits`.
 - Filtering reuses `apply_filter` per batch:
@@ -71,7 +76,8 @@ SchemaTools(registry, targets, *, limits: LimitsConfig | None = None)
 ```
 requested, note = _cap_max_rows(config, kwargs.pop("max_rows", default))
 pattern = kwargs.pop(filter_kwarg) if filter_kwarg; stripped = declared SQL params only
-source = Source(database="", open=lambda dl: backend.iter_readonly_batches(resolved_sql, stripped or None, counting=dl))
+source = Source(database="", open=lambda dl: backend.iter_readonly_batches(resolved_sql, stripped or None, counting=dl),
+                enforces_counting=enforces_counting)
 result = collect([source], max_rows=requested, limits=limits,
                  counting_seconds=counting_time_limit(timeout_seconds), filter_rows=...)
 return render_limited(result, ..., fanout=False, ...) + note
@@ -98,9 +104,12 @@ Tool text as produced by `render_limited`, plus the existing cap note.
   budget → 0 rows + wider-than-limit message.
 - `*_filter` whose matches are beyond the first raw batch (> 500 raw rows) →
   matches found, exact count.
-- Timeout (`query_timeout_seconds=1`, slow recursive-CTE configured query):
-  with SQL params → `Query aborted after 1 s (statement timeout). Use more
-  selective parameters.`; built-in `read_schemas` timeout (fake backend raising
+- Timeout (`query_timeout_seconds=1`, configured query that returns no rows
+  until the timeout fires, with a bound `:param`, e.g.
+  `WITH RECURSIVE c(x) AS (SELECT :start UNION ALL SELECT x+1 FROM c) SELECT count(*) FROM (SELECT x FROM c LIMIT 500000000)`):
+  asserts exactly `Query aborted after 1 s (statement timeout). Use more
+  selective parameters.` (a streaming query would fill the display set first
+  and end with `N+ (counting stopped)` instead); built-in `read_schemas` timeout (fake backend raising
   `QueryTimeoutError`) → exactly `Query aborted after N s (statement timeout).`
 - Statement timeout after some matched rows, display incomplete (fake backend
   yielding one batch then raising `QueryTimeoutError`) → rows shown with
