@@ -14,6 +14,7 @@ from mcp_tools_sql.backends.sqlite import SQLiteBackend
 from mcp_tools_sql.config.models import ConnectionConfig, ResolvedTargets
 from mcp_tools_sql.count_tools import CountTools
 from mcp_tools_sql.query_helpers import build_target_params
+from mcp_tools_sql.server import FastMCPSink
 from tests.target_helpers import RecordingRegistry, make_target, single_target
 
 
@@ -54,7 +55,7 @@ async def test_count_all_customers(sqlite_db: Path) -> None:
     """``SELECT * FROM customers`` counts the seeded two rows."""
     backend = _sqlite_backend(sqlite_db)
     mcp = FastMCP("test-count-customers")
-    CountTools(*single_target(backend)).register(mcp)
+    CountTools(*single_target(backend)).register(FastMCPSink(mcp))
     async with create_connected_server_and_client_session(
         mcp, raise_exceptions=True
     ) as client:
@@ -67,7 +68,7 @@ async def test_count_all_orders(sqlite_db: Path) -> None:
     """``SELECT * FROM orders`` counts the seeded three rows."""
     backend = _sqlite_backend(sqlite_db)
     mcp = FastMCP("test-count-orders")
-    CountTools(*single_target(backend)).register(mcp)
+    CountTools(*single_target(backend)).register(FastMCPSink(mcp))
     async with create_connected_server_and_client_session(
         mcp, raise_exceptions=True
     ) as client:
@@ -80,7 +81,7 @@ async def test_count_with_where_filter(sqlite_db: Path) -> None:
     """A ``WHERE`` filter narrows the count to the matching subset."""
     backend = _sqlite_backend(sqlite_db)
     mcp = FastMCP("test-count-where")
-    CountTools(*single_target(backend)).register(mcp)
+    CountTools(*single_target(backend)).register(FastMCPSink(mcp))
     async with create_connected_server_and_client_session(
         mcp, raise_exceptions=True
     ) as client:
@@ -100,7 +101,7 @@ async def test_count_with_duplicate_output_columns(sqlite_db: Path) -> None:
     """
     backend = _sqlite_backend(sqlite_db)
     mcp = FastMCP("test-count-dup-cols")
-    CountTools(*single_target(backend)).register(mcp)
+    CountTools(*single_target(backend)).register(FastMCPSink(mcp))
     async with create_connected_server_and_client_session(
         mcp, raise_exceptions=True
     ) as client:
@@ -113,7 +114,7 @@ async def test_count_with_named_placeholder(sqlite_db: Path) -> None:
     """A ``:name`` placeholder round-trips through the count wrapper."""
     backend = _sqlite_backend(sqlite_db)
     mcp = FastMCP("test-count-named-param")
-    CountTools(*single_target(backend)).register(mcp)
+    CountTools(*single_target(backend)).register(FastMCPSink(mcp))
     async with create_connected_server_and_client_session(
         mcp, raise_exceptions=True
     ) as client:
@@ -146,7 +147,7 @@ async def test_write_statements_rejected_and_not_executed(
     """Write statements are rejected as not-read-only and never executed."""
     backend = _sqlite_backend(sqlite_db)
     mcp = FastMCP("test-count-write-reject")
-    CountTools(*single_target(backend)).register(mcp)
+    CountTools(*single_target(backend)).register(FastMCPSink(mcp))
     async with create_connected_server_and_client_session(
         mcp, raise_exceptions=True
     ) as client:
@@ -182,7 +183,9 @@ async def test_passthrough_source_rejected_without_execution(
     """
     backend = MagicMock()
     mcp = FastMCP("test-count-passthrough")
-    CountTools(*single_target(backend, backend_name=backend_name)).register(mcp)
+    CountTools(*single_target(backend, backend_name=backend_name)).register(
+        FastMCPSink(mcp)
+    )
     async with create_connected_server_and_client_session(
         mcp, raise_exceptions=True
     ) as client:
@@ -197,7 +200,7 @@ async def test_column_named_openquery_is_not_rejected(sqlite_db: Path) -> None:
     """A column merely *named* ``openquery`` is an identifier, not a call."""
     backend = _sqlite_backend(sqlite_db)
     mcp = FastMCP("test-count-openquery-column")
-    CountTools(*single_target(backend)).register(mcp)
+    CountTools(*single_target(backend)).register(FastMCPSink(mcp))
     async with create_connected_server_and_client_session(
         mcp, raise_exceptions=True
     ) as client:
@@ -215,7 +218,7 @@ async def test_preflight_empty_sql(sqlite_db: Path) -> None:
     """Empty SQL is rejected before any DB round-trip."""
     backend = _sqlite_backend(sqlite_db)
     mcp = FastMCP("test-count-empty")
-    CountTools(*single_target(backend)).register(mcp)
+    CountTools(*single_target(backend)).register(FastMCPSink(mcp))
     async with create_connected_server_and_client_session(
         mcp, raise_exceptions=True
     ) as client:
@@ -228,7 +231,7 @@ async def test_preflight_multi_statement(sqlite_db: Path) -> None:
     """Multi-statement SQL is rejected without a DB round-trip."""
     backend = _sqlite_backend(sqlite_db)
     mcp = FastMCP("test-count-multi")
-    CountTools(*single_target(backend)).register(mcp)
+    CountTools(*single_target(backend)).register(FastMCPSink(mcp))
     async with create_connected_server_and_client_session(
         mcp, raise_exceptions=True
     ) as client:
@@ -241,7 +244,7 @@ async def test_preflight_missing_param(sqlite_db: Path) -> None:
     """A missing ``:name`` parameter is rejected at pre-flight."""
     backend = _sqlite_backend(sqlite_db)
     mcp = FastMCP("test-count-missing-param")
-    CountTools(*single_target(backend)).register(mcp)
+    CountTools(*single_target(backend)).register(FastMCPSink(mcp))
     async with create_connected_server_and_client_session(
         mcp, raise_exceptions=True
     ) as client:
@@ -254,7 +257,7 @@ async def test_preflight_unparseable_fail_closed(sqlite_db: Path) -> None:
     """Unparseable SQL is rejected (fail-closed) before any execution."""
     backend = _sqlite_backend(sqlite_db)
     mcp = FastMCP("test-count-fail-closed")
-    CountTools(*single_target(backend)).register(mcp)
+    CountTools(*single_target(backend)).register(FastMCPSink(mcp))
     async with create_connected_server_and_client_session(
         mcp, raise_exceptions=True
     ) as client:
@@ -280,7 +283,7 @@ async def test_preflight_untokenizable_is_a_verdict(sqlite_db: Path, sql: str) -
     """
     backend = _sqlite_backend(sqlite_db)
     mcp = FastMCP("test-count-token-error")
-    CountTools(*single_target(backend)).register(mcp)
+    CountTools(*single_target(backend)).register(FastMCPSink(mcp))
     async with create_connected_server_and_client_session(
         mcp, raise_exceptions=True
     ) as client:
@@ -311,7 +314,7 @@ async def test_preflight_zero_statements_is_a_verdict(
     """
     backend = _sqlite_backend(sqlite_db)
     mcp = FastMCP("test-count-zero-statements")
-    CountTools(*single_target(backend)).register(mcp)
+    CountTools(*single_target(backend)).register(FastMCPSink(mcp))
     async with create_connected_server_and_client_session(
         mcp, raise_exceptions=True
     ) as client:
@@ -332,7 +335,7 @@ async def test_mssql_leading_cte_rejected_without_execution() -> None:
     """A T-SQL leading ``WITH`` CTE is rejected before ``execute_readonly_query``."""
     backend = MagicMock()
     mcp = FastMCP("test-count-mssql-cte")
-    CountTools(*single_target(backend, backend_name="mssql")).register(mcp)
+    CountTools(*single_target(backend, backend_name="mssql")).register(FastMCPSink(mcp))
     async with create_connected_server_and_client_session(
         mcp, raise_exceptions=True
     ) as client:
@@ -355,7 +358,7 @@ async def test_mssql_with_nolock_hint_not_false_positived() -> None:
     backend = MagicMock()
     backend.execute_readonly_query.return_value = [{"row_count": 7}]
     mcp = FastMCP("test-count-mssql-nolock")
-    CountTools(*single_target(backend, backend_name="mssql")).register(mcp)
+    CountTools(*single_target(backend, backend_name="mssql")).register(FastMCPSink(mcp))
     async with create_connected_server_and_client_session(
         mcp, raise_exceptions=True
     ) as client:
@@ -373,7 +376,7 @@ async def test_mssql_select_into_rejected_without_execution() -> None:
     """A T-SQL ``SELECT ... INTO`` materialises a table, so it is rejected."""
     backend = MagicMock()
     mcp = FastMCP("test-count-mssql-into")
-    CountTools(*single_target(backend, backend_name="mssql")).register(mcp)
+    CountTools(*single_target(backend, backend_name="mssql")).register(FastMCPSink(mcp))
     async with create_connected_server_and_client_session(
         mcp, raise_exceptions=True
     ) as client:
@@ -440,7 +443,7 @@ async def test_multi_install_exposes_selector_params(sqlite_db: Path) -> None:
     targets = _multi_targets()
     registry = RecordingRegistry({("lite", "main"): backend, ("sql", "hr"): backend})
     mcp = FastMCP("test-count-multi-schema")
-    CountTools(registry, targets).register(mcp)
+    CountTools(registry, targets).register(FastMCPSink(mcp))
 
     async with create_connected_server_and_client_session(
         mcp, raise_exceptions=True
@@ -465,7 +468,7 @@ async def test_multi_per_call_dialect_resolved_from_target(sqlite_db: Path) -> N
     targets = _multi_targets()
     registry = RecordingRegistry({("lite", "main"): backend, ("sql", "hr"): backend})
     mcp = FastMCP("test-count-multi-dialect")
-    CountTools(registry, targets).register(mcp)
+    CountTools(registry, targets).register(FastMCPSink(mcp))
 
     cte_sql = "WITH x AS (SELECT 1 AS n) SELECT * FROM x"
     async with create_connected_server_and_client_session(
@@ -494,7 +497,7 @@ async def test_multi_cross_connection_mismatch_returns_verdict(
     targets = _multi_targets()
     registry = RecordingRegistry({("lite", "main"): backend, ("sql", "hr"): backend})
     mcp = FastMCP("test-count-multi-mismatch")
-    CountTools(registry, targets).register(mcp)
+    CountTools(registry, targets).register(FastMCPSink(mcp))
 
     async with create_connected_server_and_client_session(
         mcp, raise_exceptions=True
@@ -516,7 +519,7 @@ async def test_multi_count_binds_selected_target(sqlite_db: Path) -> None:
     targets = _multi_targets()
     registry = RecordingRegistry({("lite", "main"): backend, ("sql", "hr"): backend})
     mcp = FastMCP("test-count-multi-select")
-    CountTools(registry, targets).register(mcp)
+    CountTools(registry, targets).register(FastMCPSink(mcp))
 
     async with create_connected_server_and_client_session(
         mcp, raise_exceptions=True

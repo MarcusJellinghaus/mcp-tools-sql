@@ -22,6 +22,7 @@ from mcp_tools_sql.utils.sql_placeholders import (
     first_statement_kind,
     substitute_named_with_literals,
 )
+from mcp_tools_sql.utils.tool_spec import tool_spec
 
 try:
     import pyodbc  # pylint: disable=import-error
@@ -35,11 +36,10 @@ _INVALID_SQL_EXC: tuple[type[BaseException], ...] = (sqlite3.Error, *_PYODBC_ERR
 _SESSION_KEYWORDS = frozenset({"USE", "SET", "DECLARE"})
 
 if TYPE_CHECKING:
-    from mcp.server.fastmcp import FastMCP
-
     from mcp_tools_sql.backends.base import DatabaseBackend
     from mcp_tools_sql.backends.registry import BackendRegistry
     from mcp_tools_sql.config.models import ResolvedTargets
+    from mcp_tools_sql.utils.tool_spec import ToolSink
 
 
 _DESCRIPTION = (
@@ -152,14 +152,14 @@ def _base_validate_params() -> list[inspect.Parameter]:
 
 
 class ValidationTools:
-    """Registers the ``validate_sql`` tool on an MCP server."""
+    """Builds the ``validate_sql`` tool spec."""
 
     def __init__(self, registry: BackendRegistry, targets: ResolvedTargets) -> None:
         self._registry = registry
         self._targets = targets
 
-    def register(self, mcp: FastMCP) -> None:
-        """Register the ``validate_sql`` tool on ``mcp``.
+    def register(self, sink: ToolSink) -> None:
+        """Add the ``validate_sql`` tool spec to ``sink``.
 
         The ``(connection, database)`` target — and therefore the backend and
         sqlglot dialect — is resolved per call from optional keyword-only
@@ -213,4 +213,12 @@ class ValidationTools:
 
         sig_params = _base_validate_params() + build_target_params(targets)
         fn = build_tool_fn("validate_sql", sig_params, core, _DESCRIPTION)
-        mcp.add_tool(fn, name="validate_sql", description=_DESCRIPTION)
+        sink.add(
+            tool_spec(
+                fn,
+                group="sql.validation",
+                read_only=True,
+                name="validate_sql",
+                description=_DESCRIPTION,
+            )
+        )

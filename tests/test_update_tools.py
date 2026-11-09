@@ -19,7 +19,9 @@ from mcp_tools_sql.config.models import (
 )
 from mcp_tools_sql.identifiers import IDENTIFIER_PATTERN
 from mcp_tools_sql.query_tools import QueryTools
+from mcp_tools_sql.server import FastMCPSink
 from mcp_tools_sql.update_tools import UpdateTools
+from mcp_tools_sql.utils.tool_spec import ToolCollector
 from tests.target_helpers import single_target
 
 
@@ -40,7 +42,7 @@ async def test_empty_updates_is_noop(sqlite_db: Path) -> None:
     """UpdateTools with no updates registers zero tools (no error)."""
     backend = _sqlite_backend(sqlite_db)
     mcp = FastMCP("test-empty-updates")
-    UpdateTools(*single_target(backend), {}).register(mcp)
+    UpdateTools(*single_target(backend), {}).register(FastMCPSink(mcp))
 
     async with create_connected_server_and_client_session(
         mcp, raise_exceptions=True
@@ -62,7 +64,7 @@ async def test_update_tool_name_is_prefixed(sqlite_db: Path) -> None:
         )
     }
     mcp = FastMCP("test-prefix")
-    UpdateTools(*single_target(backend), updates).register(mcp)
+    UpdateTools(*single_target(backend), updates).register(FastMCPSink(mcp))
 
     async with create_connected_server_and_client_session(
         mcp, raise_exceptions=True
@@ -86,7 +88,61 @@ def test_invalid_tool_name_raises(sqlite_db: Path) -> None:
     }
     mcp = FastMCP("test-bad-name")
     with pytest.raises(ValueError, match="bad-name"):
-        UpdateTools(*single_target(backend), updates).register(mcp)
+        UpdateTools(*single_target(backend), updates).register(FastMCPSink(mcp))
+
+
+# ---------------------------------------------------------------------------
+# Descriptions
+# ---------------------------------------------------------------------------
+
+
+def _set_name(description: str) -> dict[str, UpdateConfig]:
+    """Return a ``set_name`` update config with the given description."""
+    return {
+        "set_name": UpdateConfig(
+            description=description,
+            table="customers",
+            key=UpdateKeyConfig(field="id", type="int"),
+            fields=[UpdateFieldConfig(field="name", type="str")],
+        )
+    }
+
+
+@pytest.mark.parametrize("description", ["", "  "])
+def test_empty_description_falls_back(sqlite_db: Path, description: str) -> None:
+    """An empty or whitespace-only description gets the generated fallback."""
+    backend = _sqlite_backend(sqlite_db)
+    sink = ToolCollector()
+    UpdateTools(*single_target(backend), _set_name(description)).register(sink)
+
+    assert len(sink) == 1
+    spec = sink.specs[0]
+    assert spec.name == "update_set_name"
+    assert spec.description == "Run configured update `set_name`."
+    assert spec.group == "sql.update"
+    assert spec.read_only is False
+
+
+@pytest.mark.asyncio
+async def test_non_empty_description_passes_through_unchanged(
+    sqlite_db: Path,
+) -> None:
+    """A description with surrounding whitespace is never stripped."""
+    backend = _sqlite_backend(sqlite_db)
+    raw = "Sets the name.\n"
+
+    sink = ToolCollector()
+    UpdateTools(*single_target(backend), _set_name(raw)).register(sink)
+    assert sink.specs[0].description == raw
+
+    mcp = FastMCP("test-raw-description")
+    UpdateTools(*single_target(backend), _set_name(raw)).register(FastMCPSink(mcp))
+    async with create_connected_server_and_client_session(
+        mcp, raise_exceptions=True
+    ) as client:
+        result = await client.list_tools()
+        (tool,) = result.tools
+        assert tool.description == raw
 
 
 # ---------------------------------------------------------------------------
@@ -106,7 +162,7 @@ def test_invalid_table_identifier_raises(sqlite_db: Path) -> None:
     }
     mcp = FastMCP("test-bad-table")
     with pytest.raises(ValueError) as exc:
-        UpdateTools(*single_target(backend), updates).register(mcp)
+        UpdateTools(*single_target(backend), updates).register(FastMCPSink(mcp))
     msg = str(exc.value)
     assert "intentionally restricted" in msg
     assert IDENTIFIER_PATTERN.pattern in msg
@@ -125,7 +181,7 @@ def test_invalid_schema_identifier_raises(sqlite_db: Path) -> None:
     }
     mcp = FastMCP("test-bad-schema")
     with pytest.raises(ValueError) as exc:
-        UpdateTools(*single_target(backend), updates).register(mcp)
+        UpdateTools(*single_target(backend), updates).register(FastMCPSink(mcp))
     msg = str(exc.value)
     assert "intentionally restricted" in msg
     assert IDENTIFIER_PATTERN.pattern in msg
@@ -144,7 +200,7 @@ def test_empty_schema_skips_identifier_check(sqlite_db: Path) -> None:
         )
     }
     mcp = FastMCP("test-empty-schema")
-    UpdateTools(*single_target(backend), updates).register(mcp)
+    UpdateTools(*single_target(backend), updates).register(FastMCPSink(mcp))
 
 
 def test_invalid_key_field_identifier_raises(sqlite_db: Path) -> None:
@@ -159,7 +215,7 @@ def test_invalid_key_field_identifier_raises(sqlite_db: Path) -> None:
     }
     mcp = FastMCP("test-bad-key")
     with pytest.raises(ValueError) as exc:
-        UpdateTools(*single_target(backend), updates).register(mcp)
+        UpdateTools(*single_target(backend), updates).register(FastMCPSink(mcp))
     msg = str(exc.value)
     assert "intentionally restricted" in msg
 
@@ -176,7 +232,7 @@ def test_invalid_field_identifier_raises(sqlite_db: Path) -> None:
     }
     mcp = FastMCP("test-bad-field")
     with pytest.raises(ValueError) as exc:
-        UpdateTools(*single_target(backend), updates).register(mcp)
+        UpdateTools(*single_target(backend), updates).register(FastMCPSink(mcp))
     msg = str(exc.value)
     assert "intentionally restricted" in msg
 
@@ -198,7 +254,7 @@ def test_key_none_raises_at_registration(sqlite_db: Path) -> None:
     }
     mcp = FastMCP("test-no-key")
     with pytest.raises(ValueError, match="requires a key field"):
-        UpdateTools(*single_target(backend), updates).register(mcp)
+        UpdateTools(*single_target(backend), updates).register(FastMCPSink(mcp))
 
 
 # ---------------------------------------------------------------------------
@@ -223,7 +279,7 @@ async def test_json_schema_key_required_fields_optional(sqlite_db: Path) -> None
         )
     }
     mcp = FastMCP("test-schema")
-    UpdateTools(*single_target(backend), updates).register(mcp)
+    UpdateTools(*single_target(backend), updates).register(FastMCPSink(mcp))
 
     async with create_connected_server_and_client_session(
         mcp, raise_exceptions=True
@@ -255,7 +311,7 @@ async def test_json_schema_required_field_in_required_list(sqlite_db: Path) -> N
         )
     }
     mcp = FastMCP("test-required-schema")
-    UpdateTools(*single_target(backend), updates).register(mcp)
+    UpdateTools(*single_target(backend), updates).register(FastMCPSink(mcp))
 
     async with create_connected_server_and_client_session(
         mcp, raise_exceptions=True
@@ -283,7 +339,7 @@ async def test_register_and_call_updates_row(sqlite_db: Path) -> None:
         )
     }
     mcp = FastMCP("test-roundtrip")
-    UpdateTools(*single_target(backend), updates).register(mcp)
+    UpdateTools(*single_target(backend), updates).register(FastMCPSink(mcp))
 
     async with create_connected_server_and_client_session(
         mcp, raise_exceptions=True
@@ -328,7 +384,7 @@ async def test_partial_update_only_provided_fields_in_sql(
         )
     }
     mcp = FastMCP("test-partial")
-    UpdateTools(*single_target(backend), updates).register(mcp)
+    UpdateTools(*single_target(backend), updates).register(FastMCPSink(mcp))
 
     async with create_connected_server_and_client_session(
         mcp, raise_exceptions=True
@@ -363,7 +419,7 @@ async def test_explicit_none_emits_null(
         )
     }
     mcp = FastMCP("test-explicit-none")
-    UpdateTools(*single_target(backend), updates).register(mcp)
+    UpdateTools(*single_target(backend), updates).register(FastMCPSink(mcp))
 
     async with create_connected_server_and_client_session(
         mcp, raise_exceptions=True
@@ -407,7 +463,7 @@ async def test_zero_fields_passed_rejected_no_db_call(
         )
     }
     mcp = FastMCP("test-zero-fields")
-    UpdateTools(*single_target(backend), updates).register(mcp)
+    UpdateTools(*single_target(backend), updates).register(FastMCPSink(mcp))
 
     async with create_connected_server_and_client_session(mcp) as client:
         result = await client.call_tool("update_set_anything", {"id": 1})
@@ -433,7 +489,7 @@ async def test_key_not_found_returns_no_row_text(sqlite_db: Path) -> None:
         )
     }
     mcp = FastMCP("test-missing-key")
-    UpdateTools(*single_target(backend), updates).register(mcp)
+    UpdateTools(*single_target(backend), updates).register(FastMCPSink(mcp))
 
     async with create_connected_server_and_client_session(
         mcp, raise_exceptions=True
@@ -473,7 +529,7 @@ async def test_multiple_rows_returns_warning_token(tmp_path: Path) -> None:
         )
     }
     mcp = FastMCP("test-multi")
-    UpdateTools(*single_target(backend), updates).register(mcp)
+    UpdateTools(*single_target(backend), updates).register(FastMCPSink(mcp))
 
     async with create_connected_server_and_client_session(
         mcp, raise_exceptions=True
@@ -501,7 +557,7 @@ async def test_sql_injection_blocked_via_values(sqlite_db: Path) -> None:
         )
     }
     mcp = FastMCP("test-inject-value")
-    UpdateTools(*single_target(backend), updates).register(mcp)
+    UpdateTools(*single_target(backend), updates).register(FastMCPSink(mcp))
 
     payload = "'); DROP TABLE customers; --"
     async with create_connected_server_and_client_session(
@@ -527,7 +583,7 @@ async def test_sql_injection_blocked_via_key_value(sqlite_db: Path) -> None:
         )
     }
     mcp = FastMCP("test-inject-key")
-    UpdateTools(*single_target(backend), updates).register(mcp)
+    UpdateTools(*single_target(backend), updates).register(FastMCPSink(mcp))
 
     payload = "'); DROP TABLE customers; --"
     async with create_connected_server_and_client_session(
@@ -558,7 +614,7 @@ async def test_required_field_omitted_errors(sqlite_db: Path) -> None:
         )
     }
     mcp = FastMCP("test-required")
-    UpdateTools(*single_target(backend), updates).register(mcp)
+    UpdateTools(*single_target(backend), updates).register(FastMCPSink(mcp))
 
     async with create_connected_server_and_client_session(mcp) as client:
         result = await client.call_tool("update_set_status", {"id": 1})
@@ -594,7 +650,7 @@ async def test_schema_empty_generates_bare_table(
         )
     }
     mcp = FastMCP("test-bare")
-    UpdateTools(*single_target(backend), updates).register(mcp)
+    UpdateTools(*single_target(backend), updates).register(FastMCPSink(mcp))
 
     async with create_connected_server_and_client_session(
         mcp, raise_exceptions=True
@@ -628,7 +684,7 @@ async def test_schema_nonempty_generates_qualified_table(
         )
     }
     mcp = FastMCP("test-qualified")
-    UpdateTools(*single_target(backend), updates).register(mcp)
+    UpdateTools(*single_target(backend), updates).register(FastMCPSink(mcp))
 
     async with create_connected_server_and_client_session(
         mcp, raise_exceptions=True
@@ -661,8 +717,8 @@ async def test_query_and_update_same_base_name_coexist(sqlite_db: Path) -> None:
         )
     }
     mcp = FastMCP("test-coexist")
-    QueryTools(*single_target(backend), queries).register(mcp)
-    UpdateTools(*single_target(backend), updates).register(mcp)
+    QueryTools(*single_target(backend), queries).register(FastMCPSink(mcp))
+    UpdateTools(*single_target(backend), updates).register(FastMCPSink(mcp))
 
     async with create_connected_server_and_client_session(
         mcp, raise_exceptions=True
@@ -690,7 +746,7 @@ def test_field_name_clashes_with_key_raises_at_registration(sqlite_db: Path) -> 
     }
     mcp = FastMCP("test-clash")
     with pytest.raises(ValueError) as exc:
-        UpdateTools(*single_target(backend), updates).register(mcp)
+        UpdateTools(*single_target(backend), updates).register(FastMCPSink(mcp))
     msg = str(exc.value)
     assert "id" in msg
 
@@ -715,5 +771,5 @@ def test_identifier_error_message_shared(sqlite_db: Path) -> None:
     }
     mcp = FastMCP("test-shared-msg")
     with pytest.raises(ValueError) as exc:
-        UpdateTools(*single_target(backend), updates).register(mcp)
+        UpdateTools(*single_target(backend), updates).register(FastMCPSink(mcp))
     assert str(exc.value) == identifier_error("bad-table", "set_name")

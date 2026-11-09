@@ -13,6 +13,7 @@ from sqlglot.errors import TokenError
 from mcp_tools_sql.config.models import QueryConfig
 from mcp_tools_sql.query_helpers import read_only_rejection
 from mcp_tools_sql.query_tools import QueryTools
+from mcp_tools_sql.server import FastMCPSink
 from mcp_tools_sql.utils.sql_placeholders import (
     ParseError,
     SqlglotError,
@@ -47,7 +48,7 @@ async def test_write_query_is_skipped_with_warning(
     mcp = FastMCP("test-gate-delete")
 
     with caplog.at_level(logging.WARNING, logger="mcp_tools_sql.query_tools"):
-        QueryTools(*single_target(backend), queries).register(mcp)
+        QueryTools(*single_target(backend), queries).register(FastMCPSink(mcp))
 
     assert await _registered_names(mcp) == set()
     assert any("purge" in rec.getMessage() for rec in caplog.records)
@@ -63,7 +64,7 @@ async def test_sibling_queries_still_register(sqlite_db: Path) -> None:
     }
     mcp = FastMCP("test-gate-siblings")
 
-    QueryTools(*single_target(backend), queries).register(mcp)
+    QueryTools(*single_target(backend), queries).register(FastMCPSink(mcp))
 
     assert await _registered_names(mcp) == {"query_listing"}
 
@@ -75,7 +76,9 @@ async def test_exec_procedure_is_rejected(sqlite_db: Path) -> None:
     queries = {"proc": QueryConfig(description="", sql="EXEC dbo.usp_x :p")}
     mcp = FastMCP("test-gate-exec")
 
-    QueryTools(*single_target(backend, backend_name="mssql"), queries).register(mcp)
+    QueryTools(*single_target(backend, backend_name="mssql"), queries).register(
+        FastMCPSink(mcp)
+    )
 
     assert await _registered_names(mcp) == set()
 
@@ -87,7 +90,9 @@ async def test_separator_less_batch_is_rejected(sqlite_db: Path) -> None:
     queries = {"sneaky": QueryConfig(description="", sql="SELECT 1\nDELETE FROM t")}
     mcp = FastMCP("test-gate-batch")
 
-    QueryTools(*single_target(backend, backend_name="mssql"), queries).register(mcp)
+    QueryTools(*single_target(backend, backend_name="mssql"), queries).register(
+        FastMCPSink(mcp)
+    )
 
     assert await _registered_names(mcp) == set()
 
@@ -102,7 +107,7 @@ async def test_unparseable_sql_is_rejected_not_raised(
     mcp = FastMCP("test-gate-unparseable")
 
     with caplog.at_level(logging.WARNING, logger="mcp_tools_sql.query_tools"):
-        QueryTools(*single_target(backend), queries).register(mcp)
+        QueryTools(*single_target(backend), queries).register(FastMCPSink(mcp))
 
     assert await _registered_names(mcp) == set()
     assert any("broken" in rec.getMessage() for rec in caplog.records)
@@ -118,14 +123,14 @@ async def test_valid_query_registers_and_bad_name_still_raises(
     QueryTools(
         *single_target(backend),
         {"listing": QueryConfig(description="", sql="SELECT id FROM orders")},
-    ).register(mcp)
+    ).register(FastMCPSink(mcp))
     assert await _registered_names(mcp) == {"query_listing"}
 
     with pytest.raises(ValueError, match="123-bad"):
         QueryTools(
             *single_target(backend),
             {"123-bad": QueryConfig(description="", sql="DELETE FROM orders")},
-        ).register(FastMCP("test-gate-bad-name"))
+        ).register(FastMCPSink(FastMCP("test-gate-bad-name")))
 
 
 @pytest.mark.asyncio
@@ -146,7 +151,7 @@ async def test_passthrough_source_is_rejected(
     mcp = FastMCP("test-gate-passthrough")
 
     QueryTools(*single_target(backend, backend_name=backend_name), queries).register(
-        mcp
+        FastMCPSink(mcp)
     )
 
     assert await _registered_names(mcp) == set()
@@ -184,7 +189,7 @@ async def test_untokenizable_sql_is_skipped_not_raised(
     with caplog.at_level(logging.WARNING, logger="mcp_tools_sql.query_tools"):
         QueryTools(
             *single_target(backend, backend_name=backend_name), queries
-        ).register(mcp)
+        ).register(FastMCPSink(mcp))
 
     assert await _registered_names(mcp) == {"query_listing"}
     assert any("broken" in rec.getMessage() for rec in caplog.records)

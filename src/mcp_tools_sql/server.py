@@ -35,6 +35,7 @@ if TYPE_CHECKING:
     from collections.abc import Awaitable, Callable
 
     from mcp_tools_sql.config.models import QueryFileConfig, ResolvedTargets
+    from mcp_tools_sql.utils.tool_spec import ToolSpec
 
 logger = logging.getLogger(__name__)
 
@@ -58,6 +59,17 @@ _RESTART_NOTE = (
     "Note: verify re-read the config files from disk; this server keeps using the config "
     "it loaded at startup. Config edits need a server restart to take effect."
 )
+
+
+class FastMCPSink:
+    """ToolSink adapter that registers each spec on a FastMCP instance."""
+
+    def __init__(self, mcp: FastMCP) -> None:
+        self._mcp = mcp
+
+    def add(self, spec: ToolSpec) -> None:
+        """Register ``spec`` as a FastMCP tool under its name and description."""
+        self._mcp.add_tool(spec.fn, name=spec.name, description=spec.description)
 
 
 class ToolServer:
@@ -98,12 +110,13 @@ class ToolServer:
 
     def _register_builtin_tools(self) -> None:
         """Register schema-exploration tools from default_queries.toml and built-in validation tools."""
+        sink = FastMCPSink(self._mcp)
         SchemaTools(self._registry, self._targets, limits=self._config.limits).register(
-            self._mcp
+            sink
         )
-        ValidationTools(self._registry, self._targets).register(self._mcp)
-        CountTools(self._registry, self._targets).register(self._mcp)
-        SummarizeTools(self._registry, self._targets).register(self._mcp)
+        ValidationTools(self._registry, self._targets).register(sink)
+        CountTools(self._registry, self._targets).register(sink)
+        SummarizeTools(self._registry, self._targets).register(sink)
         if self._targets.is_multi:
             self._mcp.add_tool(
                 build_read_databases_tool(self._targets),
@@ -140,15 +153,16 @@ class ToolServer:
         return verify
 
     def _register_configured_tools(self) -> None:
+        sink = FastMCPSink(self._mcp)
         QueryTools(
             self._registry,
             self._targets,
             self._config.queries,
             limits=self._config.limits,
-        ).register(self._mcp)
+        ).register(sink)
         if self._allow_updates:
             UpdateTools(self._registry, self._targets, self._config.updates).register(
-                self._mcp
+                sink
             )
 
     def register_all(self) -> None:

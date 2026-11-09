@@ -26,7 +26,7 @@ from mcp_tools_sql.config.models import (
 )
 from mcp_tools_sql.query_tools import QueryTools
 from mcp_tools_sql.schema_tools import SchemaTools
-from mcp_tools_sql.server import ToolServer
+from mcp_tools_sql.server import FastMCPSink, ToolServer
 from tests.target_helpers import single_target, sqlite_backend
 
 _TRUNC = "\n\n[Output truncated"
@@ -115,13 +115,15 @@ def _query_mcp(
     limits: LimitsConfig | None = None,
 ) -> FastMCP:
     mcp = FastMCP("test-query-limits")
-    QueryTools(*single_target(backend), queries, limits=limits).register(mcp)
+    QueryTools(*single_target(backend), queries, limits=limits).register(
+        FastMCPSink(mcp)
+    )
     return mcp
 
 
 def _schema_mcp(backend: DatabaseBackend) -> FastMCP:
     mcp = FastMCP("test-schema-limits")
-    SchemaTools(*single_target(backend)).register(mcp)
+    SchemaTools(*single_target(backend)).register(FastMCPSink(mcp))
     return mcp
 
 

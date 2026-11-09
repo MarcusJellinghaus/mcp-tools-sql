@@ -20,6 +20,8 @@ from mcp_tools_sql.config.models import (
     ResolvedTargets,
 )
 from mcp_tools_sql.query_tools import QueryTools
+from mcp_tools_sql.server import FastMCPSink
+from mcp_tools_sql.utils.tool_spec import ToolCollector
 from tests.target_helpers import (
     RecordingRegistry,
     make_target,
@@ -37,7 +39,7 @@ async def test_empty_queries_is_noop(sqlite_db: Path) -> None:
     """QueryTools with no queries registers zero tools (no error)."""
     backend = sqlite_backend(sqlite_db)
     mcp = FastMCP("test-empty-queries")
-    QueryTools(*single_target(backend), {}).register(mcp)
+    QueryTools(*single_target(backend), {}).register(FastMCPSink(mcp))
 
     async with create_connected_server_and_client_session(
         mcp, raise_exceptions=True
@@ -58,7 +60,7 @@ async def test_tool_name_is_prefixed(sqlite_db: Path) -> None:
         )
     }
     mcp = FastMCP("test-prefix")
-    QueryTools(*single_target(backend), queries).register(mcp)
+    QueryTools(*single_target(backend), queries).register(FastMCPSink(mcp))
 
     async with create_connected_server_and_client_session(
         mcp, raise_exceptions=True
@@ -80,7 +82,51 @@ def test_invalid_query_name_raises(sqlite_db: Path) -> None:
     }
     mcp = FastMCP("test-invalid")
     with pytest.raises(ValueError, match="123-bad"):
-        QueryTools(*single_target(backend), queries).register(mcp)
+        QueryTools(*single_target(backend), queries).register(FastMCPSink(mcp))
+
+
+# ---------------------------------------------------------------------------
+# Descriptions
+# ---------------------------------------------------------------------------
+
+
+@pytest.mark.parametrize("description", ["", "  "])
+def test_empty_description_falls_back(sqlite_db: Path, description: str) -> None:
+    """An empty or whitespace-only description gets the generated fallback."""
+    backend = sqlite_backend(sqlite_db)
+    queries = {"listing": QueryConfig(description=description, sql="SELECT 1 AS a")}
+    sink = ToolCollector()
+    QueryTools(*single_target(backend), queries).register(sink)
+
+    assert len(sink) == 1
+    spec = sink.specs[0]
+    assert spec.name == "query_listing"
+    assert spec.description == "Run configured query `listing`."
+    assert spec.group == "sql.query"
+    assert spec.read_only is True
+
+
+@pytest.mark.asyncio
+async def test_non_empty_description_passes_through_unchanged(
+    sqlite_db: Path,
+) -> None:
+    """A description with surrounding whitespace is never stripped."""
+    backend = sqlite_backend(sqlite_db)
+    raw = "Lists rows.\n"
+    queries = {"listing": QueryConfig(description=raw, sql="SELECT 1 AS a")}
+
+    sink = ToolCollector()
+    QueryTools(*single_target(backend), queries).register(sink)
+    assert sink.specs[0].description == raw
+
+    mcp = FastMCP("test-raw-description")
+    QueryTools(*single_target(backend), queries).register(FastMCPSink(mcp))
+    async with create_connected_server_and_client_session(
+        mcp, raise_exceptions=True
+    ) as client:
+        result = await client.list_tools()
+        (tool,) = result.tools
+        assert tool.description == raw
 
 
 # ---------------------------------------------------------------------------
@@ -128,7 +174,7 @@ async def test_json_schema_generation(sqlite_db: Path) -> None:
         )
     }
     mcp = FastMCP("test-schema")
-    QueryTools(*single_target(backend), queries).register(mcp)
+    QueryTools(*single_target(backend), queries).register(FastMCPSink(mcp))
 
     async with create_connected_server_and_client_session(
         mcp, raise_exceptions=True
@@ -174,7 +220,7 @@ async def test_register_and_call_via_mcp(sqlite_db: Path) -> None:
         )
     }
     mcp = FastMCP("test-call")
-    QueryTools(*single_target(backend), queries).register(mcp)
+    QueryTools(*single_target(backend), queries).register(FastMCPSink(mcp))
 
     async with create_connected_server_and_client_session(
         mcp, raise_exceptions=True
@@ -223,7 +269,7 @@ async def test_parameterized_int_string_optional(sqlite_db: Path) -> None:
         )
     }
     mcp = FastMCP("test-params")
-    QueryTools(*single_target(backend), queries).register(mcp)
+    QueryTools(*single_target(backend), queries).register(FastMCPSink(mcp))
 
     async with create_connected_server_and_client_session(
         mcp, raise_exceptions=True
@@ -257,7 +303,7 @@ async def test_max_rows_truncation_hint(sqlite_db: Path) -> None:
         )
     }
     mcp = FastMCP("test-truncate")
-    QueryTools(*single_target(backend), queries).register(mcp)
+    QueryTools(*single_target(backend), queries).register(FastMCPSink(mcp))
 
     async with create_connected_server_and_client_session(
         mcp, raise_exceptions=True
@@ -287,7 +333,7 @@ async def test_max_rows_hard_clamp(sqlite_db: Path) -> None:
         )
     }
     mcp = FastMCP("test-clamp")
-    QueryTools(*single_target(backend), queries).register(mcp)
+    QueryTools(*single_target(backend), queries).register(FastMCPSink(mcp))
 
     async with create_connected_server_and_client_session(
         mcp, raise_exceptions=True
@@ -312,7 +358,7 @@ async def test_max_rows_below_one_rejected_by_schema(sqlite_db: Path) -> None:
         )
     }
     mcp = FastMCP("test-min-rows")
-    QueryTools(*single_target(backend), queries).register(mcp)
+    QueryTools(*single_target(backend), queries).register(FastMCPSink(mcp))
 
     async with create_connected_server_and_client_session(mcp) as client:
         for bad in (-1, 0):
@@ -336,7 +382,7 @@ async def test_non_positive_max_rows_default_floored_in_schema(
         )
     }
     mcp = FastMCP("test-floored-default")
-    QueryTools(*single_target(backend), queries).register(mcp)
+    QueryTools(*single_target(backend), queries).register(FastMCPSink(mcp))
 
     async with create_connected_server_and_client_session(mcp) as client:
         tools = await client.list_tools()
@@ -379,7 +425,7 @@ async def test_query_tool_uses_readonly_path(
         )
     }
     mcp = FastMCP("test-readonly-path")
-    QueryTools(*single_target(backend), queries).register(mcp)
+    QueryTools(*single_target(backend), queries).register(FastMCPSink(mcp))
 
     async with create_connected_server_and_client_session(
         mcp, raise_exceptions=True
@@ -426,7 +472,7 @@ async def test_params_passed_as_dict_not_interpolated(
         )
     }
     mcp = FastMCP("test-injection")
-    QueryTools(*single_target(backend), queries).register(mcp)
+    QueryTools(*single_target(backend), queries).register(FastMCPSink(mcp))
 
     payload = "Germany'; DROP TABLE customers; --"
     async with create_connected_server_and_client_session(
@@ -462,7 +508,7 @@ async def test_missing_required_param_errors(sqlite_db: Path) -> None:
         )
     }
     mcp = FastMCP("test-missing")
-    QueryTools(*single_target(backend), queries).register(mcp)
+    QueryTools(*single_target(backend), queries).register(FastMCPSink(mcp))
 
     async with create_connected_server_and_client_session(mcp) as client:
         result = await client.call_tool("query_by_country", {})
@@ -488,7 +534,7 @@ async def test_per_backend_sql_override_applied(sqlite_db: Path) -> None:
         )
     }
     mcp = FastMCP("test-override")
-    QueryTools(*single_target(backend), queries).register(mcp)
+    QueryTools(*single_target(backend), queries).register(FastMCPSink(mcp))
 
     async with create_connected_server_and_client_session(
         mcp, raise_exceptions=True
@@ -519,7 +565,7 @@ async def test_filter_parameter(sqlite_db: Path) -> None:
         )
     }
     mcp = FastMCP("test-filter")
-    QueryTools(*single_target(backend), queries).register(mcp)
+    QueryTools(*single_target(backend), queries).register(FastMCPSink(mcp))
 
     async with create_connected_server_and_client_session(
         mcp, raise_exceptions=True
@@ -574,7 +620,7 @@ async def test_query_tool_binds_datetime_param(
         )
     }
     mcp = FastMCP("test-datetime")
-    QueryTools(*single_target(backend), queries).register(mcp)
+    QueryTools(*single_target(backend), queries).register(FastMCPSink(mcp))
 
     async with create_connected_server_and_client_session(
         mcp, raise_exceptions=True
@@ -633,7 +679,7 @@ def test_unpinned_query_binds_default_target(sqlite_db: Path) -> None:
     queries = {"q": QueryConfig(description="", sql="SELECT 1 AS a")}
     mcp = FastMCP("test-pin-default")
 
-    QueryTools(registry, targets, queries).register(mcp)
+    QueryTools(registry, targets, queries).register(FastMCPSink(mcp))
 
     assert registry.calls == [by_key["default"]]
 
@@ -647,7 +693,7 @@ def test_query_pinned_to_connection_binds_that_backend(sqlite_db: Path) -> None:
     }
     mcp = FastMCP("test-pin-connection")
 
-    QueryTools(registry, targets, queries).register(mcp)
+    QueryTools(registry, targets, queries).register(FastMCPSink(mcp))
 
     assert registry.calls == [by_key["second"]]
 
@@ -661,7 +707,7 @@ def test_query_pinned_to_database_resolves_default_connection(
     queries = {"q": QueryConfig(description="", sql="SELECT 1 AS a", database="hr")}
     mcp = FastMCP("test-pin-database")
 
-    QueryTools(registry, targets, queries).register(mcp)
+    QueryTools(registry, targets, queries).register(FastMCPSink(mcp))
 
     assert registry.calls == [by_key["hr"]]
     assert registry.calls[0].connection == "default"
@@ -676,4 +722,4 @@ def test_query_pinned_to_unknown_target_raises(sqlite_db: Path) -> None:
     mcp = FastMCP("test-pin-invalid")
 
     with pytest.raises(ValueError, match="nope"):
-        QueryTools(registry, targets, queries).register(mcp)
+        QueryTools(registry, targets, queries).register(FastMCPSink(mcp))

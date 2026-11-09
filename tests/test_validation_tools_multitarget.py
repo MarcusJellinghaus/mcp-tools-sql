@@ -12,6 +12,7 @@ from mcp.shared.memory import create_connected_server_and_client_session
 from mcp_tools_sql.backends.sqlite import SQLiteBackend
 from mcp_tools_sql.config.models import ConnectionConfig, ResolvedTargets
 from mcp_tools_sql.query_helpers import build_target_params
+from mcp_tools_sql.server import FastMCPSink
 from mcp_tools_sql.validation_tools import ValidationTools
 from tests.target_helpers import RecordingRegistry, make_target
 
@@ -103,7 +104,7 @@ async def test_multi_install_exposes_selector_params(sqlite_db: Path) -> None:
     targets = _multi_targets()
     registry = RecordingRegistry({("lite", "main"): backend, ("sql", "hr"): backend})
     mcp = FastMCP("test-validate-multi-schema")
-    ValidationTools(registry, targets).register(mcp)
+    ValidationTools(registry, targets).register(FastMCPSink(mcp))
 
     async with create_connected_server_and_client_session(
         mcp, raise_exceptions=True
@@ -129,7 +130,7 @@ async def test_multi_per_call_dialect_resolved_from_target(sqlite_db: Path) -> N
     targets = _multi_targets()
     registry = RecordingRegistry({("lite", "main"): backend, ("sql", "hr"): backend})
     mcp = FastMCP("test-validate-multi-dialect")
-    ValidationTools(registry, targets).register(mcp)
+    ValidationTools(registry, targets).register(FastMCPSink(mcp))
 
     async with create_connected_server_and_client_session(
         mcp, raise_exceptions=True
@@ -158,7 +159,7 @@ async def test_multi_cross_connection_mismatch_returns_verdict(
     targets = _multi_targets()
     registry = RecordingRegistry({("lite", "main"): backend, ("sql", "hr"): backend})
     mcp = FastMCP("test-validate-multi-mismatch")
-    ValidationTools(registry, targets).register(mcp)
+    ValidationTools(registry, targets).register(FastMCPSink(mcp))
 
     async with create_connected_server_and_client_session(
         mcp, raise_exceptions=True
@@ -180,7 +181,7 @@ async def test_multi_valid_select_binds_selected_target(sqlite_db: Path) -> None
     targets = _multi_targets()
     registry = RecordingRegistry({("lite", "main"): backend, ("sql", "hr"): backend})
     mcp = FastMCP("test-validate-multi-select")
-    ValidationTools(registry, targets).register(mcp)
+    ValidationTools(registry, targets).register(FastMCPSink(mcp))
 
     async with create_connected_server_and_client_session(
         mcp, raise_exceptions=True

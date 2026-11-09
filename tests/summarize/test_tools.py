@@ -20,6 +20,7 @@ from mcp.server.fastmcp import FastMCP
 from mcp.shared.memory import create_connected_server_and_client_session
 
 from mcp_tools_sql.config.models import ResolvedTargets
+from mcp_tools_sql.server import FastMCPSink
 from mcp_tools_sql.summarize import SummarizeTools
 from mcp_tools_sql.summarize.render import (
     DISTINCT_GATE_ROWS,
@@ -288,7 +289,7 @@ async def test_registration_exposes_tool(profiling_db: Path) -> None:
     """A single-target install exposes ``summarize_columns`` in list_tools."""
     backend = _sqlite_backend(profiling_db)
     mcp = FastMCP("test-summarize-registration")
-    SummarizeTools(*single_target(backend)).register(mcp)
+    SummarizeTools(*single_target(backend)).register(FastMCPSink(mcp))
     async with create_connected_server_and_client_session(
         mcp, raise_exceptions=True
     ) as client:
@@ -313,7 +314,7 @@ async def test_multi_target_selectors_omit_star(profiling_db: Path) -> None:
     targets = _multi_targets()
     registry = RecordingRegistry({("lite", "main"): backend, ("sql", "hr"): backend})
     mcp = FastMCP("test-summarize-multi")
-    SummarizeTools(registry, targets).register(mcp)
+    SummarizeTools(registry, targets).register(FastMCPSink(mcp))
     async with create_connected_server_and_client_session(
         mcp, raise_exceptions=True
     ) as client:
