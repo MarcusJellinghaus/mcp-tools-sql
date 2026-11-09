@@ -79,10 +79,13 @@ def collect(
   2 (header + separator) + sum of row heights (row height = most lines in any
   cell). Admit a row only if `lines_after × (width_after + 1) ≤
   max_output_chars`, using the running maximum widths including the new row.
-- The display set is complete when the first matched row is not admitted
-  (`len(rows) == max_rows` → `"max_rows"`, budget refused → `"chars"`). At that
-  moment set `counting.at = monotonic() + counting_seconds` (one shared
-  `Deadline` for all sources).
+- The display set is complete as soon as the admitted row count reaches
+  `max_rows`, or when the char budget refuses a row. At that moment set
+  `counting.at = monotonic() + counting_seconds` (one shared `Deadline` for all
+  sources), so the counting limit runs from display completion even when the
+  next match is far away (selective `*_filter`). `display_limit` is set when
+  the next matched row is not shown (`"max_rows"` if `len(rows) == max_rows`,
+  `"chars"` if the budget refused it).
 - Always close each source generator in `finally` (`gen.close()`).
 - `QueryTimeoutError` is caught inside the source loop: label it `"counting"`
   only if `src.enforces_counting` and `counting.at` is set and passed, else
@@ -105,7 +108,9 @@ for src in sources:
             for row in filter_rows(batch):
                 if counted == limits.max_count_rows: stop = "max_count"; break   # row max_count+1 proves "more"
                 counted += 1; src_count.matched += 1
-                if not display_full: try admit row, else mark display_full + arm counting deadline
+                if display_full: display_limit = display_limit or "max_rows"   # row counted, not shown
+                elif not admitted under char budget: display_limit = "chars"; mark display_full + arm counting deadline
+                if not display_full and len(rows) == max_rows: mark display_full + arm counting deadline
             if stop == "end" and display_full and monotonic() >= counting.at: stop = "counting"
             if stop != "end": src_count.complete = False; break
     except QueryTimeoutError / Exception: as in HOW
@@ -146,3 +151,9 @@ the char budget); counted rows beyond them are discarded.
   opening `iter_readonly_batches`, `enforces_counting=True`): a counting phase that would outlast the
   counting time limit (1 s) is cut mid-batch → `stop == "counting"`; elapsed
   time < 2 s.
+- SQLite integration, selective filter (same setup, `query_timeout_seconds=2`):
+  a slow recursive CTE where the first `max_rows` matches come early and the
+  next match lies far past the display set (e.g. `filter_rows` keeps
+  `x <= max_rows` or `x == 10**9`) → counting deadline armed when
+  `len(rows) == max_rows`, `stop == "counting"` (not `"timeout"`), elapsed
+  time < `query_timeout_seconds`.
