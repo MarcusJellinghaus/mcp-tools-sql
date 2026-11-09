@@ -4,21 +4,27 @@
 [OK]  get_user.params               well-formed
 [OK]  get_user.max_rows_default     10
 [OK]  get_user.max_rows_hard        10
+[WARN]  get_user.description          (empty)  - no description; the tool uses a generated one
 [WARN]  bad_sql.sql                   (skipped)  - not read-only; see the read_only row
 [ERR]  bad_sql.read_only[sqlite]     failed  - Not read-only. DELETE statements are not permitted.
 [OK]  bad_sql.params                well-formed
 [OK]  bad_sql.max_rows_default      10
 [OK]  bad_sql.max_rows_hard         10
+[WARN]  bad_sql.description           (empty)  - no description; the tool uses a generated one
 [ERR]  mismatched_params.sql         failed  - no such column: name
 [OK]  mismatched_params.read_only[sqlite]  read-only
 [ERR]  mismatched_params.params      issue  - SQL :foo not in config params; Config params ['bar'] not used in SQL
 [OK]  mismatched_params.max_rows_default  10
 [OK]  mismatched_params.max_rows_hard  10
+[WARN]  mismatched_params.description  (empty)  - no description; the tool uses a generated one
 === UPDATES ===
 [OK]  set_user_email.table          users
 [OK]  set_user_email.key_column     id
 [OK]  set_user_email.fields         email
+[WARN]  set_user_email.description    (empty)  - no description; the tool uses a generated one
 [ERR]  set_missing.table             nonexistent_table  - Table not found
 [ERR]  set_missing.key_column        (skipped)  - Table not found
 [ERR]  set_missing.fields            (skipped)  - Table not found
+[WARN]  set_missing.description       (empty)  - no description; the tool uses a generated one
 [ERR]  bad_table.table               drop;  - Invalid identifier 'drop;' for update 'bad_table': must match ^[a-zA-Z_][a-zA-Z0-9_]*$ (SQL identifiers in mcp-tools-sql are intentionally restricted to a strict whitelist)
+[WARN]  bad_table.description         (empty)  - no description; the tool uses a generated one

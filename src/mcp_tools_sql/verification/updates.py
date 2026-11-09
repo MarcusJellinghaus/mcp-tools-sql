@@ -10,6 +10,7 @@ from mcp_tools_sql.verification._helpers import (
     CheckResult,
     make_entry,
     make_skipped_entry,
+    make_warn_entry,
 )
 
 
@@ -47,14 +48,14 @@ def _list_table_columns(
     return None
 
 
-def verify_one_update(
+def _verify_update_checks(
     name: str,
     ucfg: UpdateConfig,
     targets: ResolvedTargets,
     registry: BackendRegistry,
     reachable: dict[tuple[str, str], bool],
 ) -> dict[str, CheckResult]:
-    """Per-entry validation for a single update against its own pinned target.
+    """Run the table, key-column and fields checks for one update.
 
     The identifier checks run statically (independent of connectivity). When
     the update's resolved target is reachable, its columns are listed via the
@@ -172,6 +173,31 @@ def verify_one_update(
     return result
 
 
+def verify_one_update(
+    name: str,
+    ucfg: UpdateConfig,
+    targets: ResolvedTargets,
+    registry: BackendRegistry,
+    reachable: dict[tuple[str, str], bool],
+) -> dict[str, CheckResult]:
+    """Per-entry validation for a single update against its own pinned target.
+
+    Runs the checks described by :func:`_verify_update_checks`, then warns when
+    the update has no description (empty or whitespace-only), since the tool
+    then falls back to a generated one.
+
+    Returns:
+        The rows of :func:`_verify_update_checks`, followed by a trailing
+        ``<name>.description`` warning row only when the description is empty.
+    """
+    result = _verify_update_checks(name, ucfg, targets, registry, reachable)
+    if not ucfg.description.strip():
+        result[f"{name}.description"] = make_warn_entry(
+            "(empty)", "no description; the tool uses a generated one"
+        )
+    return result
+
+
 def verify_updates(
     updates: dict[str, UpdateConfig],
     targets: ResolvedTargets,
@@ -186,9 +212,9 @@ def verify_updates(
     verdict.
 
     Returns:
-        Three rows per update (``<name>.table``, ``<name>.key_column``,
-        ``<name>.fields``). When the table is missing, all three rows are
-        emitted as ``[ERR]`` rather than skipped.
+        The rows described by :func:`verify_one_update` for each update. When
+        the table is missing, the table/key_column/fields rows are emitted as
+        ``[ERR]`` rather than skipped.
     """
     result: dict[str, CheckResult] = {}
     for name, ucfg in updates.items():

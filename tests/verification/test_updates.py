@@ -397,3 +397,53 @@ def test_verify_updates_bad_identifier_still_fires_for_unreachable_target(
     assert result["bad.table"]["ok"] is False
     assert "intentionally restricted" in result["bad.table"]["error"]
     assert "bad.key_column" not in result
+
+
+@pytest.mark.parametrize("description", ["", "  "])
+def test_verify_one_update_warns_on_empty_description(
+    sqlite_targets: ResolvedTargets,
+    sqlite_registry: BackendRegistry,
+    all_reachable: dict[tuple[str, str], bool],
+    description: str,
+) -> None:
+    """Empty/whitespace description → trailing ``.description`` WARN row."""
+    ucfg = UpdateConfig(
+        table="customers",
+        key=UpdateKeyConfig(field="id", type="int"),
+        fields=[UpdateFieldConfig(field="name", type="str")],
+        description=description,
+    )
+    result = verify_one_update(
+        "nodesc", ucfg, sqlite_targets, sqlite_registry, all_reachable
+    )
+
+    assert list(result.keys()) == [
+        "nodesc.table",
+        "nodesc.key_column",
+        "nodesc.fields",
+        "nodesc.description",
+    ]
+    row = result["nodesc.description"]
+    assert row["severity"] == "warning"
+    assert row["ok"] is False
+    assert row["value"] == "(empty)"
+    assert checks_ok(result) is True
+
+
+def test_verify_one_update_no_description_row_when_described(
+    sqlite_targets: ResolvedTargets,
+    sqlite_registry: BackendRegistry,
+    all_reachable: dict[tuple[str, str], bool],
+) -> None:
+    """A non-empty description emits no ``.description`` row."""
+    ucfg = UpdateConfig(
+        table="customers",
+        key=UpdateKeyConfig(field="id", type="int"),
+        fields=[UpdateFieldConfig(field="name", type="str")],
+        description="Rename a customer.",
+    )
+    result = verify_one_update(
+        "described", ucfg, sqlite_targets, sqlite_registry, all_reachable
+    )
+
+    assert "described.description" not in result

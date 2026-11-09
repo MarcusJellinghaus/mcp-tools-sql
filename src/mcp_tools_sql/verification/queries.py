@@ -133,14 +133,14 @@ def _read_only_rows(
     return rows
 
 
-def verify_one_query(
+def _verify_query_checks(
     name: str,
     qcfg: QueryConfig,
     targets: ResolvedTargets,
     registry: BackendRegistry,
     reachable: dict[tuple[str, str], bool],
 ) -> dict[str, CheckResult]:
-    """Per-entry validation for a single query against its own pinned target.
+    """Run the SQL, read-only, params and row-limit checks for one query.
 
     Resolves the query's pinned ``(connection, database)`` target and, when
     that target's connection is reachable, EXPLAINs the SQL against the
@@ -215,6 +215,31 @@ def verify_one_query(
     result[f"{name}.max_rows_hard"] = _positive_entry(
         "max_rows_hard", cast(int, qcfg.max_rows_hard)
     )
+    return result
+
+
+def verify_one_query(
+    name: str,
+    qcfg: QueryConfig,
+    targets: ResolvedTargets,
+    registry: BackendRegistry,
+    reachable: dict[tuple[str, str], bool],
+) -> dict[str, CheckResult]:
+    """Per-entry validation for a single query against its own pinned target.
+
+    Runs the checks described by :func:`_verify_query_checks`, then warns when
+    the query has no description (empty or whitespace-only), since the tool
+    then falls back to a generated one.
+
+    Returns:
+        The rows of :func:`_verify_query_checks`, followed by a trailing
+        ``<name>.description`` warning row only when the description is empty.
+    """
+    result = _verify_query_checks(name, qcfg, targets, registry, reachable)
+    if not qcfg.description.strip():
+        result[f"{name}.description"] = make_warn_entry(
+            "(empty)", "no description; the tool uses a generated one"
+        )
     return result
 
 
