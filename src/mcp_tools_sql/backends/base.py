@@ -4,8 +4,50 @@ from __future__ import annotations
 
 from abc import ABC, abstractmethod
 from contextlib import AbstractContextManager
+from dataclasses import dataclass
 from types import TracebackType
 from typing import Any, Self
+
+_SQLITE_INTERRUPT = 9
+_SQLSTATE_TIMEOUT = "HYT00"
+
+
+class QueryTimeoutError(Exception):
+    """A statement exceeded the connection's query_timeout_seconds."""
+
+    def __init__(self, seconds: int) -> None:
+        self.seconds = seconds
+        super().__init__(f"Query aborted after {seconds} s (statement timeout).")
+
+
+@dataclass
+class Deadline:
+    """Caller-set counting deadline (time.monotonic()), None = not armed."""
+
+    at: float | None = None
+
+
+def translate_timeout(exc: BaseException, seconds: int) -> QueryTimeoutError | None:
+    """Map a driver timeout error to :class:`QueryTimeoutError`.
+
+    Recognises SQLite's ``SQLITE_INTERRUPT`` (``sqlite_errorcode == 9``) and
+    the ODBC statement-timeout SQLSTATE ``HYT00`` (``exc.args[0]``). Reads
+    attributes only, so no driver module is imported.
+
+    Args:
+        exc: The exception raised by the driver.
+        seconds: The statement timeout that was in force.
+
+    Returns:
+        A :class:`QueryTimeoutError` when *exc* is a statement timeout,
+        otherwise ``None``.
+    """
+    if getattr(exc, "sqlite_errorcode", None) == _SQLITE_INTERRUPT:
+        return QueryTimeoutError(seconds)
+    if exc.args and exc.args[0] == _SQLSTATE_TIMEOUT:
+        return QueryTimeoutError(seconds)
+    return None
+
 
 # keep in sync with the create_backend dispatch chain in backends/registry.py
 _DIALECTS: dict[str, str] = {

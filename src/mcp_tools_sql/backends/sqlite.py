@@ -4,12 +4,58 @@ from __future__ import annotations
 
 import sqlite3
 import threading
+import time
 from collections.abc import Iterator
 from contextlib import contextmanager
 from typing import Any
 
-from mcp_tools_sql.backends.base import DatabaseBackend
+from mcp_tools_sql.backends.base import (
+    DatabaseBackend,
+    Deadline,
+    translate_timeout,
+)
 from mcp_tools_sql.config.models import ConnectionConfig
+
+_PROGRESS_STEPS = 1000  # VM instructions between deadline checks
+
+
+@contextmanager
+def _statement_deadline(
+    conn: sqlite3.Connection, seconds: int, counting: Deadline | None = None
+) -> Iterator[None]:
+    """Interrupt statements on *conn* that run past the deadline.
+
+    Installs a progress handler for the duration of the block and removes it
+    in ``finally``, so the connection is clean afterwards. The handler fires
+    at the earlier of ``seconds`` from entry and ``counting.at`` (when armed);
+    the statement deadline is never extended.
+
+    Args:
+        conn: The connection the wrapped statements run on.
+        seconds: Statement timeout in seconds.
+        counting: Optional caller-set counting deadline.
+
+    Raises:
+        QueryTimeoutError: When a statement was interrupted.
+    """
+    stop = time.monotonic() + seconds
+
+    def _handler() -> int:
+        limit = stop
+        if counting is not None and counting.at is not None:
+            limit = min(stop, counting.at)
+        return int(time.monotonic() >= limit)
+
+    conn.set_progress_handler(_handler, _PROGRESS_STEPS)
+    try:
+        yield
+    except sqlite3.Error as exc:
+        translated = translate_timeout(exc, seconds)
+        if translated is not None:
+            raise translated from exc
+        raise
+    finally:
+        conn.set_progress_handler(None, 0)
 
 
 class SQLiteBackend(DatabaseBackend):
@@ -69,13 +115,19 @@ class SQLiteBackend(DatabaseBackend):
     def execute_query(
         self, sql: str, params: dict[str, Any] | None = None
     ) -> list[dict[str, Any]]:
-        """Execute a SELECT query.
+        """Execute a SELECT query under the statement timeout.
 
         Returns:
             Rows as a list of dicts.
+
+        Raises:
+            QueryTimeoutError: If execute + fetch exceed
+                ``query_timeout_seconds``.
         """
-        cursor = self._require_connection().execute(sql, params or {})
-        return [dict(row) for row in cursor.fetchall()]
+        conn = self._require_connection()
+        with _statement_deadline(conn, self._config.query_timeout_seconds):
+            cursor = conn.execute(sql, params or {})
+            return [dict(row) for row in cursor.fetchall()]
 
     def execute_readonly_query(
         self, sql: str, params: dict[str, Any] | None = None
@@ -85,13 +137,15 @@ class SQLiteBackend(DatabaseBackend):
         Opens a brand-new single-use connection to the same database file,
         sets ``query_only`` so the DB rejects any write, runs the query, and
         closes the connection in ``finally``. The persistent connection is
-        never touched.
+        never touched. Execute + fetch run under the statement timeout.
 
         Returns:
             Rows as a list of dicts.
 
         Raises:
             ValueError: If the connection path is empty.
+            QueryTimeoutError: If execute + fetch exceed
+                ``query_timeout_seconds``.
         """
         path = self._config.path
         if not path:
@@ -101,8 +155,9 @@ class SQLiteBackend(DatabaseBackend):
         try:
             conn.row_factory = sqlite3.Row
             conn.execute("PRAGMA query_only = ON")
-            cursor = conn.execute(sql, params or {})
-            return [dict(row) for row in cursor.fetchall()]
+            with _statement_deadline(conn, self._config.query_timeout_seconds):
+                cursor = conn.execute(sql, params or {})
+                return [dict(row) for row in cursor.fetchall()]
         finally:
             conn.close()
 
@@ -116,7 +171,8 @@ class SQLiteBackend(DatabaseBackend):
         the same database file, ``query_only`` set so the DB rejects any
         write, closed in ``finally``, persistent connection never touched.
         Only the result shape differs: ordered column names plus positional
-        row tuples, so duplicate column names survive.
+        row tuples, so duplicate column names survive. Execute + fetch run
+        under the statement timeout.
 
         Args:
             sql: The SELECT statement to execute.
@@ -128,6 +184,8 @@ class SQLiteBackend(DatabaseBackend):
 
         Raises:
             ValueError: If the connection path is empty.
+            QueryTimeoutError: If execute + fetch exceed
+                ``query_timeout_seconds``.
         """
         path = self._config.path
         if not path:
@@ -136,34 +194,44 @@ class SQLiteBackend(DatabaseBackend):
         conn = sqlite3.connect(path, check_same_thread=False)
         try:
             conn.execute("PRAGMA query_only = ON")
-            cursor = conn.execute(sql, params or {})
-            columns = [d[0] for d in cursor.description or ()]
-            return columns, [tuple(row) for row in cursor.fetchall()]
+            with _statement_deadline(conn, self._config.query_timeout_seconds):
+                cursor = conn.execute(sql, params or {})
+                columns = [d[0] for d in cursor.description or ()]
+                return columns, [tuple(row) for row in cursor.fetchall()]
         finally:
             conn.close()
 
     def execute_update(self, sql: str, params: dict[str, Any] | None = None) -> int:
-        """Execute an UPDATE/INSERT.
+        """Execute an UPDATE/INSERT under the statement timeout.
 
         Returns:
             Number of affected rows.
+
+        Raises:
+            QueryTimeoutError: If execute + commit exceed
+                ``query_timeout_seconds``.
         """
         conn = self._require_connection()
-        cursor = conn.execute(sql, params or {})
-        conn.commit()
-        return cursor.rowcount
+        with _statement_deadline(conn, self._config.query_timeout_seconds):
+            cursor = conn.execute(sql, params or {})
+            conn.commit()
+            return cursor.rowcount
 
     def explain(self, sql: str, params: dict[str, Any] | None = None) -> str:
-        """Return the query execution plan.
+        """Return the query execution plan under the statement timeout.
 
         SQLite's ``EXPLAIN QUERY PLAN`` requires bound values to compile
         parameterized SQL, so callers must pass ``params`` whenever the SQL
         references ``:name`` placeholders.
+
+        Raises:
+            QueryTimeoutError: If execute + fetch exceed
+                ``query_timeout_seconds``.
         """
-        cursor = self._require_connection().execute(
-            f"EXPLAIN QUERY PLAN {sql}", params or {}
-        )
-        rows = cursor.fetchall()
+        conn = self._require_connection()
+        with _statement_deadline(conn, self._config.query_timeout_seconds):
+            cursor = conn.execute(f"EXPLAIN QUERY PLAN {sql}", params or {})
+            rows = cursor.fetchall()
         return "\n".join(row["detail"] for row in rows)
 
     @contextmanager
