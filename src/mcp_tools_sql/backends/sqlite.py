@@ -5,11 +5,12 @@ from __future__ import annotations
 import sqlite3
 import threading
 import time
-from collections.abc import Iterator
+from collections.abc import Generator, Iterator
 from contextlib import contextmanager
 from typing import Any
 
 from mcp_tools_sql.backends.base import (
+    FETCH_BATCH_SIZE,
     DatabaseBackend,
     Deadline,
     translate_timeout,
@@ -159,6 +160,56 @@ class SQLiteBackend(DatabaseBackend):
                 cursor = conn.execute(sql, params or {})
                 return [dict(row) for row in cursor.fetchall()]
         finally:
+            conn.close()
+
+    def iter_readonly_batches(
+        self,
+        sql: str,
+        params: dict[str, Any] | None = None,
+        *,
+        counting: Deadline | None = None,
+    ) -> Generator[list[dict[str, Any]], None, None]:
+        """Yield rows in batches from a fresh ``PRAGMA query_only = ON`` connection.
+
+        Same read-only guarantee and fresh-connection lifecycle as
+        :meth:`execute_readonly_query`. Execute and the whole fetch loop run
+        under the statement timeout and the optional *counting* deadline. The
+        cursor and connection are closed in ``finally``, so closing the
+        generator early releases both. Never continue fetching after a
+        :class:`QueryTimeoutError`.
+
+        Args:
+            sql: The SELECT statement to execute.
+            params: Optional values for ``:name`` placeholders in *sql*.
+            counting: Optional caller-set counting deadline.
+
+        Yields:
+            Non-empty lists of row dicts, each at most ``FETCH_BATCH_SIZE``
+            long.
+
+        Raises:
+            ValueError: If the connection path is empty.
+            QueryTimeoutError: If the statement timeout or the counting
+                deadline interrupted execute or fetch.
+        """
+        path = self._config.path
+        if not path:
+            msg = "SQLite path must not be empty."
+            raise ValueError(msg)
+        conn = sqlite3.connect(path, check_same_thread=False)
+        cursor: sqlite3.Cursor | None = None
+        try:
+            conn.row_factory = sqlite3.Row
+            conn.execute("PRAGMA query_only = ON")
+            with _statement_deadline(
+                conn, self._config.query_timeout_seconds, counting
+            ):
+                cursor = conn.execute(sql, params or {})
+                while batch := cursor.fetchmany(FETCH_BATCH_SIZE):
+                    yield [dict(row) for row in batch]
+        finally:
+            if cursor is not None:
+                cursor.close()
             conn.close()
 
     def execute_readonly_query_with_columns(

@@ -4,11 +4,16 @@ from __future__ import annotations
 
 import logging
 import threading
-from collections.abc import Iterator
+from collections.abc import Generator, Iterator
 from contextlib import contextmanager
 from typing import Any
 
-from mcp_tools_sql.backends.base import DatabaseBackend, translate_timeout
+from mcp_tools_sql.backends.base import (
+    FETCH_BATCH_SIZE,
+    DatabaseBackend,
+    Deadline,
+    translate_timeout,
+)
 from mcp_tools_sql.config.models import ConnectionConfig
 from mcp_tools_sql.utils.sql_placeholders import (
     substitute_named_with_literals,
@@ -268,6 +273,47 @@ class MSSQLBackend(DatabaseBackend):
             Rows as a list of column-name keyed dicts.
         """
         return self.execute_query(sql, params)
+
+    def iter_readonly_batches(
+        self,
+        sql: str,
+        params: dict[str, Any] | None = None,
+        *,
+        counting: Deadline | None = None,  # pylint: disable=unused-argument
+    ) -> Generator[list[dict[str, Any]], None, None]:
+        """Yield rows in batches via ``cursor.fetchmany`` on the persistent connection.
+
+        Read-only by the documented read-only login, like
+        :meth:`execute_readonly_query`. Execute and the fetch loop run under
+        the connection's statement timeout; *counting* is ignored (the
+        caller checks the clock between batches). The cursor is closed in
+        ``finally``, so closing the generator early releases it. Never
+        continue fetching after a :class:`QueryTimeoutError`.
+
+        Args:
+            sql: The SELECT statement to execute.
+            params: Optional values for ``:name`` placeholders in *sql*.
+            counting: Ignored on SQL Server.
+
+        Yields:
+            Non-empty lists of column-name keyed dicts, each at most
+            ``FETCH_BATCH_SIZE`` long.
+
+        Raises:
+            QueryTimeoutError: If execute or a fetch hit the statement
+                timeout.
+        """
+        conn = self._ensure_connected()
+        sql_q, args = self._params_for_pyodbc(sql, params)
+        cursor = conn.cursor()
+        try:
+            with self._timeouts():
+                cursor.execute(sql_q, args)
+                columns = [d[0] for d in cursor.description]
+                while batch := cursor.fetchmany(FETCH_BATCH_SIZE):
+                    yield [dict(zip(columns, row, strict=True)) for row in batch]
+        finally:
+            cursor.close()
 
     def execute_readonly_query_with_columns(
         self, sql: str, params: dict[str, Any] | None = None

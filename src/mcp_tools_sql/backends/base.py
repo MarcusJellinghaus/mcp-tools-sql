@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 from abc import ABC, abstractmethod
+from collections.abc import Generator
 from contextlib import AbstractContextManager
 from dataclasses import dataclass
 from types import TracebackType
@@ -10,6 +11,8 @@ from typing import Any, Self
 
 _SQLITE_INTERRUPT = 9
 _SQLSTATE_TIMEOUT = "HYT00"
+
+FETCH_BATCH_SIZE: int = 500
 
 
 class QueryTimeoutError(Exception):
@@ -149,6 +152,44 @@ class DatabaseBackend(ABC):
             one plain tuple per row positionally aligned with *columns*. Both
             are empty when the statement produces no result set.
         """
+
+    def iter_readonly_batches(
+        self,
+        sql: str,
+        params: dict[str, Any] | None = None,
+        *,
+        counting: Deadline | None = None,  # pylint: disable=unused-argument
+    ) -> Generator[list[dict[str, Any]], None, None]:
+        """Yield read-only result rows in batches.
+
+        Same DB-enforced read-only guarantee as
+        :meth:`execute_readonly_query`. This default runs that method and
+        slices its result, ignoring *counting*; backends override it to
+        fetch with ``cursor.fetchmany`` so only one batch is in memory.
+
+        Callers that stop early MUST close the generator (``gen.close()`` or
+        ``contextlib.closing``) so the backend releases its cursor and
+        connection. After a :class:`QueryTimeoutError` never continue
+        fetching: on SQLite a later ``fetchmany`` returns ``[]``, which is
+        indistinguishable from end of data.
+
+        Args:
+            sql: The SELECT statement to execute.
+            params: Optional values for ``:name`` placeholders in *sql*.
+            counting: Optional caller-set counting deadline; backends that
+                enforce it interrupt the statement once it passes.
+
+        Yields:
+            Non-empty lists of row dicts, each at most ``FETCH_BATCH_SIZE``
+            long.
+
+        Raises:
+            QueryTimeoutError: If execute or a fetch hit the statement
+                timeout or the counting deadline.
+        """
+        rows = self.execute_readonly_query(sql, params)
+        for start in range(0, len(rows), FETCH_BATCH_SIZE):
+            yield rows[start : start + FETCH_BATCH_SIZE]
 
     @abstractmethod
     def execute_update(self, sql: str, params: dict[str, Any] | None = None) -> int:
