@@ -1,4 +1,4 @@
-"""Tests for the sql_placeholders module (sqlglot-based).
+"""Tests for the sql_ast.placeholders module (sqlglot-based).
 
 These tests both exercise the public helpers and *gate the make-or-break
 spike*: that sqlglot parses ``:name`` into a concrete
@@ -17,7 +17,7 @@ import pytest
 import sqlglot
 from sqlglot import exp
 
-from mcp_tools_sql.utils.sql_placeholders import (
+from mcp_tools_sql.sql_ast.placeholders import (
     LEADING_CTE_REJECTION,
     arbitrary_sql_violation,
     build_count_query,

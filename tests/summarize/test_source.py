@@ -26,6 +26,10 @@ from unittest.mock import MagicMock
 import pytest
 from sqlglot import exp
 
+from mcp_tools_sql.sql_ast.placeholders import (
+    LEADING_CTE_REJECTION,
+    translate_named_to_qmark,
+)
 from mcp_tools_sql.summarize.source import (
     DMF_FALLBACK_NOTE,
     DMF_SQL,
@@ -42,10 +46,6 @@ from mcp_tools_sql.summarize.source import (
     describe_columns,
     probe_columns,
     validate_source,
-)
-from mcp_tools_sql.utils.sql_placeholders import (
-    LEADING_CTE_REJECTION,
-    translate_named_to_qmark,
 )
 
 

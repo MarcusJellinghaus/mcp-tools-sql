@@ -16,7 +16,7 @@ from mcp_tools_sql.backends.base import (
     translate_timeout,
 )
 from mcp_tools_sql.config.models import ConnectionConfig
-from mcp_tools_sql.utils.sql_placeholders import (
+from mcp_tools_sql.sql_ast.placeholders import (
     substitute_named_with_literals,
     translate_named_to_qmark,
 )

@@ -22,9 +22,9 @@ This tracks **Feature Implementation** consisting of multiple **Tasks**.
 ## Tasks
 
 ### Step 1: Move `utils/sql_placeholders.py` → `sql_ast/placeholders.py` — [step_1.md](./steps/step_1.md)
-- [ ] Implementation (tests + production code)
-- [ ] Quality checks: pylint, pytest, mypy — fix all issues
-- [ ] Commit message prepared
+- [x] Implementation (tests + production code)
+- [x] Quality checks: pylint, pytest, mypy — fix all issues
+- [x] Commit message prepared
 
 ### Step 2: Move `summarize/sql.py` → `sql_ast/summarize_queries.py`; split the readonly test — [step_2.md](./steps/step_2.md)
 - [ ] Implementation (tests + production code)

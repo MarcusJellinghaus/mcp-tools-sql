@@ -14,7 +14,7 @@ from mcp_tools_sql.config.models import QueryConfig
 from mcp_tools_sql.query_helpers import read_only_rejection
 from mcp_tools_sql.query_tools import QueryTools
 from mcp_tools_sql.server import FastMCPSink
-from mcp_tools_sql.utils.sql_placeholders import (
+from mcp_tools_sql.sql_ast.placeholders import (
     ParseError,
     SqlglotError,
     read_only_violation,

@@ -13,7 +13,7 @@ import pytest
 import sqlglot
 from sqlglot.errors import TokenError
 
-from mcp_tools_sql.utils.sql_placeholders import (
+from mcp_tools_sql.sql_ast.placeholders import (
     ParseError,
     basic_preflight,
     count_statements,

@@ -19,9 +19,7 @@ from pydantic import Field
 from mcp_tools_sql.config.models import LimitsConfig
 from mcp_tools_sql.formatting import MAX_ROWS_MIN, render_limited
 from mcp_tools_sql.result_limits import Source, collect, counting_time_limit
-from mcp_tools_sql.tool_logging import log_tool_call
-from mcp_tools_sql.utils.data_type_utility.type_mapping import resolve_python_type
-from mcp_tools_sql.utils.sql_placeholders import (
+from mcp_tools_sql.sql_ast.placeholders import (
     SqlglotError,
     extract_param_names,
     keyword_absorption_violation,
@@ -29,6 +27,8 @@ from mcp_tools_sql.utils.sql_placeholders import (
     read_only_violation,
     single_line,
 )
+from mcp_tools_sql.tool_logging import log_tool_call
+from mcp_tools_sql.utils.data_type_utility.type_mapping import resolve_python_type
 
 if TYPE_CHECKING:
     from mcp_tools_sql.backends.base import DatabaseBackend, Deadline

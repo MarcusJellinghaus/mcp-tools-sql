@@ -15,13 +15,13 @@ from mcp_tools_sql.backends.base import (
 )
 from mcp_tools_sql.formatting import TIMEOUT_HINT_NARROWER
 from mcp_tools_sql.query_helpers import build_target_params
-from mcp_tools_sql.tool_builder import build_tool_fn
-from mcp_tools_sql.tool_logging import log_tool_call
-from mcp_tools_sql.utils.sql_placeholders import (
+from mcp_tools_sql.sql_ast.placeholders import (
     basic_preflight,
     first_statement_kind,
     substitute_named_with_literals,
 )
+from mcp_tools_sql.tool_builder import build_tool_fn
+from mcp_tools_sql.tool_logging import log_tool_call
 from mcp_tools_sql.utils.tool_spec import tool_spec
 
 try:

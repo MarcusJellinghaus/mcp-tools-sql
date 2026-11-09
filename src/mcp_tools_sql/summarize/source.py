@@ -61,6 +61,13 @@ from typing import TYPE_CHECKING, Any
 import sqlglot
 from sqlglot import exp
 
+from mcp_tools_sql.sql_ast.placeholders import (
+    LEADING_CTE_REJECTION,
+    arbitrary_sql_violation,
+    basic_preflight,
+    has_leading_cte,
+    substitute_named_with_literals,
+)
 from mcp_tools_sql.summarize.render import table_not_found_message
 from mcp_tools_sql.summarize.sql import (
     ColumnMeta,
@@ -68,13 +75,6 @@ from mcp_tools_sql.summarize.sql import (
     build_table_ref,
     categorize_type,
     metadata_sql,
-)
-from mcp_tools_sql.utils.sql_placeholders import (
-    LEADING_CTE_REJECTION,
-    arbitrary_sql_violation,
-    basic_preflight,
-    has_leading_cte,
-    substitute_named_with_literals,
 )
 
 try:

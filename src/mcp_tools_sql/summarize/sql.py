@@ -29,7 +29,7 @@ from typing import Any, Literal
 import sqlglot
 from sqlglot import exp
 
-from mcp_tools_sql.utils.sql_placeholders import (
+from mcp_tools_sql.sql_ast.placeholders import (
     arbitrary_sql_violation,
     basic_preflight,
 )
