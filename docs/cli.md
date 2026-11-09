@@ -194,12 +194,20 @@ the config models.
 ### `verify` — validate setup without starting the server
 
 ```text
-mcp-tools-sql [--config PATH] [--database-config PATH] verify
+mcp-tools-sql [--config PATH] [--database-config PATH] verify [--output-format text|json]
 ```
 
 `verify` runs a series of checks and prints the result section by
-section. It accepts no subcommand-level flags — supply `--config` and
-`--database-config` on the top-level `mcp-tools-sql` command.
+section. Supply `--config` and `--database-config` on the top-level
+`mcp-tools-sql` command.
+
+| Flag | Meaning |
+|------|---------|
+| `--output-format text` | Default. Human-readable sections, as in the examples below. |
+| `--output-format json` | Print the full `verify_all` result as one JSON document on stdout, and nothing else. The shape is documented in [python-api.md](python-api.md). |
+
+For scripts, the exit codes are the contract and are the same in every
+output format: see [Exit codes](#exit-codes-1).
 
 Sections, in order:
 

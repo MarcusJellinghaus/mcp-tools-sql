@@ -3,9 +3,11 @@
 from __future__ import annotations
 
 import argparse
+import json
 
 from mcp_tools_sql.cli.parsers import WideHelpFormatter
 from mcp_tools_sql.verification import VerifyResult, verify_all
+from mcp_tools_sql.verification._helpers import is_passing
 from mcp_tools_sql.verification.orchestrator import render_skip_m2_summary
 
 STATUS_SYMBOLS: dict[str, str] = {"ok": "[OK]", "err": "[ERR]", "warn": "[WARN]"}
@@ -33,15 +35,31 @@ def _compute_exit_code(error_count: int) -> int:
     return 0 if error_count == 0 else 1
 
 
+def _error_count(result: VerifyResult) -> int:
+    """Return the number of ERR rows (rows that are not passing) in ``result``."""
+    return sum(
+        1
+        for section in result["sections"]
+        for entry in section["checks"].values()
+        if not is_passing(entry)
+    )
+
+
 def add_subparser(subparsers: argparse._SubParsersAction) -> None:  # type: ignore[type-arg]
-    """Register `verify` subparser (no subcommand-level flags; uses top-level)."""
-    subparsers.add_parser(
+    """Register the `verify` subparser and its ``--output-format`` flag."""
+    parser = subparsers.add_parser(
         "verify",
         help=(
             "Validate environment, configuration, dependencies, and connectivity. "
             "Exit 0 on success, 1 on any error"
         ),
         formatter_class=WideHelpFormatter,
+    )
+    parser.add_argument(
+        "--output-format",
+        choices=["text", "json"],
+        default="text",
+        help="Output format: human-readable text (default) or the full result as JSON",
     )
 
 
@@ -52,6 +70,9 @@ def run(args: argparse.Namespace) -> int:
         Process exit code (``0`` if every section passed, ``1`` otherwise).
     """
     result = verify_all(args.config, args.database_config)
+    if getattr(args, "output_format", "text") == "json":
+        print(json.dumps(result, indent=2))
+        return _compute_exit_code(_error_count(result))
     return _print_and_summarize(result)
 
 
@@ -63,7 +84,6 @@ def _print_and_summarize(result: VerifyResult) -> int:
     """
     ok_count = 0
     warn_count = 0
-    err_count = 0
     for section in result["sections"]:
         _print_section(section["title"])
         for key, entry in section["checks"].items():
@@ -89,10 +109,10 @@ def _print_and_summarize(result: VerifyResult) -> int:
                         entry.get("error", ""),
                     )
                 )
-                err_count += 1
         print()
     skipped_queries = result["skipped_queries"]
     if skipped_queries is not None:
         print(render_skip_m2_summary(skipped_queries, result["skipped_updates"] or 0))
+    err_count = _error_count(result)
     print(f"{ok_count} checks passed, {warn_count} warnings, {err_count} errors")
     return _compute_exit_code(err_count)
