@@ -70,7 +70,17 @@ Tool order matches today's server (builtins, read_databases, verify, queries, up
 ## Tests (`tests/test_toolset.py`, SQLite configs written to `tmp_path`)
 - Groups and `read_only` per the summary table (single- and multi-target; `allow_updates=true`).
 - `max_rows` below minimum rejected: `spec.args_model.model_validate({"max_rows": 0})` raises `ValidationError` for a `query_*` tool (use the field constraint actually defined in `build_query_sig_params`; if `max_rows` has no `ge` constraint, use `count_records` without the required `sql`).
-- Each tool type (schema, `validate_sql`, `count_records`, `summarize_columns`, `query_*` with an optional param, `update_*`, `verify`, `read_databases`) called with only its required arguments: `await spec.fn(**required_kwargs)` returns a `str`.
+- Each tool type (schema, `validate_sql`, `count_records`, `summarize_columns`, `query_*` with an optional param, `update_*`, `verify`, `read_databases`) called through `args_model` with only its required arguments returns a `str`:
+  `validated = spec.args_model.model_validate(required_kwargs)` →
+  `await spec.fn(**{f: getattr(validated, f) for f in spec.args_model.model_fields})`.
+  Parametrize over the tool types.
+- `schema` parameter (`summarize_columns`, schema tools such as `read_columns`): the name shadows `BaseModel.schema`.
+  FastMCP aliases such fields; `tool_spec` does not. It keeps the field name `schema` and only suppresses
+  pydantic's "shadows an attribute" warning. `model_validate({"schema": ...})` accepts it, and `getattr(validated, "schema")`
+  returns the field value, not the classmethod (checked with a scratch probe against `mcp_coder_utils.tool_spec`).
+  So no alias or rename is needed. Pin it with a test: route `summarize_columns` and one schema tool through
+  `args_model` with `schema="main"` (SQLite) and assert the call succeeds and `"schema"` is in
+  `spec.args_model.model_json_schema()["properties"]`.
 - Rebuild: build, append a `[queries.bar]` to the config file, build again, close the old toolset → `query_bar` in new specs; old registry's backends closed (patch/count `BackendRegistry.close_all` or assert the old backend's connection is closed).
 - Failed build closes its registry: config with a query pinned to an unknown connection → `build_toolset` raises `ValueError`; a counting patch of `BackendRegistry.close_all` was called once.
 - Query and update without description → fallback description in specs; `verify` spec call output contains `[WARN]` … `.description`.

@@ -23,7 +23,7 @@ def verify_one_query(name, qcfg, targets, registry, reachable):
             "(empty)", "no description; the tool uses a generated one")
     return result
 ```
-Same for updates. The row is a warning: exit code and `query_count`/`update_count` are unaffected.
+Same for updates. Whitespace-only counts as empty (`.strip()`), the same test the step 4 toolkits use for the fallback, so the WARN fires exactly when the tool gets the generated description. The row is a warning: exit code and `query_count`/`update_count` are unaffected.
 Only emit the row when the description is empty (no OK row otherwise), so configs with descriptions keep identical output.
 
 ## HOW
@@ -31,7 +31,7 @@ Only emit the row when the description is empty (no OK row otherwise), so config
 - Update both docstrings' "Returns" to mention the optional trailing `<name>.description` row.
 
 ## Tests
-- `verify_one_query` / `verify_one_update` with `description=""` → last key is `<name>.description`, `severity == "warning"`, existing keys keep their order.
+- `verify_one_query` / `verify_one_update` with `description=""` or `"  "` (parametrized) → last key is `<name>.description`, `severity == "warning"`, existing keys keep their order.
 - With a description → no `.description` key.
 - Regenerate expectations: `verify_snapshot.txt` (the snapshot TOML has no descriptions, so each query/update gains a `[WARN]` row), JSON-output tests in `test_verify_output.py`, exact-key tests in `tests/verification/test_queries.py`.
 
