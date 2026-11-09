@@ -73,9 +73,9 @@ See [step_7.md](./steps/step_7.md)
 ### Step 8: Wire single-target query and schema tools
 See [step_8.md](./steps/step_8.md)
 
-- [ ] Implementation (tests + production code)
-- [ ] Quality checks: pylint, pytest, mypy, lint-imports — fix all issues
-- [ ] Commit message prepared
+- [x] Implementation (tests + production code)
+- [x] Quality checks: pylint, pytest, mypy, lint-imports — fix all issues
+- [x] Commit message prepared
 
 ### Step 9: Wire fan-out (`database="*"`) + architecture doc
 See [step_9.md](./steps/step_9.md)

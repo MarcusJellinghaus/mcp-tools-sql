@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import sqlite3
+from collections.abc import Iterator
 from datetime import datetime
 from pathlib import Path
 from typing import Any
@@ -244,7 +245,7 @@ async def test_parameterized_int_string_optional(sqlite_db: Path) -> None:
 
 @pytest.mark.asyncio
 async def test_max_rows_truncation_hint(sqlite_db: Path) -> None:
-    """Truncation appends the query-tools specific hint text."""
+    """Truncation names the total, the reason and the next step."""
     backend = sqlite_backend(sqlite_db)
     queries = {
         "orders": QueryConfig(
@@ -263,8 +264,8 @@ async def test_max_rows_truncation_hint(sqlite_db: Path) -> None:
     ) as client:
         result = await client.call_tool("query_orders", {})
         text = result.content[0].text  # type: ignore[union-attr]
-        assert "Showing 2 of 3 rows" in text
-        assert "Refine your query parameters or increase max_rows." in text
+        assert "showing 2 of 3 rows (max_rows=2 reached)." in text
+        assert "To see more rows: increase max_rows (hard limit 10)." in text
 
 
 # ---------------------------------------------------------------------------
@@ -351,10 +352,10 @@ async def test_non_positive_max_rows_default_floored_in_schema(
 
 
 @pytest.mark.asyncio
-async def test_query_tool_uses_execute_readonly_query(
+async def test_query_tool_uses_readonly_path(
     sqlite_db: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
-    """A configured query executes through execute_readonly_query only."""
+    """A configured query never reaches the writable ``execute_query``."""
     backend = sqlite_backend(sqlite_db)
 
     def forbidden(
@@ -401,14 +402,16 @@ async def test_params_passed_as_dict_not_interpolated(
     """Parameters reach the backend as a dict, not interpolated into the SQL string."""
     backend = sqlite_backend(sqlite_db)
     captured: dict[str, Any] = {}
-    original = backend.execute_readonly_query
+    original = backend.iter_readonly_batches
 
-    def spy(sql: str, params: dict[str, Any] | None = None) -> list[dict[str, Any]]:
+    def spy(
+        sql: str, params: dict[str, Any] | None = None, **kw: Any
+    ) -> Iterator[list[dict[str, Any]]]:
         captured["sql"] = sql
         captured["params"] = params
-        return original(sql, params)
+        return original(sql, params, **kw)
 
-    monkeypatch.setattr(backend, "execute_readonly_query", spy)
+    monkeypatch.setattr(backend, "iter_readonly_batches", spy)
 
     queries = {
         "by_country": QueryConfig(
@@ -548,13 +551,15 @@ async def test_query_tool_binds_datetime_param(
 
     backend = sqlite_backend(db_path)
     captured: dict[str, Any] = {}
-    original = backend.execute_readonly_query
+    original = backend.iter_readonly_batches
 
-    def spy(sql: str, params: dict[str, Any] | None = None) -> list[dict[str, Any]]:
+    def spy(
+        sql: str, params: dict[str, Any] | None = None, **kw: Any
+    ) -> Iterator[list[dict[str, Any]]]:
         captured["params"] = params
-        return original(sql, params)
+        return original(sql, params, **kw)
 
-    monkeypatch.setattr(backend, "execute_readonly_query", spy)
+    monkeypatch.setattr(backend, "iter_readonly_batches", spy)
 
     queries = {
         "events_since": QueryConfig(

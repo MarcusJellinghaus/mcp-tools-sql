@@ -98,7 +98,9 @@ class ToolServer:
 
     def _register_builtin_tools(self) -> None:
         """Register schema-exploration tools from default_queries.toml and built-in validation tools."""
-        SchemaTools(self._registry, self._targets).register(self._mcp)
+        SchemaTools(self._registry, self._targets, limits=self._config.limits).register(
+            self._mcp
+        )
         ValidationTools(self._registry, self._targets).register(self._mcp)
         CountTools(self._registry, self._targets).register(self._mcp)
         SummarizeTools(self._registry, self._targets).register(self._mcp)
@@ -138,9 +140,12 @@ class ToolServer:
         return verify
 
     def _register_configured_tools(self) -> None:
-        QueryTools(self._registry, self._targets, self._config.queries).register(
-            self._mcp
-        )
+        QueryTools(
+            self._registry,
+            self._targets,
+            self._config.queries,
+            limits=self._config.limits,
+        ).register(self._mcp)
         if self._allow_updates:
             UpdateTools(self._registry, self._targets, self._config.updates).register(
                 self._mcp

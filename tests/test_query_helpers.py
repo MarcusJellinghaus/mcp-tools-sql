@@ -2,11 +2,12 @@
 
 from __future__ import annotations
 
+from collections.abc import Iterator
 from typing import Any
 
 import pytest
 
-from mcp_tools_sql.config.models import QueryConfig
+from mcp_tools_sql.config.models import LimitsConfig, QueryConfig
 from mcp_tools_sql.query_helpers import (
     _cap_max_rows,
     execute_and_format,
@@ -34,6 +35,11 @@ async def test_execute_and_format_caps_max_rows_and_filters() -> None:
         ) -> list[dict[str, Any]]:
             return self.execute_query(sql, params)
 
+        def iter_readonly_batches(
+            self, sql: str, params: dict[str, Any] | None = None, **_: Any
+        ) -> Iterator[list[dict[str, Any]]]:
+            yield self.execute_query(sql, params)
+
     config = QueryConfig(
         description="",
         sql="SELECT name FROM customers",
@@ -49,8 +55,11 @@ async def test_execute_and_format_caps_max_rows_and_filters() -> None:
         _StubBackend(),  # type: ignore[arg-type]
         config,
         "name_filter",
-        "hint",
         {"max_rows": 500, "name_filter": "Bank A"},
+        limits=LimitsConfig(),
+        builtin=False,
+        timeout_seconds=30,
+        enforces_counting=False,
     )
 
     assert "Requested max_rows=500 exceeds hard limit 10" in text
@@ -82,6 +91,16 @@ class _ThreeRowBackend:
         """
         return self.execute_query(sql, params)
 
+    def iter_readonly_batches(
+        self, sql: str, params: dict[str, Any] | None = None, **_: Any
+    ) -> Iterator[list[dict[str, Any]]]:
+        """Yield the three rows as one batch.
+
+        Yields:
+            The same three rows as one batch.
+        """
+        yield self.execute_query(sql, params)
+
 
 async def _run_execute_and_format(config: QueryConfig, kwargs: dict[str, Any]) -> str:
     """Run ``execute_and_format`` over ``_ThreeRowBackend`` with ``kwargs``.
@@ -96,8 +115,11 @@ async def _run_execute_and_format(config: QueryConfig, kwargs: dict[str, Any]) -
         _ThreeRowBackend(),  # type: ignore[arg-type]
         config,
         None,
-        "hint",
         kwargs,
+        limits=LimitsConfig(),
+        builtin=False,
+        timeout_seconds=30,
+        enforces_counting=False,
     )
 
 
@@ -109,7 +131,7 @@ async def test_execute_and_format_below_minimum_max_rows_notes_and_caps() -> Non
     text = await _run_execute_and_format(config, {"max_rows": -1})
 
     assert "Requested max_rows=-1 is below the minimum 1; using 1." in text
-    assert "Showing 1 of 3 rows." in text
+    assert "showing 1 of 3 rows (max_rows=1 reached)." in text
     assert "Bank B" not in text
 
 
@@ -123,7 +145,7 @@ async def test_execute_and_format_omitted_max_rows_uses_floored_default() -> Non
     text = await _run_execute_and_format(config, {})
 
     assert "below the minimum" not in text
-    assert "Showing 1 of 3 rows." in text
+    assert "showing 1 of 3 rows (max_rows=1 reached)." in text
     assert "Bank B" not in text
 
 

@@ -15,7 +15,9 @@ from typing import TYPE_CHECKING, Annotated, Any, Literal, cast
 
 from pydantic import Field
 
-from mcp_tools_sql.formatting import MAX_ROWS_MIN, format_fanout_rows, format_rows
+from mcp_tools_sql.config.models import LimitsConfig
+from mcp_tools_sql.formatting import MAX_ROWS_MIN, format_fanout_rows, render_limited
+from mcp_tools_sql.result_limits import Source, collect, counting_time_limit
 from mcp_tools_sql.tool_logging import log_tool_call
 from mcp_tools_sql.utils.data_type_utility.type_mapping import resolve_python_type
 from mcp_tools_sql.utils.sql_placeholders import (
@@ -224,31 +226,50 @@ def _cap_max_rows(config: QueryConfig, requested: int) -> tuple[int, str]:
     return requested, ""
 
 
-async def execute_and_format(
+async def execute_and_format(  # pylint: disable=too-many-arguments,too-many-locals
     name: str,
     resolved_sql: str,
     sql_params: set[str],
     backend: DatabaseBackend,
     config: QueryConfig,
     filter_kwarg: str | None,
-    truncation_hint: str,
     kwargs: dict[str, Any],
+    *,
+    limits: LimitsConfig,
+    builtin: bool,
+    timeout_seconds: int,
+    enforces_counting: bool,
 ) -> str:
     """Shared execution+format tail for query-style tool bodies.
 
     Applies the ``max_rows`` hard-limit cap (appending a note when clamped),
     pops the filter kwarg, strips ``kwargs`` down to declared SQL params, logs
-    the call, executes the query, applies the optional filter, and formats the
-    rows. Used by both ``build_query_body`` (pinned) and the runtime schema
-    bodies so the common tail has a single home.
+    the call, reads the query in batches through :func:`collect` (filter,
+    display and char budgets, counting) and renders the result with
+    :func:`render_limited`. Used by both ``build_query_body`` (pinned) and the
+    runtime schema bodies so the common tail has a single home.
 
-    Execution goes through ``execute_readonly_query``, so the database itself
+    Reading goes through ``iter_readonly_batches``, so the database itself
     rejects a write that slipped past the registration gate. On SQLite that
-    means a fresh ``PRAGMA query_only = ON`` connection per call — under
-    ``database="*"``, one per target per call. Accepted cost.
+    means a fresh ``PRAGMA query_only = ON`` connection per call. Accepted
+    cost.
+
+    Args:
+        name: Tool name, for logging.
+        resolved_sql: The backend-specific SQL.
+        sql_params: Placeholder names in ``resolved_sql``.
+        backend: Backend to read from.
+        config: The query's config.
+        filter_kwarg: Name of the ``*_filter`` kwarg, or ``None``.
+        kwargs: Call-time kwargs (consumed).
+        limits: ``[limits]`` settings.
+        builtin: Built-in schema tool rather than a configured query.
+        timeout_seconds: The target's ``query_timeout_seconds``.
+        enforces_counting: The backend interrupts at the counting deadline
+            (SQLite).
 
     Returns:
-        The formatted result text, with a max_rows cap note appended when the
+        The rendered result text, with a max_rows cap note appended when the
         requested limit exceeded the hard limit or fell below the minimum. An
         omitted ``max_rows`` resolves to the floored config default and is
         never reported as a below-minimum request.
@@ -262,12 +283,39 @@ async def execute_and_format(
 
     stripped = {k: v for k, v in kwargs.items() if k in sql_params}
 
+    def filter_rows(batch: list[dict[str, Any]]) -> list[dict[str, Any]]:
+        # No pattern (or no filter kwarg) -> apply_filter returns the batch.
+        return apply_filter(batch, config.filter_column, filter_pattern)
+
+    source = Source(
+        database="",
+        open=lambda dl: backend.iter_readonly_batches(
+            resolved_sql, stripped or None, counting=dl
+        ),
+        enforces_counting=enforces_counting,
+    )
+
     async with log_tool_call(name, stripped, sql=resolved_sql) as rec:
-        rows = backend.execute_readonly_query(resolved_sql, stripped or None)
-        if filter_kwarg:
-            rows = apply_filter(rows, config.filter_column, filter_pattern)
-        rec.record(rows=len(rows), cols=len(rows[0]) if rows else 0)
-        return format_rows(rows, requested, truncation_hint=truncation_hint) + note
+        result = collect(
+            [source],
+            max_rows=requested,
+            limits=limits,
+            counting_seconds=counting_time_limit(timeout_seconds),
+            filter_rows=filter_rows,
+        )
+        rec.record(rows=result.total, cols=len(result.rows[0]) if result.rows else 0)
+        text = render_limited(
+            result,
+            max_rows=requested,
+            max_rows_hard=max(cast(int, config.max_rows_hard), MAX_ROWS_MIN),
+            has_sql_params=bool(sql_params),
+            filter_column=config.filter_column,
+            builtin=builtin,
+            fanout=False,
+            max_output_chars=limits.max_output_chars,
+            max_cell_chars=limits.max_cell_chars,
+        )
+        return text + note
 
 
 def build_query_body(
@@ -275,7 +323,9 @@ def build_query_body(
     config: QueryConfig,
     backend: DatabaseBackend,
     backend_name: str,
-    truncation_hint: str,
+    *,
+    timeout_seconds: int,
+    limits: LimitsConfig | None = None,
 ) -> Callable[..., Awaitable[str]]:
     """Build the async body closure that executes a query at tool call time.
 
@@ -286,6 +336,7 @@ def build_query_body(
     resolved_sql = config.resolve_sql(backend_name)
     sql_params = extract_sql_params(resolved_sql)
     filter_kwarg = f"{config.filter_column}_filter" if config.filter_column else None
+    effective_limits = limits if limits is not None else LimitsConfig()
 
     async def body(**kwargs: Any) -> str:
         return await execute_and_format(
@@ -295,8 +346,11 @@ def build_query_body(
             backend,
             config,
             filter_kwarg,
-            truncation_hint,
             kwargs,
+            limits=effective_limits,
+            builtin=False,
+            timeout_seconds=timeout_seconds,
+            enforces_counting=backend_name == "sqlite",
         )
 
     return body
@@ -372,7 +426,8 @@ def build_schema_body(
     config: QueryConfig,
     registry: BackendRegistry,
     targets: ResolvedTargets,
-    truncation_hint: str,
+    *,
+    limits: LimitsConfig | None = None,
 ) -> Callable[..., Awaitable[str]]:
     """Build a runtime-resolving schema tool body over one or all targets.
 
@@ -393,6 +448,7 @@ def build_schema_body(
         pair is invalid.
     """
     filter_kwarg = f"{config.filter_column}_filter" if config.filter_column else None
+    effective_limits = limits if limits is not None else LimitsConfig()
 
     async def fanout(conn: str, kwargs: dict[str, Any]) -> str:
         """Execute against every database of ``conn`` and merge the rows.
@@ -436,7 +492,7 @@ def build_schema_body(
                     errors.append((target.database, str(exc)))
             rec.record(rows=len(merged), cols=len(merged[0]) if merged else 0)
         formatted = format_fanout_rows(
-            merged, counts, errors, requested, truncation_hint=truncation_hint
+            merged, counts, errors, requested, truncation_hint="Use filter to narrow."
         )
         return formatted + note
 
@@ -459,8 +515,11 @@ def build_schema_body(
             backend,
             config,
             filter_kwarg,
-            truncation_hint,
             kwargs,
+            limits=effective_limits,
+            builtin=True,
+            timeout_seconds=target.config.query_timeout_seconds,
+            enforces_counting=target.backend_name == "sqlite",
         )
 
     return body
