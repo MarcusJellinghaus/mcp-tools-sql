@@ -4,8 +4,6 @@ from __future__ import annotations
 
 import sqlite3
 import time
-from collections.abc import Iterator
-from contextlib import contextmanager
 from pathlib import Path
 from typing import Any
 
@@ -62,12 +60,10 @@ class _FakeBackend(DatabaseBackend):
     def execute_update(self, sql: str, params: dict[str, Any] | None = None) -> int:
         return 0
 
-    def explain(self, sql: str, params: dict[str, Any] | None = None) -> str:
+    def explain(
+        self, sql: str, params: dict[str, Any] | None = None, *, isolated: bool = False
+    ) -> str:
         return ""
-
-    @contextmanager
-    def get_isolated_connection(self) -> Iterator[Any]:
-        yield None
 
 
 def test_batch_size_constant() -> None:

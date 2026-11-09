@@ -416,15 +416,15 @@ class MSSQLBackend(DatabaseBackend):
         return rowcount
 
     @contextmanager
-    def get_isolated_connection(self) -> Iterator[Any]:
+    def _isolated_connection(self) -> Iterator[Any]:
         """Yield a fresh pyodbc connection, closed on context exit.
 
         Builds a new connection from the same ``ConnectionConfig`` used by the
         persistent connection, via :meth:`_open_connection` — so it emits the
         same connect-attempt debug line and carries the same password-redaction
         guarantee for driver errors. The fresh connection is closed on context
-        exit (success or exception). Callers MUST NOT close the yielded
-        connection.
+        exit (success or exception); a close error is translated like any
+        other driver error. Callers MUST NOT close the yielded connection.
 
         Yields:
             The fresh pyodbc connection.
@@ -433,9 +433,12 @@ class MSSQLBackend(DatabaseBackend):
         try:
             yield conn
         finally:
-            conn.close()
+            with self._timeouts():
+                conn.close()
 
-    def explain(self, sql: str, params: dict[str, Any] | None = None) -> str:
+    def explain(
+        self, sql: str, params: dict[str, Any] | None = None, *, isolated: bool = False
+    ) -> str:
         """Return the query execution plan via ``SET SHOWPLAN_TEXT ON``.
 
         Parameter values are substituted into the SQL as literals before
@@ -443,12 +446,28 @@ class MSSQLBackend(DatabaseBackend):
         (used for parameter binding) does not return result rows when
         SHOWPLAN_TEXT is on.
 
+        With ``isolated=True`` the plan runs on a fresh connection from
+        :meth:`_isolated_connection` (closed afterwards), so it works even
+        after :meth:`close`; literals are substituted before connecting.
+
         Returns:
             Plain-text execution plan; empty string if MSSQL produces no
             plan rows.
         """
+        if isolated:
+            explain_sql = substitute_named_with_literals(sql, params or {}, "tsql")
+            with self._isolated_connection() as conn:
+                return self._showplan(conn, explain_sql)
         conn = self._ensure_connected()
         explain_sql = substitute_named_with_literals(sql, params or {}, "tsql")
+        return self._showplan(conn, explain_sql)
+
+    def _showplan(self, conn: Any, explain_sql: str) -> str:
+        """Run *explain_sql* on *conn* between SHOWPLAN_TEXT ON and OFF.
+
+        Returns:
+            The non-empty first-column plan rows joined by newlines.
+        """
         with self._timeouts():
             cursor = conn.cursor()
             try:

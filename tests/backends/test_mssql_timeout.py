@@ -35,13 +35,13 @@ class TestConnectionTimeouts:
 
     def test_isolated_connection_default_timeouts(self, fake_pyodbc: Any) -> None:
         b = MSSQLBackend(_cfg())
-        with b.get_isolated_connection() as conn:
+        with b._isolated_connection() as conn:
             assert conn.timeout == 30
         assert fake_pyodbc.connect.call_args.kwargs["timeout"] == 15
 
     def test_isolated_connection_configured_timeouts(self, fake_pyodbc: Any) -> None:
         b = MSSQLBackend(_cfg(connect_timeout_seconds=7, query_timeout_seconds=4))
-        with b.get_isolated_connection() as conn:
+        with b._isolated_connection() as conn:
             assert conn.timeout == 4
         assert fake_pyodbc.connect.call_args.kwargs["timeout"] == 7
 
@@ -115,7 +115,7 @@ class TestStatementTimeoutTranslation:
         )
         b = MSSQLBackend(_cfg())
         with pytest.raises(BackendConnectionError):
-            with b.get_isolated_connection():
+            with b._isolated_connection():
                 pass
 
 

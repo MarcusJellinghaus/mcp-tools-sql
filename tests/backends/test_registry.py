@@ -2,7 +2,6 @@
 
 from __future__ import annotations
 
-from contextlib import AbstractContextManager, nullcontext
 from typing import Any
 
 import pytest
@@ -59,11 +58,10 @@ class _FakeBackend(DatabaseBackend):
     def execute_update(self, sql: str, params: dict[str, Any] | None = None) -> int:
         return 0
 
-    def explain(self, sql: str, params: dict[str, Any] | None = None) -> str:
+    def explain(
+        self, sql: str, params: dict[str, Any] | None = None, *, isolated: bool = False
+    ) -> str:
         return ""
-
-    def get_isolated_connection(self) -> AbstractContextManager[Any]:
-        return nullcontext()
 
 
 def _install_fake_create(

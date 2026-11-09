@@ -4,7 +4,6 @@ from __future__ import annotations
 
 from abc import ABC, abstractmethod
 from collections.abc import Generator
-from contextlib import AbstractContextManager
 from dataclasses import dataclass
 from types import TracebackType
 from typing import Any, Self
@@ -234,22 +233,19 @@ class DatabaseBackend(ABC):
         """
 
     @abstractmethod
-    def explain(self, sql: str, params: dict[str, Any] | None = None) -> str:
+    def explain(
+        self, sql: str, params: dict[str, Any] | None = None, *, isolated: bool = False
+    ) -> str:
         """Return the query execution plan as text.
 
+        ``isolated``: run on a fresh single-use connection where the backend
+        has one (MSSQL), so session state set by the plan request cannot leak
+        into the persistent connection; backends without one (SQLite) ignore
+        it. Isolated calls skip the closed check where the backend opens a
+        fresh connection.
+
         Implies connected: backends MUST connect lazily on first call. After
-        ``close()``, further calls raise ``RuntimeError``.
-        """
-
-    @abstractmethod
-    def get_isolated_connection(self) -> AbstractContextManager[Any]:
-        """Yield a single-use connection.
-
-        SQLite yields the persistent connection (no-op isolation: EXPLAIN QUERY
-        PLAN does not execute the statement). MSSQL yields a fresh pyodbc
-        connection built from the same ConnectionConfig, closed on context exit.
-        Callers MUST NOT close the yielded connection; the backend owns its
-        lifecycle.
+        ``close()``, further non-isolated calls raise ``RuntimeError``.
         """
 
     def __enter__(self) -> Self:

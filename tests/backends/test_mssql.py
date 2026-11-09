@@ -205,13 +205,13 @@ class TestQueries:
 
 
 class TestIsolatedConnection:
-    """Tests for ``MSSQLBackend.get_isolated_connection``."""
+    """Tests for ``MSSQLBackend._isolated_connection``."""
 
     def test_yields_fresh_connection_and_closes(self, fake_pyodbc: Any) -> None:
         fresh_conn = MagicMock(name="fresh_connection")
         fake_pyodbc.connect.return_value = fresh_conn
         b = MSSQLBackend(_cfg())
-        with b.get_isolated_connection() as conn:
+        with b._isolated_connection() as conn:
             assert conn is fresh_conn
             fresh_conn.close.assert_not_called()
         fresh_conn.close.assert_called_once()
@@ -221,13 +221,13 @@ class TestIsolatedConnection:
         fake_pyodbc.connect.return_value = fresh_conn
         b = MSSQLBackend(_cfg())
         with pytest.raises(RuntimeError, match="boom"):
-            with b.get_isolated_connection():
+            with b._isolated_connection():
                 raise RuntimeError("boom")
         fresh_conn.close.assert_called_once()
 
     def test_autocommit_passed_for_isolated_connection(self, fake_pyodbc: Any) -> None:
         b = MSSQLBackend(_cfg())
-        with b.get_isolated_connection():
+        with b._isolated_connection():
             pass
         kwargs = fake_pyodbc.connect.call_args.kwargs
         assert kwargs.get("autocommit") is True
@@ -242,7 +242,7 @@ class TestIsolatedConnection:
         )
         b = MSSQLBackend(_cfg(password=password))
         with pytest.raises(BackendConnectionError) as exc:
-            with b.get_isolated_connection():
+            with b._isolated_connection():
                 pass
         assert_no_leak(str(exc.value), password)
         assert "***" in str(exc.value)
@@ -450,7 +450,7 @@ class TestMSSQLIntegration:
 
     def test_isolated_connection_round_trip(self, mssql_db: MSSQLTestEnv) -> None:
         with MSSQLBackend(mssql_db.config) as b:
-            with b.get_isolated_connection() as conn:
+            with b._isolated_connection() as conn:
                 cursor = conn.cursor()
                 try:
                     cursor.execute("SELECT 1")
@@ -463,7 +463,7 @@ class TestMSSQLIntegration:
         self, mssql_db: MSSQLTestEnv
     ) -> None:
         with MSSQLBackend(mssql_db.config) as b:
-            with b.get_isolated_connection():
+            with b._isolated_connection():
                 pass
             rows = b.execute_query("SELECT 1 AS x")
         assert rows == [{"x": 1}]

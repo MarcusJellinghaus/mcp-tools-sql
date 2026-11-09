@@ -297,7 +297,13 @@ class SQLiteBackend(DatabaseBackend):
                 conn.commit()
                 return cursor.rowcount
 
-    def explain(self, sql: str, params: dict[str, Any] | None = None) -> str:
+    def explain(
+        self,
+        sql: str,
+        params: dict[str, Any] | None = None,
+        *,
+        isolated: bool = False,  # pylint: disable=unused-argument
+    ) -> str:
         """Return the query execution plan under the statement timeout.
 
         SQLite's ``EXPLAIN QUERY PLAN`` requires bound values to compile
@@ -305,6 +311,9 @@ class SQLiteBackend(DatabaseBackend):
         references ``:name`` placeholders. Raises :class:`QueryTimeoutError`
         (from :func:`_statement_deadline`) if execute + fetch exceed
         ``query_timeout_seconds``.
+
+        ``isolated`` is ignored: ``EXPLAIN QUERY PLAN`` does not execute the
+        statement, so the persistent connection is used either way.
         """
         with _driver_errors():
             conn = self._require_connection()
@@ -312,13 +321,3 @@ class SQLiteBackend(DatabaseBackend):
                 cursor = conn.execute(f"EXPLAIN QUERY PLAN {sql}", params or {})
                 rows = cursor.fetchall()
             return "\n".join(row["detail"] for row in rows)
-
-    @contextmanager
-    def get_isolated_connection(self) -> Iterator[Any]:
-        """Yield the persistent connection (no-op isolation for SQLite).
-
-        ``EXPLAIN QUERY PLAN`` does not execute the statement, so reusing the
-        persistent connection is safe. Callers MUST NOT close the yielded
-        connection.
-        """
-        yield self._require_connection()

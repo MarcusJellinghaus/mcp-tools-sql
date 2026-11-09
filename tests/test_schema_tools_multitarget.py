@@ -418,15 +418,9 @@ class _FanoutBackend(DatabaseBackend):
         """
         raise AssertionError("unused in these tests")
 
-    def explain(self, sql: str, params: dict[str, Any] | None = None) -> str:
-        """Unused in these tests.
-
-        Raises:
-            AssertionError: Always.
-        """
-        raise AssertionError("unused in these tests")
-
-    def get_isolated_connection(self) -> Any:
+    def explain(
+        self, sql: str, params: dict[str, Any] | None = None, *, isolated: bool = False
+    ) -> str:
         """Unused in these tests.
 
         Raises:
