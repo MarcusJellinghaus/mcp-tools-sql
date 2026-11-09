@@ -4,12 +4,10 @@ from __future__ import annotations
 
 import asyncio
 import inspect
-import sqlite3
 import warnings
 from collections.abc import Callable
 from typing import Annotated, Any
 
-import pytest
 from pydantic import Field
 
 from mcp_tools_sql.backends.base import BackendConnectionError, BackendError
@@ -24,13 +22,6 @@ from mcp_tools_sql.cli.commands.tool_dispatch import (
 from mcp_tools_sql.cli.commands.tool_help import render_tool_detail
 from mcp_tools_sql.tool_builder import _UNSET, build_tool_fn
 from mcp_tools_sql.utils.tool_spec import ToolSpec, tool_spec
-
-try:
-    import pyodbc  # pylint: disable=import-error
-
-    _HAS_PYODBC = True
-except ImportError:
-    _HAS_PYODBC = False
 
 
 def _spec(fn: Callable[..., Any]) -> ToolSpec:
@@ -76,16 +67,14 @@ async def _raises_runtime_error() -> str:
     raise RuntimeError("boom")
 
 
-async def _raises_sqlite_operational_error() -> str:
-    raise sqlite3.OperationalError("unable to open database file")
+async def _raises_backend_connection_error() -> str:
+    raise BackendConnectionError(
+        "unable to open database file", original_class="OperationalError"
+    )
 
 
 async def _raises_value_error() -> str:
     raise ValueError("at least one field value required")
-
-
-async def _raises_sqlite_programming_error() -> str:
-    raise sqlite3.ProgrammingError("bad SQL")
 
 
 async def _raises_generic_exception() -> str:
@@ -113,11 +102,12 @@ def test_runtime_error_is_exit_config() -> None:
     assert code == EXIT_CONFIG
 
 
-def test_sqlite_operational_error_is_exit_config() -> None:
-    """`sqlite3.OperationalError`: exit 1."""
-    tool = _spec(_raises_sqlite_operational_error)
-    code, _message = asyncio.run(invoke_tool(tool, {}))
+def test_backend_connection_error_is_exit_config() -> None:
+    """`BackendConnectionError`: exit 1, message names the driver class."""
+    tool = _spec(_raises_backend_connection_error)
+    code, message = asyncio.run(invoke_tool(tool, {}))
     assert code == EXIT_CONFIG
+    assert message == "OperationalError: unable to open database file"
 
 
 def test_value_error_is_exit_rejected() -> None:
@@ -126,13 +116,6 @@ def test_value_error_is_exit_rejected() -> None:
     code, message = asyncio.run(invoke_tool(tool, {}))
     assert code == EXIT_REJECTED
     assert "at least one field value required" in message
-
-
-def test_sqlite_programming_error_is_exit_backend() -> None:
-    """`sqlite3.ProgrammingError`: exit 4."""
-    tool = _spec(_raises_sqlite_programming_error)
-    code, _message = asyncio.run(invoke_tool(tool, {}))
-    assert code == EXIT_BACKEND
 
 
 def test_generic_exception_is_exit_backend() -> None:
@@ -172,8 +155,10 @@ def test_render_tool_detail_with_unset_default_emits_no_warning() -> None:
 def test_classify_exception_connection_bucket() -> None:
     """`classify_exception` buckets connection-shaped exceptions as `EXIT_CONFIG`."""
     assert classify_exception(RuntimeError("x")) == EXIT_CONFIG
-    assert classify_exception(sqlite3.OperationalError("x")) == EXIT_CONFIG
-    assert classify_exception(sqlite3.InterfaceError("x")) == EXIT_CONFIG
+    operational = BackendConnectionError("x", original_class="OperationalError")
+    assert classify_exception(operational) == EXIT_CONFIG
+    interface = BackendConnectionError("x", original_class="InterfaceError")
+    assert classify_exception(interface) == EXIT_CONFIG
 
 
 def test_classify_exception_rejected_bucket() -> None:
@@ -185,7 +170,8 @@ def test_classify_exception_rejected_bucket() -> None:
 
 def test_classify_exception_backend_default() -> None:
     """`classify_exception` falls back to `EXIT_BACKEND` for anything else."""
-    assert classify_exception(sqlite3.ProgrammingError("x")) == EXIT_BACKEND
+    programming = BackendError("x", original_class="ProgrammingError")
+    assert classify_exception(programming) == EXIT_BACKEND
     assert classify_exception(Exception("x")) == EXIT_BACKEND  # pylint: disable=broad-exception-raised
 
 
@@ -207,12 +193,3 @@ def test_backend_error_message_uses_original_class() -> None:
     code, message = asyncio.run(invoke_tool(tool, {}))
     assert code == EXIT_BACKEND
     assert message == "ProgrammingError: bad SQL"
-
-
-@pytest.mark.skipif(
-    not _HAS_PYODBC, reason="pyodbc not installed in this dev environment"
-)
-def test_classify_exception_pyodbc_buckets() -> None:
-    """`classify_exception` buckets pyodbc connection errors as `EXIT_CONFIG`, others as `EXIT_BACKEND`."""
-    assert classify_exception(pyodbc.OperationalError("x", "y")) == EXIT_CONFIG
-    assert classify_exception(pyodbc.ProgrammingError("x", "y")) == EXIT_BACKEND

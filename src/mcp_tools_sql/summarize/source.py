@@ -52,7 +52,6 @@ around.
 
 from __future__ import annotations
 
-import sqlite3
 from dataclasses import dataclass
 from datetime import date, datetime
 from decimal import Decimal
@@ -79,23 +78,6 @@ from mcp_tools_sql.sql_ast.summarize_queries import (
     metadata_sql,
 )
 from mcp_tools_sql.summarize.render import table_not_found_message
-
-try:
-    import pyodbc  # pylint: disable=import-error
-
-    _PYODBC_ERROR: tuple[type[Exception], ...] = (pyodbc.Error,)
-except ImportError:
-    _PYODBC_ERROR = ()
-
-# The driver-error family that means "the database rejected this SQL". Lives
-# here rather than in ``summarize/tools.py`` because the DMF -> probe fallback
-# below has to catch exactly the same family: ``tools.py`` imports this module,
-# so the reverse edge would be an import cycle.
-INVALID_SQL_EXC: tuple[type[BaseException], ...] = (
-    BackendError,
-    sqlite3.Error,
-    *_PYODBC_ERROR,
-)
 
 if TYPE_CHECKING:
     from mcp_tools_sql.backends.base import DatabaseBackend
@@ -348,7 +330,7 @@ def _describe_or_none(
     """
     try:
         metas, _reason = describe_columns(backend, ref, params)
-    except INVALID_SQL_EXC:
+    except BackendError:
         return None
     return metas
 

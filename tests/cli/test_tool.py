@@ -283,8 +283,9 @@ def test_query_against_missing_table_exits_1_no_traceback(
     """A query referencing a non-existent table: exit 1 on sqlite.
 
     SQLite raises `sqlite3.OperationalError` for both connection failures and
-    "no such table" — the documented, accepted sqlite-only exit-1 limitation
-    (see `tool_dispatch.py`'s `_CONNECTION_EXC`).
+    "no such table", which the backend translates to `BackendConnectionError`
+    — the documented, accepted sqlite-only exit-1 limitation (see
+    `tool_dispatch.py`'s `_CONNECTION_EXC`).
     """
     _write_query_bad_table_config(tmp_path)
 

@@ -33,7 +33,7 @@ from typing import TYPE_CHECKING, Annotated, Any, Literal
 
 from pydantic import Field
 
-from mcp_tools_sql.backends.base import QueryTimeoutError, to_dialect
+from mcp_tools_sql.backends.base import BackendError, QueryTimeoutError, to_dialect
 from mcp_tools_sql.formatting import TIMEOUT_HINT_NARROWER
 from mcp_tools_sql.query_helpers import build_target_params
 from mcp_tools_sql.sql_ast.summarize_queries import (
@@ -59,7 +59,6 @@ from mcp_tools_sql.summarize.render import (
     unknown_columns_message,
 )
 from mcp_tools_sql.summarize.source import (
-    INVALID_SQL_EXC,
     Source,
     build_query_source,
     build_table_source,
@@ -379,7 +378,7 @@ class SummarizeTools:
                     )
                 except QueryTimeoutError as exc:
                     return f"{exc} {TIMEOUT_HINT_NARROWER}"
-                except INVALID_SQL_EXC as exc:
+                except BackendError as exc:
                     # A probe failure is not a LOB failure (the probe is a bare
                     # ``SELECT *``), so ``built`` must already be a resolved
                     # ``Source``. The dialect term matters too: on SQLite every

@@ -3,7 +3,6 @@
 from __future__ import annotations
 
 import inspect
-import sqlite3
 from typing import TYPE_CHECKING, Annotated, Any
 
 from pydantic import Field
@@ -19,19 +18,6 @@ from mcp_tools_sql.sql_ast.placeholders import basic_preflight, first_statement_
 from mcp_tools_sql.tool_builder import build_tool_fn
 from mcp_tools_sql.tool_logging import log_tool_call
 from mcp_tools_sql.utils.tool_spec import tool_spec
-
-try:
-    import pyodbc  # pylint: disable=import-error
-
-    _PYODBC_ERROR: tuple[type[Exception], ...] = (pyodbc.Error,)
-except ImportError:
-    _PYODBC_ERROR = ()
-
-_INVALID_SQL_EXC: tuple[type[BaseException], ...] = (
-    BackendError,
-    sqlite3.Error,
-    *_PYODBC_ERROR,
-)
 
 _SESSION_KEYWORDS = frozenset({"USE", "SET", "DECLARE"})
 
@@ -155,7 +141,7 @@ class ValidationTools:
                     plan = backend.explain(sql, params, isolated=True)
                 except QueryTimeoutError as exc:
                     return f"{exc} {TIMEOUT_HINT_NARROWER}"
-                except _INVALID_SQL_EXC as exc:
+                except BackendError as exc:
                     name = getattr(exc, "original_class", type(exc).__name__)
                     return f"Invalid SQL. {name}: {exc}"
                 except (KeyError, TypeError, ValueError) as exc:

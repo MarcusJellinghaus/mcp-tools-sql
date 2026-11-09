@@ -17,7 +17,6 @@ temporal/boolean divergence are each pinned by their own regression test.
 
 from __future__ import annotations
 
-import sqlite3
 from datetime import date, datetime
 from decimal import Decimal
 from typing import Any
@@ -25,6 +24,7 @@ from unittest.mock import MagicMock
 
 import pytest
 
+from mcp_tools_sql.backends.base import BackendConnectionError
 from mcp_tools_sql.sql_ast.placeholders import (
     LEADING_CTE_REJECTION,
     translate_named_to_qmark,
@@ -634,11 +634,12 @@ def test_tsql_source_prefers_the_dmf_and_adds_no_notes() -> None:
 @pytest.mark.parametrize(
     "describe",
     [
-        # A pyodbc-style driver rejection stands in as a ``sqlite3`` error so
-        # the test runs without the optional driver installed; the fallback is
-        # gated on the shared ``INVALID_SQL_EXC`` family, not on pyodbc.
+        # A driver rejection as the backend surfaces it: the fallback is gated
+        # on the neutral ``BackendError`` family, not on any driver type.
         pytest.param(
-            sqlite3.OperationalError("The user does not have permission"),
+            BackendConnectionError(
+                "The user does not have permission", original_class="OperationalError"
+            ),
             id="driver-error",
         ),
         pytest.param([], id="empty-result"),
@@ -677,7 +678,9 @@ def test_sqlite_source_never_runs_the_dmf() -> None:
 
 def test_source_notes_precede_the_fallback_note() -> None:
     """An ``ORDER BY`` strip still leads the footer when the DMF fell back."""
-    backend = _dmf_backend(sqlite3.OperationalError("denied"))
+    backend = _dmf_backend(
+        BackendConnectionError("denied", original_class="OperationalError")
+    )
 
     built = build_query_source(backend, "SELECT s FROM t ORDER BY s DESC", None, "tsql")
 

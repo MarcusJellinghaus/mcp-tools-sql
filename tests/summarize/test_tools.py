@@ -10,7 +10,6 @@ server. The ``sql=`` source path has its own module,
 
 from __future__ import annotations
 
-import sqlite3
 from pathlib import Path
 from typing import Any
 from unittest.mock import MagicMock
@@ -519,7 +518,12 @@ async def test_mssql_dialect_metadata_and_scalar_sql() -> None:
 @pytest.mark.parametrize(
     ("exc", "prefix"),
     [
-        (sqlite3.OperationalError("database disk image is malformed"), "Invalid SQL."),
+        (
+            BackendConnectionError(
+                "database disk image is malformed", original_class="OperationalError"
+            ),
+            "Invalid SQL.",
+        ),
         (RuntimeError("Not connected to database"), "Database connection error."),
     ],
 )
