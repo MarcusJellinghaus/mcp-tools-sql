@@ -36,6 +36,10 @@ def _error_count(result: VerifyResult) -> int   # rows that are not is_passing
 def run(args) -> int
 ```
 
+`_error_count` is the single error-count rule. `_print_and_summarize` drops its own
+`err_count` counter: it still counts OK/WARN rows for the totals line, but takes the
+error total and the exit code from `_compute_exit_code(_error_count(result))`.
+
 ## HOW
 
 - `parser = subparsers.add_parser("verify", ...)`, then

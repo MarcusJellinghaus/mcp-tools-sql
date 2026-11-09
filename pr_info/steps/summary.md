@@ -165,15 +165,14 @@ server startup log. Query and update models are unchanged.
 | `src/mcp_tools_sql/server.py` | path kwargs, `verify` tool | 6 |
 | `src/mcp_tools_sql/schema_tools.py` | `"verify"` in `PROGRAMMATIC_BUILTIN_TOOLS` | 6 |
 | `tach.toml` | server `depends_on` | 6 |
-| `tests/verification/test_*.py` | rewrite `overall_ok` / `warn` / tuple assertions; new tests | 1, 3 |
-| `tests/verification/test_loading.py` | **new**: per-entry loading, summary, `project_dir` | 3 |
+| `tests/verification/test_*.py` | rewrite `overall_ok` / `warn` / tuple assertions; new tests (per-entry loading, summary, `project_dir` in `test_config_files.py` / `test_orchestrator.py`) | 1, 3 |
 | `tests/verification/test_render.py` | **new**: `render_short` | 5 |
 | `tests/config/test_models.py` | credentials hidden | 2 |
 | `tests/cli/test_verify_output.py` | **new**: JSON + `--short` CLI tests | 4, 5 |
 | `tests/test_server_verify_tool.py` | **new**: MCP tool, name-prefix guard | 6 |
 | `docs/python-api.md` | **new** | 4 |
 | `docs/cli.md` | `verify` flags, per-entry rows, MCP `verify` tool | 3, 4, 5, 6 |
-| `docs/architecture/architecture.md` | result shape, server → verification edge | 1, 6 |
+| `docs/architecture/architecture.md` | result shape (1), summary block (3), server → verification edge (6) | 1, 3, 6 |
 
 ## Steps
 

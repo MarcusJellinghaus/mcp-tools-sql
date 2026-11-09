@@ -3,8 +3,9 @@
 ## LLM prompt
 
 > Read `pr_info/steps/summary.md` (sections 1–2), then implement **this step only**
-> (`pr_info/steps/step_3.md`). Do TDD: write `tests/verification/test_loading.py` and the
-> other test changes first, then implement. Default text output for valid configs must
+> (`pr_info/steps/step_3.md`). Do TDD: write the new tests in
+> `tests/verification/test_config_files.py` and `tests/verification/test_orchestrator.py`
+> first, then implement. Default text output for valid configs must
 > stay unchanged; `tests/cli/test_verify.py` must not be edited and must pass. Run pylint,
 > pytest (`-n auto`), mypy, ruff, lint-imports, tach and format_code, then make one commit.
 
@@ -13,9 +14,9 @@
 - `src/mcp_tools_sql/verification/_helpers.py` (add `VerifySummary`; add `summary` to `VerifyResult`)
 - `src/mcp_tools_sql/verification/config_files.py`
 - `src/mcp_tools_sql/verification/orchestrator.py`
-- `tests/verification/test_loading.py` (**new**)
 - `tests/verification/test_config_files.py`, `tests/verification/test_orchestrator.py`
 - `docs/cli.md` (`CONFIG` row of the verify sections table)
+- `docs/architecture/architecture.md` (`VerifyResult` description from step 1)
 
 ## WHAT
 
@@ -80,9 +81,15 @@ path = discover(...)  -> query_config_path row (on error: path row + "skipped" p
 data = read_query_config_data(path)            # ValueError -> query_config_parse ERR
 top = QueryFileConfig.model_validate({k: v for k, v in data.items() if k not in ("queries", "updates")})
 checks["query_config_parse"] = ok row "loaded"  # ValidationError -> ERR row, query_config = None
-queries = _load_entries(data, "queries", QueryConfig, checks); updates = _load_entries(data, "updates", UpdateConfig, checks)
-query_config = top.model_copy(update={"queries": queries, "updates": updates}); sensitive-keys row from data
+if top validated:
+    queries = _load_entries(data, "queries", QueryConfig, checks); updates = _load_entries(data, "updates", UpdateConfig, checks)
+    query_config = top.model_copy(update={"queries": queries, "updates": updates})
+sensitive-keys row from data (whenever data was read)
 ```
+
+When top-level validation fails, entries are not validated: no `queries.parse`,
+`updates.parse`, `queries.<name>.parse` or `updates.<name>.parse` rows are emitted,
+`query_config` is `None`, and the summary's `query_count` / `update_count` are `0`.
 
 `_load_entries`:
 
@@ -127,37 +134,49 @@ skip counts (connection failed) = len(qc.queries), len(qc.updates)
 
 ## Tests (write first)
 
-`tests/verification/test_loading.py`, using `verify_all` with tmp sqlite configs and the
-`sqlite_db` fixture:
+`tests/verification/test_config_files.py` (`verify_config_files`, tmp configs):
 
-- One valid and one invalid `[queries.*]` entry (`[queries.bad]` with no `sql`):
-  - CONFIG has an ERR row `queries.bad.parse`, and `query_config_parse` is OK;
-  - DEPENDENCIES has no failing rows;
-  - CONNECTION is present;
-  - QUERIES has rows for the valid query only.
-- Invalid `[updates.bad]` entry (`fields = "x"`): an `updates.bad.parse` row, and valid
-  queries are still verified.
-- `queries = 5`: a `queries.parse` row, `query_config_parse` OK, CONNECTION present,
-  UPDATES still runs, and `summary["query_count"] == 0`.
+- Existing calls become `verify_config_files(q, db, project_dir=tmp_path)`, and
+  assertions read `result.checks[...]`.
+- One valid and one invalid `[queries.*]` entry (`[queries.bad]` with no `sql`): an ERR
+  row `queries.bad.parse`, `query_config_parse` OK, and `result.query_config.queries`
+  holds the valid entry only.
+- Invalid `[updates.bad]` entry (`fields = "x"`): an `updates.bad.parse` row; valid
+  queries stay in `result.query_config`.
+- `queries = 5`: a `queries.parse` row, `query_config_parse` OK, and
+  `result.query_config.queries == {}`.
+- Top-level validation fails (e.g. `connection = 5`) alongside an invalid `[queries.bad]`
+  entry: `query_config_parse` is ERR, no `queries.parse` / `queries.<name>.parse` /
+  `updates.parse` / `updates.<name>.parse` rows, and `result.query_config is None`.
+- `allow_updates`: `[security]\nallow_updates = false` gives `False`; an invalid
+  database config gives `None`; an absent database config file gives `True`.
+- `project_dir`: put `mcp-tools-sql.toml` in `tmp_path / "proj"`, call with
+  `config_path=None, project_dir=tmp_path / "proj"`, and `query_config_path` is that file.
+
+`tests/verification/test_orchestrator.py` (`verify_all` with tmp sqlite configs and the
+`sqlite_db` fixture):
+
+- The result has a `summary` key with the four fields.
+- One valid and one invalid `[queries.*]` entry: DEPENDENCIES has no failing rows,
+  CONNECTION is present, and QUERIES has rows for the valid query only.
+- `queries = 5`: CONNECTION present, UPDATES still runs, and
+  `summary["query_count"] == 0`.
+- Top-level validation fails: `summary["query_count"] == 0` and
+  `summary["update_count"] == 0`.
 - Failed connection (sqlite `path = ""`) with one valid and one invalid query:
   `skipped_queries == 1`.
-- Summary block:
-  - a happy path gives `connections == {"default": True}` and the counts;
-  - `[security]\nallow_updates = false` gives `False`;
-  - an invalid database config gives `None` and `connections == {}`;
-  - an absent database config file gives `True`.
-- `project_dir`: put `mcp-tools-sql.toml` in `tmp_path / "proj"`, call
-  `verify_all(None, db_cfg, project_dir=tmp_path / "proj")` with cwd elsewhere, and
-  `query_config_path` is that file.
-
-Other test changes:
-
-- `test_config_files.py`: calls become
-  `verify_config_files(q, db, project_dir=tmp_path)`, and assertions read `result.checks[...]`.
-- `test_orchestrator.py`: the result has a `summary` key with the four fields.
+- Summary block: a happy path gives `connections == {"default": True}` and the counts;
+  `allow_updates = false` reaches `summary["allow_updates"]`; an invalid database config
+  gives `allow_updates is None` and `connections == {}`.
+- `project_dir`: `verify_all(None, db_cfg, project_dir=tmp_path / "proj")` with cwd
+  elsewhere reports that directory's `mcp-tools-sql.toml` as `query_config_path`.
 
 ## Docs
 
 `docs/cli.md`, `CONFIG` row of the verify sections table: mention the per-entry
 `queries.<name>.parse` / `updates.<name>.parse` rows, and that a bad entry no longer
 blocks the other checks.
+
+`docs/architecture/architecture.md`, Verification Layer: extend the `VerifyResult`
+sentence written in step 1 to include the `summary` block (connections, entry counts,
+`allow_updates`).
