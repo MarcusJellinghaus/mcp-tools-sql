@@ -90,6 +90,11 @@ as in mcp_coder). Import-linter isolation contracts:
   `mcp_tools_sql.utils`.
 - `subprocess_isolation` forbids importing `subprocess` in `src` and `tests`; use
   `execute_subprocess` from `mcp_tools_sql.utils.subprocess_runner`.
+- `sqlglot_isolation`: `sqlglot` → `mcp_tools_sql.sql_ast` (and `tests/sql_ast`).
+- `pyodbc_isolation`: `pyodbc` → `mcp_tools_sql.backends`.
+- `psycopg_isolation`: `psycopg` → `mcp_tools_sql.backends`.
+- `sqlite3_isolation`: `sqlite3` → `mcp_tools_sql.backends` (and `tests/backends`,
+  `tests/sqlite_fixtures.py`).
 - `no_test_imports_in_source` forbids `src` importing from `tests`.
 - `no_mcp_on_export_path` forbids importing `mcp` anywhere except
   `mcp_tools_sql.server`, so the toolset can be used without the MCP SDK.

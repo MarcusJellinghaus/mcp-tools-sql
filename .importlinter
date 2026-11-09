@@ -79,6 +79,62 @@ source_modules =
 forbidden_modules =
     subprocess
 
+# Only the SQL layer (mcp_tools_sql.sql_ast) imports sqlglot; callers get strings,
+# opaque SourceRef/Predicate and SqlParseError. tests/sql_ast mirrors the owner and may
+# assert sqlglot premises (TokenError vs ParseError, expected trees).
+[importlinter:contract:sqlglot_isolation]
+name = sqlglot Library Isolation
+type = forbidden
+source_modules =
+    mcp_tools_sql
+    tests
+forbidden_modules =
+    sqlglot
+ignore_imports =
+    mcp_tools_sql.sql_ast.** -> sqlglot
+    tests.sql_ast.** -> sqlglot
+
+# Only the backends import DB drivers; callers get DatabaseBackend, BackendError /
+# BackendConnectionError and the dependency probes. pyodbc is imported lazily inside
+# backends/mssql.py functions (optional extra).
+[importlinter:contract:pyodbc_isolation]
+name = pyodbc Library Isolation
+type = forbidden
+source_modules =
+    mcp_tools_sql
+    tests
+forbidden_modules =
+    pyodbc
+ignore_imports =
+    mcp_tools_sql.backends.** -> pyodbc
+
+# psycopg is imported lazily inside backends/postgresql.py (optional extra).
+[importlinter:contract:psycopg_isolation]
+name = psycopg Library Isolation
+type = forbidden
+source_modules =
+    mcp_tools_sql
+    tests
+forbidden_modules =
+    psycopg
+ignore_imports =
+    mcp_tools_sql.backends.** -> psycopg
+
+# sqlite3 additionally allowed in the owner's mirrored tests (tests/backends) and in the
+# single shared fixture helper tests/sqlite_fixtures.py (user decision on #93).
+[importlinter:contract:sqlite3_isolation]
+name = sqlite3 Library Isolation
+type = forbidden
+source_modules =
+    mcp_tools_sql
+    tests
+forbidden_modules =
+    sqlite3
+ignore_imports =
+    mcp_tools_sql.backends.** -> sqlite3
+    tests.backends.** -> sqlite3
+    tests.sqlite_fixtures -> sqlite3
+
 # Production code never imports from tests.
 [importlinter:contract:no_test_imports_in_source]
 name = Source Code Independence from Tests
