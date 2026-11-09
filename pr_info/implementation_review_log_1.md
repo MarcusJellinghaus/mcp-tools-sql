@@ -8,3 +8,11 @@ src/mcp_tools_sql/backends/mssql.py:227 — low — `conn.timeout = self._config
 Verdict(decision='tasks', tasks=['Add `@translate_parse_errors` to `validate_where` in src/mcp_tools_sql/sql_ast/summarize_queries.py:204 so a raw sqlglot exception cannot leave `sql_ast`, even when `basic_preflight` has not run first.', 'In src/mcp_tools_sql/backends/mssql.py `_open_connection`, move `conn.timeout = self._config.query_timeout_seconds` (line 227) inside the `try/except pyodbc.Error` block so a pyodbc error raised there is converted to the neutral backend exception.'], escalate_reason=None)
 **Changes**:
 applied
+
+## Round 2 — 2026-11-09
+**Findings**:
+Reviewing the rest of the src diff; next checking other `type(exc).__name__` render sites that the backend translation may have changed.Backends and upper layers look consistent; now checking the `sql_ast` package diff.Code reading done; running the quality checks to confirm the branch is green.NO FINDINGS
+**Decisions**:
+Verdict(decision='dismiss', tasks=[], escalate_reason=None)
+**Changes**:
+dismiss
