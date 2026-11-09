@@ -16,6 +16,7 @@ from mcp_tools_sql.config.models import (
     BackendQueryConfig,
     ConnectionConfig,
     QueryConfig,
+    QueryParamConfig,
 )
 from mcp_tools_sql.query_helpers import (
     build_query_body,
@@ -327,7 +328,7 @@ async def test_builtin_tool_logs_info_line(
     queries = load_default_queries()
     fn = _assemble("read_tables", queries["read_tables"], backend, "sqlite")
 
-    await fn()
+    await fn(schema="main")
 
     info_records = [
         r
@@ -353,6 +354,7 @@ async def test_max_rows_clamped_to_hard_limit(sqlite_wide_db: Path) -> None:
 
     qcfg = QueryConfig(
         sql="SELECT name FROM pragma_table_info(:table)",
+        params={"table": QueryParamConfig(name="table", type="str")},
         backends={
             "sqlite": BackendQueryConfig(
                 sql="SELECT name FROM pragma_table_info(:table)"
@@ -378,6 +380,7 @@ async def test_clamp_and_truncation_both_appear(sqlite_wide_db: Path) -> None:
 
     qcfg = QueryConfig(
         sql="SELECT name FROM pragma_table_info(:table)",
+        params={"table": QueryParamConfig(name="table", type="str")},
         backends={
             "sqlite": BackendQueryConfig(
                 sql="SELECT name FROM pragma_table_info(:table)"
