@@ -1,4 +1,4 @@
-"""Tests for `mcp_tools_sql.server.run_server`."""
+"""Tests for `mcp_tools_sql.server`."""
 
 from __future__ import annotations
 
@@ -6,10 +6,14 @@ import argparse
 import logging
 import re
 import sqlite3
+import warnings
 from pathlib import Path
+from typing import Any
 
 import pytest
+from pydantic.json_schema import PydanticJsonSchemaWarning
 
+from mcp_tools_sql import toolset as toolset_module
 from mcp_tools_sql.backends.registry import BackendRegistry
 from mcp_tools_sql.backends.sqlite import SQLiteBackend
 from mcp_tools_sql.config.loader import (
@@ -21,7 +25,8 @@ from mcp_tools_sql.schema_tools import (
     PROGRAMMATIC_BUILTIN_TOOLS,
     load_default_queries,
 )
-from mcp_tools_sql.server import ToolServer, run_server
+from mcp_tools_sql.server import ToolServer, build_tool_server, run_server
+from mcp_tools_sql.toolset import SqlToolset, assemble_toolset
 
 
 def _write_sqlite_configs(tmp_path: Path) -> argparse.Namespace:
@@ -41,6 +46,38 @@ def _write_sqlite_configs(tmp_path: Path) -> argparse.Namespace:
     )
 
 
+def _make_server(args: argparse.Namespace, allow_updates: bool) -> ToolServer:
+    """Build a registered ToolServer from the configs named in ``args``."""
+    qcfg = load_query_config(args.config)
+    dbcfg = load_database_config(args.database_config)
+    targets = resolve_targets(qcfg, dbcfg)
+    return ToolServer(assemble_toolset(qcfg, targets, BackendRegistry(), allow_updates))
+
+
+def _counting_close_all(monkeypatch: pytest.MonkeyPatch) -> dict[str, int]:
+    """Patch `BackendRegistry.close_all` to count calls; return the counter."""
+    close_called = {"n": 0}
+    original_close_all = BackendRegistry.close_all
+
+    def counting_close_all(self: BackendRegistry) -> None:
+        close_called["n"] += 1
+        original_close_all(self)
+
+    monkeypatch.setattr(BackendRegistry, "close_all", counting_close_all)
+    return close_called
+
+
+async def _tool_names(server: ToolServer) -> set[str]:
+    """Return the tool names the MCP client sees on ``server``."""
+    from mcp.shared.memory import create_connected_server_and_client_session
+
+    async with create_connected_server_and_client_session(
+        server.mcp, raise_exceptions=True
+    ) as client:
+        result = await client.list_tools()
+        return {t.name for t in result.tools}
+
+
 def test_run_server_smoke_calls_run_and_closes(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
@@ -53,15 +90,7 @@ def test_run_server_smoke_calls_run_and_closes(
         run_called["n"] += 1
 
     monkeypatch.setattr(ToolServer, "run", fake_run)
-
-    close_called = {"n": 0}
-    original_close_all = BackendRegistry.close_all
-
-    def counting_close_all(self: BackendRegistry) -> None:
-        close_called["n"] += 1
-        original_close_all(self)
-
-    monkeypatch.setattr(BackendRegistry, "close_all", counting_close_all)
+    close_called = _counting_close_all(monkeypatch)
 
     run_server(args)
     assert run_called["n"] == 1
@@ -78,15 +107,7 @@ def test_keyboard_interrupt_runs_close(
         raise KeyboardInterrupt
 
     monkeypatch.setattr(ToolServer, "run", fake_run)
-
-    close_called = {"n": 0}
-    original_close_all = BackendRegistry.close_all
-
-    def counting_close_all(self: BackendRegistry) -> None:
-        close_called["n"] += 1
-        original_close_all(self)
-
-    monkeypatch.setattr(BackendRegistry, "close_all", counting_close_all)
+    close_called = _counting_close_all(monkeypatch)
 
     with pytest.raises(KeyboardInterrupt):
         run_server(args)
@@ -185,8 +206,6 @@ def test_startup_log_reports_connection_and_database_counts(
 @pytest.mark.asyncio
 async def test_configured_query_registered_as_tool(tmp_path: Path) -> None:
     """A configured `[queries.foo]` entry registers as `query_foo` on the server."""
-    from mcp.shared.memory import create_connected_server_and_client_session
-
     db = tmp_path / "test.db"
     conn = sqlite3.connect(str(db))
     conn.execute("CREATE TABLE customers (id INTEGER PRIMARY KEY, name TEXT)")
@@ -209,30 +228,20 @@ async def test_configured_query_registered_as_tool(tmp_path: Path) -> None:
     dbcfg_path.write_text(
         f'[connections.default]\nbackend = "sqlite"\npath = "{db.as_posix()}"\n'
     )
+    args = argparse.Namespace(config=qcfg_path, database_config=dbcfg_path)
 
-    qcfg = load_query_config(qcfg_path)
-    dbcfg = load_database_config(dbcfg_path)
-    targets = resolve_targets(qcfg, dbcfg)
-    registry = BackendRegistry()
-    server = ToolServer(qcfg, targets, registry, allow_updates=True)
-    server._register_builtin_tools()  # pylint: disable=protected-access
-    server._register_configured_tools()  # pylint: disable=protected-access
-
+    server = _make_server(args, allow_updates=True)
     try:
-        async with create_connected_server_and_client_session(
-            server.mcp, raise_exceptions=True
-        ) as client:
-            result = await client.list_tools()
-            names = {t.name for t in result.tools}
-            assert "query_foo" in names
-            assert {
-                "read_schemas",
-                "read_tables",
-                "read_columns",
-                "read_relations",
-            }.issubset(names)
+        names = await _tool_names(server)
+        assert "query_foo" in names
+        assert {
+            "read_schemas",
+            "read_tables",
+            "read_columns",
+            "read_relations",
+        }.issubset(names)
     finally:
-        registry.close_all()
+        server.close()
 
 
 @pytest.mark.asyncio
@@ -240,8 +249,6 @@ async def test_write_query_not_registered_even_with_allow_updates(
     tmp_path: Path,
 ) -> None:
     """The read-only gate is unconditional: allow_updates does not unlock it."""
-    from mcp.shared.memory import create_connected_server_and_client_session
-
     db = tmp_path / "test.db"
     conn = sqlite3.connect(str(db))
     conn.execute("CREATE TABLE Orders (id INTEGER PRIMARY KEY)")
@@ -260,70 +267,33 @@ async def test_write_query_not_registered_even_with_allow_updates(
     dbcfg_path.write_text(
         f'[connections.default]\nbackend = "sqlite"\npath = "{db.as_posix()}"\n'
     )
+    args = argparse.Namespace(config=qcfg_path, database_config=dbcfg_path)
 
-    qcfg = load_query_config(qcfg_path)
-    dbcfg = load_database_config(dbcfg_path)
-    targets = resolve_targets(qcfg, dbcfg)
-    registry = BackendRegistry()
-    server = ToolServer(qcfg, targets, registry, allow_updates=True)
-    server._register_configured_tools()  # pylint: disable=protected-access
-
+    server = _make_server(args, allow_updates=True)
     try:
-        async with create_connected_server_and_client_session(
-            server.mcp, raise_exceptions=True
-        ) as client:
-            result = await client.list_tools()
-            assert "query_purge" not in {t.name for t in result.tools}
+        assert "query_purge" not in await _tool_names(server)
     finally:
-        registry.close_all()
+        server.close()
 
 
 @pytest.mark.asyncio
 async def test_validate_sql_registered_as_builtin_tool(tmp_path: Path) -> None:
-    """`_register_builtin_tools()` registers `validate_sql` on the MCP server."""
-    from mcp.shared.memory import create_connected_server_and_client_session
-
-    args = _write_sqlite_configs(tmp_path)
-    qcfg = load_query_config(args.config)
-    dbcfg = load_database_config(args.database_config)
-    targets = resolve_targets(qcfg, dbcfg)
-    registry = BackendRegistry()
-    server = ToolServer(qcfg, targets, registry, allow_updates=False)
-    server._register_builtin_tools()  # pylint: disable=protected-access
-
+    """The constructor registers the builtin `validate_sql` on the MCP server."""
+    server = _make_server(_write_sqlite_configs(tmp_path), allow_updates=False)
     try:
-        async with create_connected_server_and_client_session(
-            server.mcp, raise_exceptions=True
-        ) as client:
-            result = await client.list_tools()
-            names = {t.name for t in result.tools}
-            assert "validate_sql" in names
+        assert "validate_sql" in await _tool_names(server)
     finally:
-        registry.close_all()
+        server.close()
 
 
 @pytest.mark.asyncio
 async def test_count_records_registered_as_builtin_tool(tmp_path: Path) -> None:
-    """`_register_builtin_tools()` registers `count_records` on the MCP server."""
-    from mcp.shared.memory import create_connected_server_and_client_session
-
-    args = _write_sqlite_configs(tmp_path)
-    qcfg = load_query_config(args.config)
-    dbcfg = load_database_config(args.database_config)
-    targets = resolve_targets(qcfg, dbcfg)
-    registry = BackendRegistry()
-    server = ToolServer(qcfg, targets, registry, allow_updates=False)
-    server._register_builtin_tools()  # pylint: disable=protected-access
-
+    """The constructor registers the builtin `count_records` on the MCP server."""
+    server = _make_server(_write_sqlite_configs(tmp_path), allow_updates=False)
     try:
-        async with create_connected_server_and_client_session(
-            server.mcp, raise_exceptions=True
-        ) as client:
-            result = await client.list_tools()
-            names = {t.name for t in result.tools}
-            assert "count_records" in names
+        assert "count_records" in await _tool_names(server)
     finally:
-        registry.close_all()
+        server.close()
 
 
 def test_startup_builtin_tools_counter_includes_programmatic_builtins(
@@ -377,25 +347,11 @@ async def test_read_databases_not_registered_for_single_target(
     tmp_path: Path,
 ) -> None:
     """With one target, ``read_databases`` is not registered."""
-    from mcp.shared.memory import create_connected_server_and_client_session
-
-    args = _write_sqlite_configs(tmp_path)
-    qcfg = load_query_config(args.config)
-    dbcfg = load_database_config(args.database_config)
-    targets = resolve_targets(qcfg, dbcfg)
-    registry = BackendRegistry()
-    server = ToolServer(qcfg, targets, registry, allow_updates=False)
-    server._register_builtin_tools()  # pylint: disable=protected-access
-
+    server = _make_server(_write_sqlite_configs(tmp_path), allow_updates=False)
     try:
-        async with create_connected_server_and_client_session(
-            server.mcp, raise_exceptions=True
-        ) as client:
-            result = await client.list_tools()
-            names = {t.name for t in result.tools}
-            assert "read_databases" not in names
+        assert "read_databases" not in await _tool_names(server)
     finally:
-        registry.close_all()
+        server.close()
 
 
 @pytest.mark.asyncio
@@ -405,14 +361,7 @@ async def test_read_databases_registered_and_lists_targets_when_multi(
     """With >1 target, ``read_databases`` is registered and lists every target."""
     from mcp.shared.memory import create_connected_server_and_client_session
 
-    args = _write_multi_sqlite_configs(tmp_path)
-    qcfg = load_query_config(args.config)
-    dbcfg = load_database_config(args.database_config)
-    targets = resolve_targets(qcfg, dbcfg)
-    registry = BackendRegistry()
-    server = ToolServer(qcfg, targets, registry, allow_updates=False)
-    server._register_builtin_tools()  # pylint: disable=protected-access
-
+    server = _make_server(_write_multi_sqlite_configs(tmp_path), allow_updates=False)
     try:
         async with create_connected_server_and_client_session(
             server.mcp, raise_exceptions=True
@@ -429,7 +378,20 @@ async def test_read_databases_registered_and_lists_targets_when_multi(
             assert "True" in text
             assert "False" in text
     finally:
-        registry.close_all()
+        server.close()
+
+
+_UPDATE_SET_NAME = (
+    "\n[updates.set_name]\n"
+    'description = "Set customer name"\n'
+    'table = "customers"\n'
+    "\n[updates.set_name.key]\n"
+    'field = "id"\n'
+    'type = "int"\n'
+    "\n[[updates.set_name.fields]]\n"
+    'field = "name"\n'
+    'type = "str"\n'
+)
 
 
 def _write_update_configs(tmp_path: Path, allow_updates: bool) -> argparse.Namespace:
@@ -441,21 +403,7 @@ def _write_update_configs(tmp_path: Path, allow_updates: bool) -> argparse.Names
     conn.close()
 
     qcfg = tmp_path / "mcp-tools-sql.toml"
-    qcfg.write_text(
-        'connection = "default"\n'
-        "\n"
-        "[updates.set_name]\n"
-        'description = "Set customer name"\n'
-        'table = "customers"\n'
-        "\n"
-        "[updates.set_name.key]\n"
-        'field = "id"\n'
-        'type = "int"\n'
-        "\n"
-        "[[updates.set_name.fields]]\n"
-        'field = "name"\n'
-        'type = "str"\n'
-    )
+    qcfg.write_text('connection = "default"\n' + _UPDATE_SET_NAME)
     dbcfg = tmp_path / "db.toml"
     dbcfg.write_text(
         f'[connections.default]\nbackend = "sqlite"\npath = "{db.as_posix()}"\n'
@@ -471,25 +419,13 @@ def _write_update_configs(tmp_path: Path, allow_updates: bool) -> argparse.Names
 @pytest.mark.asyncio
 async def test_update_tool_registered_when_allow_updates_true(tmp_path: Path) -> None:
     """When ``allow_updates=True``, configured updates appear as ``update_*`` tools."""
-    from mcp.shared.memory import create_connected_server_and_client_session
-
-    args = _write_update_configs(tmp_path, allow_updates=True)
-    qcfg = load_query_config(args.config)
-    dbcfg = load_database_config(args.database_config)
-    targets = resolve_targets(qcfg, dbcfg)
-    registry = BackendRegistry()
-    server = ToolServer(qcfg, targets, registry, allow_updates=True)
-    server._register_configured_tools()  # pylint: disable=protected-access
-
+    server = _make_server(
+        _write_update_configs(tmp_path, allow_updates=True), allow_updates=True
+    )
     try:
-        async with create_connected_server_and_client_session(
-            server.mcp, raise_exceptions=True
-        ) as client:
-            result = await client.list_tools()
-            names = {t.name for t in result.tools}
-            assert "update_set_name" in names
+        assert "update_set_name" in await _tool_names(server)
     finally:
-        registry.close_all()
+        server.close()
 
 
 @pytest.mark.asyncio
@@ -497,26 +433,14 @@ async def test_update_tool_not_registered_when_allow_updates_false(
     tmp_path: Path,
 ) -> None:
     """``allow_updates=False`` skips update registration; non-update tools unchanged."""
-    from mcp.shared.memory import create_connected_server_and_client_session
-
     args = _write_update_configs(tmp_path, allow_updates=False)
-    qcfg = load_query_config(args.config)
-    dbcfg = load_database_config(args.database_config)
-    targets = resolve_targets(qcfg, dbcfg)
 
     async def _names(allow: bool) -> set[str]:
-        registry = BackendRegistry()
-        server = ToolServer(qcfg, targets, registry, allow_updates=allow)
-        server._register_builtin_tools()  # pylint: disable=protected-access
-        server._register_configured_tools()  # pylint: disable=protected-access
+        server = _make_server(args, allow_updates=allow)
         try:
-            async with create_connected_server_and_client_session(
-                server.mcp, raise_exceptions=True
-            ) as client:
-                result = await client.list_tools()
-                return {t.name for t in result.tools}
+            return await _tool_names(server)
         finally:
-            registry.close_all()
+            server.close()
 
     names_true = await _names(True)
     names_false = await _names(False)
@@ -534,20 +458,13 @@ def test_run_server_reads_allow_updates_from_database_config(
     args = _write_update_configs(tmp_path, allow_updates=False)
 
     recorded: dict[str, bool] = {}
-    original_init = ToolServer.__init__
+    original = toolset_module.assemble_toolset
 
-    def recording_init(
-        self: ToolServer,
-        config: object,
-        targets: object,
-        registry: object,
-        allow_updates: bool,
-        **kwargs: Path | None,
-    ) -> None:
-        recorded["allow_updates"] = allow_updates
-        original_init(self, config, targets, registry, allow_updates, **kwargs)  # type: ignore[arg-type]
+    def recording_assemble(*a: Any, **kw: Any) -> SqlToolset:
+        recorded["allow_updates"] = a[3]
+        return original(*a, **kw)
 
-    monkeypatch.setattr(ToolServer, "__init__", recording_init)
+    monkeypatch.setattr(toolset_module, "assemble_toolset", recording_assemble)
     monkeypatch.setattr(ToolServer, "run", lambda self: None)
 
     run_server(args)
@@ -555,85 +472,121 @@ def test_run_server_reads_allow_updates_from_database_config(
 
 
 @pytest.mark.asyncio
-async def test_register_all_registers_builtin_and_configured_tools(
+async def test_constructor_registers_builtin_and_configured_tools(
     tmp_path: Path,
 ) -> None:
-    """`register_all()` registers both a builtin and a configured tool."""
-    from mcp.shared.memory import create_connected_server_and_client_session
-
-    args = _write_sqlite_configs(tmp_path)
-    qcfg = load_query_config(args.config)
-    dbcfg = load_database_config(args.database_config)
-    targets = resolve_targets(qcfg, dbcfg)
-    registry = BackendRegistry()
-    server = ToolServer(qcfg, targets, registry, allow_updates=True)
-    server.register_all()
-
+    """`ToolServer(toolset)` registers both builtin and configured tools."""
+    server = _make_server(
+        _write_update_configs(tmp_path, allow_updates=True), allow_updates=True
+    )
     try:
-        async with create_connected_server_and_client_session(
-            server.mcp, raise_exceptions=True
-        ) as client:
-            result = await client.list_tools()
-            names = {t.name for t in result.tools}
-            assert "read_tables" in names
-            assert "validate_sql" in names
+        names = await _tool_names(server)
+        assert "read_tables" in names
+        assert "validate_sql" in names
+        assert "update_set_name" in names
     finally:
-        registry.close_all()
+        server.close()
 
 
-def test_build_tool_server_returns_unregistered_server(tmp_path: Path) -> None:
-    """`build_tool_server` returns a server with no tools registered yet."""
-    from mcp_tools_sql.server import build_tool_server
-
+def test_build_tool_server_registers_tools(tmp_path: Path) -> None:
+    """`build_tool_server` returns a server whose tools are already registered."""
     args = _write_sqlite_configs(tmp_path)
     server, qpath = build_tool_server(args)
+    try:
+        assert server.mcp._tool_manager.list_tools() != []  # pylint: disable=protected-access
+        assert qpath == args.config
+    finally:
+        server.close()
 
-    assert server.mcp._tool_manager.list_tools() == []  # pylint: disable=protected-access
-    assert qpath == args.config
 
-    server.register_all()
-    assert server.mcp._tool_manager.list_tools() != []  # pylint: disable=protected-access
-
-    server.close()
+def test_build_tool_server_raises_for_unknown_connection(tmp_path: Path) -> None:
+    """The eager build surfaces a query pinned to an unknown connection."""
+    args = _write_sqlite_configs(tmp_path)
+    args.config.write_text(
+        'connection = "default"\n'
+        "\n[queries.bad]\n"
+        'description = "Pinned to an unknown connection"\n'
+        'connection = "nope"\n'
+        'sql = "SELECT 1"\n'
+    )
+    with pytest.raises(ValueError):
+        build_tool_server(args)
 
 
 def test_close_delegates_to_registry_close_all(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
     """`ToolServer.close()` calls `registry.close_all()` exactly once."""
-    args = _write_sqlite_configs(tmp_path)
-    qcfg = load_query_config(args.config)
-    dbcfg = load_database_config(args.database_config)
-    targets = resolve_targets(qcfg, dbcfg)
-    registry = BackendRegistry()
-    server = ToolServer(qcfg, targets, registry, allow_updates=False)
-
-    close_called = {"n": 0}
-    original_close_all = BackendRegistry.close_all
-
-    def counting_close_all(self: BackendRegistry) -> None:
-        close_called["n"] += 1
-        original_close_all(self)
-
-    monkeypatch.setattr(BackendRegistry, "close_all", counting_close_all)
+    server = _make_server(_write_sqlite_configs(tmp_path), allow_updates=False)
+    close_called = _counting_close_all(monkeypatch)
 
     server.close()
     assert close_called["n"] == 1
 
 
-def test_config_and_targets_properties_expose_constructor_values(
-    tmp_path: Path,
+def test_run_server_closes_exactly_once(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
-    """`server.config`/`server.targets` return the exact constructor values."""
+    """`run_server` closes the toolset exactly once after a clean run."""
+    args = _write_sqlite_configs(tmp_path)
+    monkeypatch.setattr(ToolServer, "run", lambda self: None)
+    close_called = _counting_close_all(monkeypatch)
+
+    run_server(args)
+    assert close_called["n"] == 1
+
+
+def test_toolset_property_exposes_constructor_value(tmp_path: Path) -> None:
+    """`server.toolset` is the exact toolset passed to the constructor."""
     args = _write_sqlite_configs(tmp_path)
     qcfg = load_query_config(args.config)
     dbcfg = load_database_config(args.database_config)
     targets = resolve_targets(qcfg, dbcfg)
-    registry = BackendRegistry()
-    server = ToolServer(qcfg, targets, registry, allow_updates=False)
-
+    toolset = assemble_toolset(qcfg, targets, BackendRegistry(), False)
+    server = ToolServer(toolset)
     try:
-        assert server.config is qcfg
-        assert server.targets is targets
+        assert server.toolset is toolset
     finally:
-        registry.close_all()
+        server.close()
+
+
+@pytest.mark.asyncio
+async def test_mcp_tools_match_specs(tmp_path: Path) -> None:
+    """MCP names, descriptions and param descriptions equal the specs'."""
+    from mcp.shared.memory import create_connected_server_and_client_session
+
+    args = _write_multi_sqlite_configs(tmp_path)
+    for db in ("a.db", "b.db"):
+        conn = sqlite3.connect(str(tmp_path / db))
+        conn.execute("CREATE TABLE customers (id INTEGER PRIMARY KEY, name TEXT)")
+        conn.commit()
+        conn.close()
+    args.config.write_text(
+        'connection = "default"\n'
+        "\n[queries.foo]\n"
+        'description = "Foo query"\n'
+        'sql = "SELECT * FROM customers"\n' + _UPDATE_SET_NAME
+    )
+    server = _make_server(args, allow_updates=True)
+    specs = {spec.name: spec for spec in server.toolset.specs}
+    assert {"query_foo", "update_set_name", "read_databases"} <= specs.keys()
+    try:
+        async with create_connected_server_and_client_session(
+            server.mcp, raise_exceptions=True
+        ) as client:
+            tools = (await client.list_tools()).tools
+        assert {t.name for t in tools} == specs.keys()
+        for tool in tools:
+            spec = specs[tool.name]
+            assert tool.description == spec.description
+            with warnings.catch_warnings():
+                warnings.simplefilter("ignore", PydanticJsonSchemaWarning)
+                spec_props = spec.args_model.model_json_schema().get("properties", {})
+            mcp_props = tool.inputSchema.get("properties", {})
+            assert mcp_props.keys() == spec_props.keys(), tool.name
+            for param, schema in mcp_props.items():
+                assert schema.get("description") == spec_props[param].get(
+                    "description"
+                ), f"{tool.name}.{param}"
+    finally:
+        server.close()

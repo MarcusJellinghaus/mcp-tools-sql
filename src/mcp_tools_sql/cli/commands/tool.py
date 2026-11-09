@@ -58,7 +58,6 @@ def run(args: argparse.Namespace) -> int:
         )
         return 1
     try:
-        server.register_all()
         tools = server.mcp._tool_manager.list_tools()
         tool_argv: list[str] = args.tool_argv
         if not tool_argv or tool_argv[0] in _HELP_TOKENS:

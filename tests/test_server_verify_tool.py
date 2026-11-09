@@ -16,8 +16,9 @@ from mcp_tools_sql.config.loader import (
     resolve_targets,
 )
 from mcp_tools_sql.server import ToolServer, build_tool_server
+from mcp_tools_sql.toolset import assemble_toolset
 
-_RESTART_FRAGMENT = "Config edits need a server restart"
+_RESTART_FRAGMENT = "the running tools keep the config they were built with"
 
 
 def _write_configs(tmp_path: Path, *, with_query: bool) -> argparse.Namespace:
@@ -65,7 +66,6 @@ async def _call_verify(server: ToolServer) -> str:
 async def test_verify_listed(tmp_path: Path) -> None:
     """``verify`` is a registered built-in tool."""
     server, _ = build_tool_server(_write_configs(tmp_path, with_query=False))
-    server.register_all()
     try:
         assert "verify" in await _tool_names(server)
     finally:
@@ -76,7 +76,6 @@ async def test_verify_listed(tmp_path: Path) -> None:
 async def test_verify_returns_short_summary_and_restart_note(tmp_path: Path) -> None:
     """A valid config yields ``Config loaded.`` plus the restart note."""
     server, _ = build_tool_server(_write_configs(tmp_path, with_query=True))
-    server.register_all()
     try:
         text = await _call_verify(server)
     finally:
@@ -90,7 +89,6 @@ async def test_verify_rereads_disk_and_hides_credentials(tmp_path: Path) -> None
     """Edits on disk are picked up; a password in the bad config is never shown."""
     args = _write_configs(tmp_path, with_query=False)
     server, _ = build_tool_server(args)
-    server.register_all()
     args.database_config.write_text(
         "[connections.default]\n"
         'backend = "mssql"\n'
@@ -113,7 +111,6 @@ async def test_verify_rereads_disk_and_hides_credentials(tmp_path: Path) -> None
 async def test_no_builtin_tool_uses_configured_prefixes(tmp_path: Path) -> None:
     """Built-in tool names never start with ``query_`` or ``update_``."""
     server, _ = build_tool_server(_write_configs(tmp_path, with_query=False))
-    server.register_all()
     try:
         names = await _tool_names(server)
     finally:
@@ -128,20 +125,17 @@ async def test_verify_registered_without_path_kwargs(tmp_path: Path) -> None:
     qcfg = load_query_config(args.config)
     dbcfg = load_database_config(args.database_config)
     targets = resolve_targets(qcfg, dbcfg)
-    registry = BackendRegistry()
-    server = ToolServer(qcfg, targets, registry, allow_updates=False)
-    server.register_all()
+    server = ToolServer(assemble_toolset(qcfg, targets, BackendRegistry(), False))
     try:
         assert "verify" in await _tool_names(server)
     finally:
-        registry.close_all()
+        server.close()
 
 
 @pytest.mark.asyncio
 async def test_verify_leaves_server_registry_untouched(tmp_path: Path) -> None:
     """A configured query tool still works after ``verify`` ran."""
     server, _ = build_tool_server(_write_configs(tmp_path, with_query=True))
-    server.register_all()
     try:
         async with create_connected_server_and_client_session(
             server.mcp, raise_exceptions=True
