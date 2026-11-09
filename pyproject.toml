@@ -22,7 +22,9 @@ dependencies = [
     # <2.0.0: mcp 2.x drops mcp.server.fastmcp (FastMCP -> MCPServer). See #46.
     "mcp>=1.3.0,<2.0.0",
     "mcp[cli]>=1.3.0,<2.0.0",
-    "mcp-coder-utils>=0.1.6",
+    # Unpinned: always resolved from GitHub main via [tool.uv.sources] and
+    # [tool.mcp-coder.install-from-github]; no PyPI release is tracked.
+    "mcp-coder-utils",
     "tabulate>=0.9.0",
     "pydantic>=2.0",
     "tomlkit>=0.13.0",

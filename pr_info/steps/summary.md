@@ -71,7 +71,7 @@ Group names are plain string literals at each `tool_spec(...)` call (KISS — no
 - `src/mcp_tools_sql/cli/commands/tool.py`, `tool_args.py`, `tool_dispatch.py`, `tool_help.py` — specs instead of FastMCP `Tool`
 - `vulture_whitelist.py` — drop `_.create_server`
 - `.importlinter`, `tach.toml`
-- `pyproject.toml` — `mcp-coder-utils` pin bump (last step)
+- `pyproject.toml` — drop the `mcp-coder-utils` version floor; consumed from GitHub main (last step)
 - `.claude/CLAUDE.md` — Shared Libraries list
 - `docs/cli.md`, `docs/architecture/architecture.md`, `docs/quality-and-security-checks.md`
 
@@ -94,4 +94,4 @@ Group names are plain string literals at each `tool_spec(...)` call (KISS — no
 7. CLI `tool` subcommand on specs
 8. Import contracts (import-linter, tach)
 9. Docs
-10. `mcp-coder-utils` pin bump
+10. Unpin `mcp-coder-utils`
