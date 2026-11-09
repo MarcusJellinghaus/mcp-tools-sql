@@ -23,6 +23,9 @@ def fake_pyodbc(monkeypatch: pytest.MonkeyPatch) -> Any:
     operational_error_cls = type("OperationalError", (error_cls,), {})
     fake.Error = error_cls  # type: ignore[attr-defined]
     fake.OperationalError = operational_error_cls  # type: ignore[attr-defined]
+    fake.InterfaceError = type(  # type: ignore[attr-defined]
+        "InterfaceError", (error_cls,), {}
+    )
     fake.connect = MagicMock(  # type: ignore[attr-defined]
         return_value=MagicMock(name="connection")
     )

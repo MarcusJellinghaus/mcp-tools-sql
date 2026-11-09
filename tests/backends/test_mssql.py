@@ -12,6 +12,7 @@ from unittest.mock import MagicMock
 
 import pytest
 
+from mcp_tools_sql.backends.base import BackendConnectionError
 from mcp_tools_sql.backends.mssql import MSSQLBackend, _odbc_escape
 from tests.backends.conftest import LEAKY_PASSWORDS, _cfg, assert_no_leak
 from tests.conftest import MSSQLTestEnv
@@ -240,7 +241,7 @@ class TestIsolatedConnection:
             "08001", f"Login failed; PWD={_odbc_escape(password)}"
         )
         b = MSSQLBackend(_cfg(password=password))
-        with pytest.raises(fake_pyodbc.Error) as exc:
+        with pytest.raises(BackendConnectionError) as exc:
             with b.get_isolated_connection():
                 pass
         assert_no_leak(str(exc.value), password)
@@ -278,15 +279,16 @@ class TestErrorSanitization:
         )
         fake_pyodbc.connect.side_effect = original
         b = MSSQLBackend(_cfg(password=password))
-        with pytest.raises(fake_pyodbc.Error) as exc:
+        with pytest.raises(BackendConnectionError) as exc:
             b.connect()
         # Secret removed, marker present.
         assert_no_leak(str(exc.value), password)
         assert "***" in str(exc.value)
-        # Same instance re-raised: preserves type and sqlstate tuple shape.
-        assert exc.value is original
-        assert isinstance(exc.value, fake_pyodbc.OperationalError)
+        # Translated from the redacted original: class name and sqlstate kept.
+        assert exc.value.__cause__ is original
+        assert exc.value.original_class == "OperationalError"
         assert exc.value.args[0] == "08001"
+        assert_no_leak(str(original), password)
 
 
 class TestConnectDebugLogging:
@@ -321,7 +323,7 @@ class TestConnectDebugLogging:
         )
         b = MSSQLBackend(_cfg(password=password))
         with caplog.at_level("DEBUG", logger="mcp_tools_sql.backends.mssql"):
-            with pytest.raises(fake_pyodbc.Error):
+            with pytest.raises(BackendConnectionError):
                 b.connect()
         failure_lines = [
             r.getMessage()
