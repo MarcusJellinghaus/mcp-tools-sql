@@ -91,6 +91,8 @@ as in mcp_coder). Import-linter isolation contracts:
 - `subprocess_isolation` forbids importing `subprocess` in `src` and `tests`; use
   `execute_subprocess` from `mcp_tools_sql.utils.subprocess_runner`.
 - `no_test_imports_in_source` forbids `src` importing from `tests`.
+- `no_mcp_on_export_path` forbids importing `mcp` anywhere except
+  `mcp_tools_sql.server`, so the toolset can be used without the MCP SDK.
 
 See [`architecture.md`](architecture/architecture.md).
 

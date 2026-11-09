@@ -224,9 +224,10 @@ output format: see [Exit codes](#exit-codes-1).
 The running MCP server also exposes the checks as a `verify` tool, so the
 LLM can diagnose a failing query itself. The tool returns the `--short`
 output plus a note. It re-reads the config files from disk on every call,
-while the server keeps the config it loaded at startup: config edits need a
-server restart to take effect. A config that stops the server from starting
-can't be diagnosed through the tool; run `mcp-tools-sql verify` for that.
+while the running tools keep the config they were built with: an MCP server
+picks up edits on restart, agent-workbench on Reload. A config that stops
+the server from starting can't be diagnosed through the tool; run
+`mcp-tools-sql verify` for that.
 
 Sections, in order:
 

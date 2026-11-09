@@ -104,14 +104,19 @@ MCP server providing safe, configurable SQL database access for LLM-assisted wor
 │  Server Layer                                       │
 │  └── mcp_tools_sql.server                           │
 ├─────────────────────────────────────────────────────┤
+│  Toolset Layer                                      │
+│  └── mcp_tools_sql.toolset                          │
+├─────────────────────────────────────────────────────┤
+│  Verification Layer                                 │
+│  └── mcp_tools_sql.verification (subpackage)        │
+├─────────────────────────────────────────────────────┤
 │  Tool Layer                                         │
 │  ├── mcp_tools_sql.schema_tools                     │
 │  ├── mcp_tools_sql.query_tools                      │
 │  ├── mcp_tools_sql.update_tools                     │
-│  └── mcp_tools_sql.validation_tools                 │
-├─────────────────────────────────────────────────────┤
-│  Verification Layer                                 │
-│  └── mcp_tools_sql.verification (subpackage)        │
+│  ├── mcp_tools_sql.validation_tools                 │
+│  ├── mcp_tools_sql.count_tools                      │
+│  └── mcp_tools_sql.summarize                        │
 ├─────────────────────────────────────────────────────┤
 │  Infrastructure Layer                               │
 │  ├── mcp_tools_sql.backends (sqlite, mssql)         │
@@ -141,15 +146,16 @@ plus shared argparse helpers (`HelpHintArgumentParser`, `WideHelpFormatter`) in
 (for the default MCP-server command).
 
 The `tool` subcommand (`cli/commands/tool.py`) adds a new `cli.commands →
-server` edge: it calls `build_tool_server()` to construct the same
-`ToolServer`, then `register_all()` to populate it, exactly as `run_server`
-does — so the CLI's tool list is guaranteed to match what the MCP server
-would register, and `close()` releases backend connections in both paths.
+server` edge: it calls `build_tool_server()`, which builds the toolset
+eagerly and returns a fully registered `ToolServer`, exactly as `run_server`
+does. The CLI lists and calls `server.toolset.specs`, validating arguments
+through each spec's `args_model` — so its tool list matches the MCP
+server's, and `close()` releases backend connections in both paths.
 Because the legal tool names (and each tool's own flags) aren't known until
 config loads, argument parsing is two-phase: `main.py`'s top-level parser
 uses `parse_known_args` and leaves everything after the `tool` token
 unparsed, and `tool.py` then builds a per-tool `argparse.ArgumentParser` at
-runtime from that tool's `inspect.Signature`.
+runtime from the signature of that spec's `fn`.
 
 ### Verification Layer (`mcp_tools_sql.verification`)
 
@@ -171,18 +177,48 @@ in `tach.toml`, and on its own line in `.importlinter` (above
 `schema_tools|...`) because it imports from `schema_tools.load_default_queries`
 and `query_helpers.extract_sql_params`.
 
-`server` depends on `verification` (and `tool_logging`) for the `verify`
-MCP tool. The tool calls `verify_all` on the config paths the server was
-started with, so it re-reads both files from disk with its own
-`BackendRegistry` and never touches the server's registry, then returns
-`verification.render.render_short` output plus a restart note.
+`toolset` depends on `verification` (and `tool_logging`) for the `verify`
+tool. The tool calls `verify_all` on the config paths the toolset was
+built from, so it re-reads both files from disk with its own
+`BackendRegistry` and never touches the toolset's registry, then returns
+`verification.render.render_short` output plus a note that the running
+tools keep the config they were built with.
+
+### Toolset (`mcp_tools_sql.toolset`)
+
+One factory builds every tool as a framework-neutral `ToolSpec`
+(`mcp_tools_sql.utils.tool_spec`), so the MCP server, the CLI `tool`
+subcommand and agent-workbench get the same names, descriptions, validation
+and groups.
+
+- `build_toolset(query_config, database_config=None) -> SqlToolset` loads
+  both config files and delegates to `assemble_toolset`, which builds from
+  already-loaded objects (config, targets, `BackendRegistry`,
+  `allow_updates`) and owns the registry from then on — it closes it if
+  the build fails.
+- `SqlToolset` exposes `.specs`, `.targets`, `.query_config` and
+  `.close()` (closes the registry); it is also a context manager.
+- Rebuild = call `build_toolset` again, swap the new toolset in and close
+  the old one. There is no rebuild method.
+- Nothing in the toolset or the toolkits imports `mcp`
+  (`no_mcp_on_export_path` contract); `server.FastMCPSink` adapts the specs
+  to FastMCP.
+
+| Group | Tools | read_only |
+|---|---|---|
+| `sql.schema` | tools from `default_queries.toml`, `read_databases` | True |
+| `sql.validation` | `validate_sql`, `verify` | True |
+| `sql.profiling` | `count_records`, `summarize_columns` | True |
+| `sql.query` | `query_*` | True |
+| `sql.update` | `update_*` | False |
 
 ### Key Modules
 
 | Module | Responsibility |
 |--------|---------------|
 | `main.py` | CLI: argparse, per-command logging setup (level + file resolution), subcommands (server/init/verify) |
-| `server.py` | Creates FastMCP, registers tools, starts STDIO transport |
+| `server.py` | Registers the toolset's specs into FastMCP, starts STDIO transport |
+| `toolset.py` | `build_toolset` / `assemble_toolset`: every tool as a `ToolSpec` in one `SqlToolset`; builds the `verify` and `read_databases` tools |
 | `schema_tools.py` | Built-in introspection: schemas, tables, columns, relations |
 | `query_tools.py` | Dynamic registration of configured SELECT tools. Each query's resolved SQL must pass a read-only AST gate at registration; a violating query is skipped with a logged warning and the rest register normally |
 | `update_tools.py` | Dynamic registration of configured UPDATE tools |
@@ -196,7 +232,7 @@ started with, so it re-reads both files from disk with its own
 | `result_limits.py` | `collect`: the single collection path for query/schema tools (one source per database). Applies the `*_filter` glob per batch, admits display rows under `max_rows` and the output-char budget, cuts long cells, counts matched rows up to `max_count_rows` / the counting time limit, and catches statement timeouts inside the batch loop |
 | `formatting.py` | Result → LLM-friendly text (tabular, truncated). `render_limited` builds the `[Output truncated: ...]` message, fan-out footer, cell-cut line and per-database error lines |
 | `tool_logging.py` | Per-tool-call logging context manager (INFO counts, DEBUG params, ERROR duration) |
-| `verification/` | Verifier engine: environment, config, dependencies, builtin, connection, queries, updates. Orchestrated by `verify_all`. Consumed by the `verify` CLI subcommand and the server's `verify` MCP tool. |
+| `verification/` | Verifier engine: environment, config, dependencies, builtin, connection, queries, updates. Orchestrated by `verify_all`. Consumed by the `verify` CLI subcommand and the toolset's `verify` tool. |
 
 ---
 
