@@ -110,7 +110,7 @@ mcp-coder gh-tool set-status <label>
 
 ## Shared Libraries
 
-`log_utils`, `user_app_data` and `subprocess_runner` in `src/mcp_tools_sql/utils/` are thin shims over `mcp-coder-utils`. Always import through the local shims (e.g. `from mcp_tools_sql.utils.log_utils import ...`), not from `mcp_coder_utils` directly. Enforced by import-linter (`mcp_coder_utils_isolation` contract in `.importlinter`).
+`log_utils`, `user_app_data`, `subprocess_runner` and `tool_spec` in `src/mcp_tools_sql/utils/` are thin shims over `mcp-coder-utils`. Always import through the local shims (e.g. `from mcp_tools_sql.utils.log_utils import ...`), not from `mcp_coder_utils` directly. Enforced by import-linter (`mcp_coder_utils_isolation` contract in `.importlinter`).
 
 ## Writing style
 
