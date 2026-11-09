@@ -8,7 +8,11 @@ from pathlib import Path
 
 import pytest
 
-from mcp_tools_sql.backends.base import Deadline, QueryTimeoutError
+from mcp_tools_sql.backends.base import (
+    BackendConnectionError,
+    Deadline,
+    QueryTimeoutError,
+)
 from mcp_tools_sql.backends.sqlite import SQLiteBackend, _statement_deadline
 from mcp_tools_sql.config.models import ConnectionConfig
 
@@ -73,8 +77,9 @@ class TestStatementTimeout:
         backend.close()
 
     def test_non_timeout_error_passes_through(self, backend: SQLiteBackend) -> None:
-        with pytest.raises(sqlite3.OperationalError):
+        with pytest.raises(BackendConnectionError) as info:
             backend.execute_query("SELECT * FROM missing_table")
+        assert info.value.original_class == "OperationalError"
         backend.close()
 
 

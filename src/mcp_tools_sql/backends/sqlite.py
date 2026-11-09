@@ -15,10 +15,31 @@ from mcp_tools_sql.backends.base import (
     Deadline,
     QueryTimeoutError,
     translate_timeout,
+    wrap_driver_error,
 )
 from mcp_tools_sql.config.models import ConnectionConfig
 
 _PROGRESS_STEPS = 1000  # VM instructions between deadline checks
+
+_CONNECTION_ERRORS: tuple[type[sqlite3.Error], ...] = (
+    sqlite3.OperationalError,
+    sqlite3.InterfaceError,
+)
+
+
+@contextmanager
+def _driver_errors() -> Iterator[None]:
+    """Translate sqlite3.Error into BackendError / BackendConnectionError.
+
+    ``OperationalError`` and ``InterfaceError`` become
+    :class:`BackendConnectionError`, every other ``sqlite3.Error`` a plain
+    :class:`BackendError`. Non-driver exceptions pass through unchanged.
+    """
+    try:
+        yield
+    except sqlite3.Error as exc:
+        neutral = wrap_driver_error(exc, _CONNECTION_ERRORS)
+        raise neutral from exc
 
 
 @contextmanager
@@ -61,7 +82,12 @@ def _statement_deadline(
 
 
 class SQLiteBackend(DatabaseBackend):
-    """Backend for SQLite databases."""
+    """Backend for SQLite databases.
+
+    Every public driver-touching method raises ``sqlite3`` errors as
+    :class:`BackendError` (via :func:`_driver_errors`); statement timeouts are
+    translated first and raise :class:`QueryTimeoutError`.
+    """
 
     def __init__(self, config: ConnectionConfig) -> None:
         self._config = config
@@ -78,7 +104,7 @@ class SQLiteBackend(DatabaseBackend):
         """
         if self._connection is not None and not self._closed:
             return
-        with self._connect_lock:
+        with _driver_errors(), self._connect_lock:
             if self._closed:
                 msg = "Backend has been closed."
                 raise RuntimeError(msg)
@@ -94,10 +120,11 @@ class SQLiteBackend(DatabaseBackend):
 
     def close(self) -> None:
         """Close the SQLite connection (idempotent)."""
-        if self._connection is not None:
-            self._connection.close()
-            self._connection = None
-        self._closed = True
+        with _driver_errors():
+            if self._connection is not None:
+                self._connection.close()
+                self._connection = None
+            self._closed = True
 
     def _require_connection(self) -> sqlite3.Connection:
         """Lazily connect and return the live connection.
@@ -125,10 +152,11 @@ class SQLiteBackend(DatabaseBackend):
         Returns:
             Rows as a list of dicts.
         """
-        conn = self._require_connection()
-        with _statement_deadline(conn, self._config.query_timeout_seconds):
-            cursor = conn.execute(sql, params or {})
-            return [dict(row) for row in cursor.fetchall()]
+        with _driver_errors():
+            conn = self._require_connection()
+            with _statement_deadline(conn, self._config.query_timeout_seconds):
+                cursor = conn.execute(sql, params or {})
+                return [dict(row) for row in cursor.fetchall()]
 
     def execute_readonly_query(
         self, sql: str, params: dict[str, Any] | None = None
@@ -148,19 +176,20 @@ class SQLiteBackend(DatabaseBackend):
         Raises:
             ValueError: If the connection path is empty.
         """
-        path = self._config.path
-        if not path:
-            msg = "SQLite path must not be empty."
-            raise ValueError(msg)
-        conn = sqlite3.connect(path, check_same_thread=False)
-        try:
-            conn.row_factory = sqlite3.Row
-            conn.execute("PRAGMA query_only = ON")
-            with _statement_deadline(conn, self._config.query_timeout_seconds):
-                cursor = conn.execute(sql, params or {})
-                return [dict(row) for row in cursor.fetchall()]
-        finally:
-            conn.close()
+        with _driver_errors():
+            path = self._config.path
+            if not path:
+                msg = "SQLite path must not be empty."
+                raise ValueError(msg)
+            conn = sqlite3.connect(path, check_same_thread=False)
+            try:
+                conn.row_factory = sqlite3.Row
+                conn.execute("PRAGMA query_only = ON")
+                with _statement_deadline(conn, self._config.query_timeout_seconds):
+                    cursor = conn.execute(sql, params or {})
+                    return [dict(row) for row in cursor.fetchall()]
+            finally:
+                conn.close()
 
     def iter_readonly_batches(
         self,
@@ -191,25 +220,26 @@ class SQLiteBackend(DatabaseBackend):
         Raises:
             ValueError: If the connection path is empty.
         """
-        path = self._config.path
-        if not path:
-            msg = "SQLite path must not be empty."
-            raise ValueError(msg)
-        conn = sqlite3.connect(path, check_same_thread=False)
-        cursor: sqlite3.Cursor | None = None
-        try:
-            conn.row_factory = sqlite3.Row
-            conn.execute("PRAGMA query_only = ON")
-            with _statement_deadline(
-                conn, self._config.query_timeout_seconds, counting
-            ):
-                cursor = conn.execute(sql, params or {})
-                while batch := cursor.fetchmany(FETCH_BATCH_SIZE):
-                    yield [dict(row) for row in batch]
-        finally:
-            if cursor is not None:
-                cursor.close()
-            conn.close()
+        with _driver_errors():
+            path = self._config.path
+            if not path:
+                msg = "SQLite path must not be empty."
+                raise ValueError(msg)
+            conn = sqlite3.connect(path, check_same_thread=False)
+            cursor: sqlite3.Cursor | None = None
+            try:
+                conn.row_factory = sqlite3.Row
+                conn.execute("PRAGMA query_only = ON")
+                with _statement_deadline(
+                    conn, self._config.query_timeout_seconds, counting
+                ):
+                    cursor = conn.execute(sql, params or {})
+                    while batch := cursor.fetchmany(FETCH_BATCH_SIZE):
+                        yield [dict(row) for row in batch]
+            finally:
+                if cursor is not None:
+                    cursor.close()
+                conn.close()
 
     def execute_readonly_query_with_columns(
         self, sql: str, params: dict[str, Any] | None = None
@@ -236,19 +266,20 @@ class SQLiteBackend(DatabaseBackend):
         Raises:
             ValueError: If the connection path is empty.
         """
-        path = self._config.path
-        if not path:
-            msg = "SQLite path must not be empty."
-            raise ValueError(msg)
-        conn = sqlite3.connect(path, check_same_thread=False)
-        try:
-            conn.execute("PRAGMA query_only = ON")
-            with _statement_deadline(conn, self._config.query_timeout_seconds):
-                cursor = conn.execute(sql, params or {})
-                columns = [d[0] for d in cursor.description or ()]
-                return columns, [tuple(row) for row in cursor.fetchall()]
-        finally:
-            conn.close()
+        with _driver_errors():
+            path = self._config.path
+            if not path:
+                msg = "SQLite path must not be empty."
+                raise ValueError(msg)
+            conn = sqlite3.connect(path, check_same_thread=False)
+            try:
+                conn.execute("PRAGMA query_only = ON")
+                with _statement_deadline(conn, self._config.query_timeout_seconds):
+                    cursor = conn.execute(sql, params or {})
+                    columns = [d[0] for d in cursor.description or ()]
+                    return columns, [tuple(row) for row in cursor.fetchall()]
+            finally:
+                conn.close()
 
     def execute_update(self, sql: str, params: dict[str, Any] | None = None) -> int:
         """Execute an UPDATE/INSERT under the statement timeout.
@@ -259,11 +290,12 @@ class SQLiteBackend(DatabaseBackend):
         Returns:
             Number of affected rows.
         """
-        conn = self._require_connection()
-        with _statement_deadline(conn, self._config.query_timeout_seconds):
-            cursor = conn.execute(sql, params or {})
-            conn.commit()
-            return cursor.rowcount
+        with _driver_errors():
+            conn = self._require_connection()
+            with _statement_deadline(conn, self._config.query_timeout_seconds):
+                cursor = conn.execute(sql, params or {})
+                conn.commit()
+                return cursor.rowcount
 
     def explain(self, sql: str, params: dict[str, Any] | None = None) -> str:
         """Return the query execution plan under the statement timeout.
@@ -274,11 +306,12 @@ class SQLiteBackend(DatabaseBackend):
         (from :func:`_statement_deadline`) if execute + fetch exceed
         ``query_timeout_seconds``.
         """
-        conn = self._require_connection()
-        with _statement_deadline(conn, self._config.query_timeout_seconds):
-            cursor = conn.execute(f"EXPLAIN QUERY PLAN {sql}", params or {})
-            rows = cursor.fetchall()
-        return "\n".join(row["detail"] for row in rows)
+        with _driver_errors():
+            conn = self._require_connection()
+            with _statement_deadline(conn, self._config.query_timeout_seconds):
+                cursor = conn.execute(f"EXPLAIN QUERY PLAN {sql}", params or {})
+                rows = cursor.fetchall()
+            return "\n".join(row["detail"] for row in rows)
 
     @contextmanager
     def get_isolated_connection(self) -> Iterator[Any]:

@@ -13,6 +13,7 @@ import pytest
 
 from mcp_tools_sql.backends.base import (
     FETCH_BATCH_SIZE,
+    BackendConnectionError,
     DatabaseBackend,
     Deadline,
     QueryTimeoutError,
@@ -122,8 +123,19 @@ class TestSQLiteBatches:
         assert batches == [[{"id": 0}, {"id": 1}, {"id": 2}]]
 
     def test_writes_rejected(self, sqlite_backend: SQLiteBackend) -> None:
-        with pytest.raises(sqlite3.OperationalError):
+        with pytest.raises(BackendConnectionError) as info:
             list(sqlite_backend.iter_readonly_batches("DELETE FROM t"))
+        assert info.value.original_class == "OperationalError"
+
+    def test_missing_table_raises_on_first_next(
+        self, sqlite_backend: SQLiteBackend
+    ) -> None:
+        gen = sqlite_backend.iter_readonly_batches("SELECT * FROM missing")
+        with pytest.raises(BackendConnectionError) as info:
+            next(gen)
+        assert info.value.original_class == "OperationalError"
+        assert "no such table" in str(info.value)
+        assert isinstance(info.value.__cause__, sqlite3.OperationalError)
 
     def test_close_after_first_batch_closes_connection(
         self, sqlite_backend: SQLiteBackend, monkeypatch: pytest.MonkeyPatch
