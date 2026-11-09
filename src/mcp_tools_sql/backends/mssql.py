@@ -142,6 +142,31 @@ def _translate_pyodbc(exc: BaseException) -> BackendError | None:
     return wrap_driver_error(exc, connection_types)
 
 
+def pyodbc_version() -> str:
+    """Return pyodbc's version string; ``ImportError`` if pyodbc is missing.
+
+    Returns:
+        ``pyodbc.version``, or ``""`` when the module does not expose one.
+    """
+    import pyodbc  # pylint: disable=import-error,import-outside-toplevel
+
+    return str(getattr(pyodbc, "version", ""))
+
+
+def odbc_drivers() -> list[str]:
+    """Return the installed ODBC driver names (``pyodbc.drivers()``).
+
+    ``ImportError`` if pyodbc is missing; errors from ``pyodbc.drivers()``
+    propagate unchanged.
+
+    Returns:
+        The driver names as reported by pyodbc.
+    """
+    import pyodbc  # pylint: disable=import-error,import-outside-toplevel
+
+    return list(pyodbc.drivers())
+
+
 class MSSQLBackend(DatabaseBackend):
     """Backend for Microsoft SQL Server via pyodbc.
 

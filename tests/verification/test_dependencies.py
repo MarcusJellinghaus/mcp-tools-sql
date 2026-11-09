@@ -2,11 +2,27 @@
 
 from __future__ import annotations
 
-import sys
-from unittest.mock import MagicMock, patch
+import pytest
 
-from mcp_tools_sql.verification import verify_dependencies
+from mcp_tools_sql.verification import dependencies, verify_dependencies
 from mcp_tools_sql.verification._helpers import checks_ok
+
+
+def _missing(name: str) -> object:
+    """Build a probe that raises ImportError like a missing driver import."""
+
+    def _probe() -> str:
+        raise ImportError(f"No module named {name!r}")
+
+    return _probe
+
+
+def _patch_pyodbc(
+    monkeypatch: pytest.MonkeyPatch, version: str, drivers: list[str]
+) -> None:
+    """Patch the pyodbc probes used by the dependencies section."""
+    monkeypatch.setattr(dependencies, "pyodbc_version", lambda: version)
+    monkeypatch.setattr(dependencies, "odbc_drivers", lambda: list(drivers))
 
 
 def test_verify_dependencies_sqlite_shows_info_line() -> None:
@@ -27,10 +43,13 @@ def test_verify_dependencies_unknown_backend_returns_err() -> None:
     assert "cannot determine backend" in result["backend"]["error"]
 
 
-def test_verify_dependencies_postgresql_when_psycopg_missing() -> None:
+def test_verify_dependencies_postgresql_when_psycopg_missing(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
     """postgresql branch reports ok=False with install_hint when psycopg missing."""
-    with patch.dict(sys.modules, {"psycopg": None}):
-        result = verify_dependencies("postgresql")
+    monkeypatch.setattr(dependencies, "psycopg_version", _missing("psycopg"))
+
+    result = verify_dependencies("postgresql")
 
     assert result["psycopg"]["ok"] is False
     assert "(not installed)" in result["psycopg"]["value"]
@@ -38,10 +57,13 @@ def test_verify_dependencies_postgresql_when_psycopg_missing() -> None:
     assert checks_ok(result) is False
 
 
-def test_verify_dependencies_mssql_when_pyodbc_missing() -> None:
+def test_verify_dependencies_mssql_when_pyodbc_missing(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
     """mssql branch reports ok=False for pyodbc when missing, and skips driver."""
-    with patch.dict(sys.modules, {"pyodbc": None}):
-        result = verify_dependencies("mssql")
+    monkeypatch.setattr(dependencies, "pyodbc_version", _missing("pyodbc"))
+
+    result = verify_dependencies("mssql")
 
     assert result["pyodbc"]["ok"] is False
     assert "pip install mcp-tools-sql[mssql]" in result["pyodbc"]["install_hint"]
@@ -49,15 +71,15 @@ def test_verify_dependencies_mssql_when_pyodbc_missing() -> None:
     assert checks_ok(result) is False
 
 
-def test_verify_dependencies_mssql_with_pyodbc_and_driver() -> None:
+def test_verify_dependencies_mssql_with_pyodbc_and_driver(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
     """mssql branch returns ok when pyodbc present and a SQL Server driver exists."""
-    fake_pyodbc = MagicMock()
-    fake_pyodbc.version = "5.0.1"
-    fake_pyodbc.drivers = MagicMock(
-        return_value=["ODBC Driver 18 for SQL Server", "Other Driver"]
+    _patch_pyodbc(
+        monkeypatch, "5.0.1", ["ODBC Driver 18 for SQL Server", "Other Driver"]
     )
-    with patch.dict(sys.modules, {"pyodbc": fake_pyodbc}):
-        result = verify_dependencies("mssql")
+
+    result = verify_dependencies("mssql")
 
     assert result["pyodbc"]["ok"] is True
     assert result["odbc_driver"]["ok"] is True
@@ -65,13 +87,13 @@ def test_verify_dependencies_mssql_with_pyodbc_and_driver() -> None:
     assert checks_ok(result) is True
 
 
-def test_verify_dependencies_mssql_with_pyodbc_no_driver() -> None:
+def test_verify_dependencies_mssql_with_pyodbc_no_driver(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
     """mssql branch returns ok=False for driver when no SQL Server driver found."""
-    fake_pyodbc = MagicMock()
-    fake_pyodbc.version = "5.0.1"
-    fake_pyodbc.drivers = MagicMock(return_value=["SQLite ODBC Driver"])
-    with patch.dict(sys.modules, {"pyodbc": fake_pyodbc}):
-        result = verify_dependencies("mssql")
+    _patch_pyodbc(monkeypatch, "5.0.1", ["SQLite ODBC Driver"])
+
+    result = verify_dependencies("mssql")
 
     assert result["pyodbc"]["ok"] is True
     assert result["odbc_driver"]["ok"] is False
@@ -79,33 +101,37 @@ def test_verify_dependencies_mssql_with_pyodbc_no_driver() -> None:
     assert checks_ok(result) is False
 
 
-def test_verify_dependencies_mssql_configured_driver_installed() -> None:
+def test_verify_dependencies_mssql_configured_driver_installed(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
     """configured_driver present in installed list → odbc_driver row OK with that name."""
-    fake_pyodbc = MagicMock()
-    fake_pyodbc.version = "5.0.1"
-    fake_pyodbc.drivers = MagicMock(
-        return_value=["ODBC Driver 17 for SQL Server", "ODBC Driver 18 for SQL Server"]
+    _patch_pyodbc(
+        monkeypatch,
+        "5.0.1",
+        ["ODBC Driver 17 for SQL Server", "ODBC Driver 18 for SQL Server"],
     )
-    with patch.dict(sys.modules, {"pyodbc": fake_pyodbc}):
-        result = verify_dependencies(
-            "mssql", configured_driver="ODBC Driver 18 for SQL Server"
-        )
+
+    result = verify_dependencies(
+        "mssql", configured_driver="ODBC Driver 18 for SQL Server"
+    )
 
     assert result["odbc_driver"]["ok"] is True
     assert result["odbc_driver"]["value"] == "ODBC Driver 18 for SQL Server"
 
 
-def test_verify_dependencies_mssql_configured_driver_mismatch() -> None:
+def test_verify_dependencies_mssql_configured_driver_mismatch(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
     """configured_driver not installed → odbc_driver row fails and lists installed."""
-    fake_pyodbc = MagicMock()
-    fake_pyodbc.version = "5.0.1"
-    fake_pyodbc.drivers = MagicMock(
-        return_value=["ODBC Driver 18 for SQL Server", "SQLite ODBC Driver"]
+    _patch_pyodbc(
+        monkeypatch,
+        "5.0.1",
+        ["ODBC Driver 18 for SQL Server", "SQLite ODBC Driver"],
     )
-    with patch.dict(sys.modules, {"pyodbc": fake_pyodbc}):
-        result = verify_dependencies(
-            "mssql", configured_driver="ODBC Driver 17 for SQL Server"
-        )
+
+    result = verify_dependencies(
+        "mssql", configured_driver="ODBC Driver 17 for SQL Server"
+    )
 
     assert result["odbc_driver"]["ok"] is False
     assert "ODBC Driver 17 for SQL Server" in result["odbc_driver"]["value"]
