@@ -83,6 +83,10 @@ Database config (~/.mcp-tools-sql/config.toml)
                               ("postgresql" is accepted by the config but
                               has no backend yet)
     description               shown by the read_databases tool
+    query_timeout_seconds     default 30; statement timeout for every
+                              statement on the connection (must be > 0)
+    connect_timeout_seconds   default 15; SQL Server login timeout
+                              (must be > 0; ignored on sqlite)
     # sqlite
     path                      database file; ":memory:" is a new empty DB
                               on every connection
@@ -115,6 +119,15 @@ _GUIDE_PROJECT = """\
 Project query config (mcp-tools-sql.toml)
 -----------------------------------------
   connection = "<name>"       required; default connection for all tools
+
+  [limits]                    output limits of query/schema tools (optional)
+    max_output_chars          default 80000; char budget for the rendered
+                              result table
+    max_cell_chars            default 500; longer values are cut
+    max_count_rows            default 100000; matched rows counted for the
+                              reported total. Must be >= every
+                              max_rows_hard (built-in tools: 100).
+                              All three must be > 0.
 
   [queries.<name>]            registers tool query_<name>
     description               tool description shown to the LLM

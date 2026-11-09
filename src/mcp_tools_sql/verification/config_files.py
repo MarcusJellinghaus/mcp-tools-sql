@@ -19,6 +19,7 @@ from mcp_tools_sql.config.models import (
     QueryConfig,
     QueryFileConfig,
     UpdateConfig,
+    count_rows_violation,
 )
 from mcp_tools_sql.utils.user_app_data import get_user_app_data_dir
 from mcp_tools_sql.verification._helpers import (
@@ -117,6 +118,10 @@ def _load_query_half(
         queries = _load_entries(data, "queries", QueryConfig, checks)
         updates = _load_entries(data, "updates", UpdateConfig, checks)
         query_config = top.model_copy(update={"queries": queries, "updates": updates})
+        # Entries are validated separately, so re-run the cross-entry check.
+        violation = count_rows_violation(top.limits, queries)
+        if violation:
+            checks["query_config_parse"] = make_entry(ok=False, error=violation)
 
     found = _has_sensitive_keys(data)
     if found:

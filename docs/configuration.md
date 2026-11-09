@@ -69,8 +69,14 @@ refers to.
 | `driver` | mssql | `"ODBC Driver 18 for SQL Server"` | ODBC driver name. |
 | `encrypt` | mssql | `true` | ODBC `Encrypt=`. |
 | `trust_server_certificate` | mssql | `false` | ODBC `TrustServerCertificate=`. Set `true` for local or dev servers without a valid TLS certificate, or the driver refuses the connection. |
+| `query_timeout_seconds` | all | `30` | Statement timeout, applied to every statement on the connection: query and schema tools, `count_records`, `summarize_columns`, updates, `validate_sql`, `verify`. A timed-out statement returns `Query aborted after N s (statement timeout).` |
+| `connect_timeout_seconds` | mssql | `15` | Login timeout. Accepted and ignored on sqlite. |
 
 An mssql connection needs at least one database.
+
+Both timeouts must be greater than 0. `0` is rejected because ODBC treats
+`timeout = 0` as *no* timeout; `verify` reports it in the
+`database_config_parse` row.
 
 ### `[security]`
 
@@ -144,6 +150,33 @@ trust_server_certificate = true
 
 Credentials do not belong here: a `password` key logs a warning and `verify`
 reports it.
+
+### `[limits]`
+
+Bounds the output of the query and schema tools (`query_*`, `read_*`). All
+keys are optional.
+
+| Key | Default | Meaning |
+|-----|---------|---------|
+| `max_output_chars` | `80000` | Character budget for the rendered result table (~20k tokens). Rows that don't fit are not shown. |
+| `max_cell_chars` | `500` | Longer values are cut with an inline marker `…[cut, N chars total]`. |
+| `max_count_rows` | `100000` | How many matched rows are counted for the reported total. Must be ≥ every tool's effective `max_rows_hard` (built-in tools: 100). |
+
+All three must be greater than 0. A violation fails config load; `verify`
+reports it in the `query_config_parse` row.
+
+Showing and counting have separate boundaries:
+
+| Matched rows | Shown to the LLM | Total reported |
+|---|---|---|
+| ≤ `max_rows` (and within the char budget) | all | exact |
+| up to `max_count_rows` | first `max_rows` / as many as fit the char budget | exact, e.g. `4,213` |
+| > `max_count_rows` | same | `100,000+` |
+
+The display limits (`max_rows`, `max_output_chars`, `max_cell_chars`) cut only
+what is shown, never the counting. Counting respects a `*_filter` (it counts
+matched rows) and also stops after an internal time limit; the total is then
+reported as `N+`.
 
 ### `[queries.<name>]` → tool `query_<name>`
 
