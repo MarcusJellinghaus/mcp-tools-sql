@@ -16,6 +16,8 @@ MCP server providing safe, configurable SQL database access for LLM-assisted wor
 - **Safety**: Config-driven queries, parameterized execution, no SQL injection
 - **Discoverability**: Schema introspection with search/filter for wide tables
 - **LLM-friendliness**: Truncated, formatted output that fits context windows
+- **Bounded cost**: Statement and login timeouts per connection; `[limits]`
+  caps output chars, cell chars and counted rows
 - **Multi-backend**: SQLite and MS SQL Server behind a common abstraction
   (PostgreSQL config is accepted; the backend is not implemented yet)
 
@@ -188,10 +190,11 @@ started with, so it re-reads both files from disk with its own
 | `summarize/` | `summarize_columns` column profiling. `source.py` resolves the profiling **source** into one `Source` value object — either a persisted table (`schema`+`table`, types from the catalog) or an arbitrary read-only SELECT (`sql`, wrapped as a `(...) AS src` derived table; types come from `sys.dm_exec_describe_first_result_set` on T-SQL, falling back — with a footer note — to the few-row value probe that SQLite always uses). `sql.py` builds the count / scalar-aggregate / value-list SQL, `render.py` the deep and triage text views, `tools.py` registers the tool and orchestrates the pipeline. Downstream of `Source` nothing branches on which path produced it. |
 | `config/models.py` | Pydantic models for all config |
 | `config/loader.py` | TOML loading, validation, connection resolution |
-| `backends/base.py` | `DatabaseBackend` ABC + factory. Read-only execution comes in two shapes: `execute_readonly_query` (dict rows, the default) and `execute_readonly_query_with_columns` (ordered column names + raw row tuples, under the same read-only guarantee). The second exists because dict rows discard `cursor.description` and silently collapse duplicate column names — which the `summarize_columns` value probe must be able to detect and reject. |
+| `backends/base.py` | `DatabaseBackend` ABC + factory. Read-only execution comes in two shapes: `execute_readonly_query` (dict rows, the default) and `execute_readonly_query_with_columns` (ordered column names + raw row tuples, under the same read-only guarantee). The second exists because dict rows discard `cursor.description` and silently collapse duplicate column names — which the `summarize_columns` value probe must be able to detect and reject. `iter_readonly_batches` yields read-only rows in `fetchmany` batches for the query/schema tool path. `QueryTimeoutError` is the one statement-timeout exception; `translate_timeout` maps driver errors (SQLite interrupt, SQLSTATE `HYT00`) to it. |
 | `backends/sqlite.py` | SQLite implementation |
 | `backends/mssql.py` | SQL Server implementation (pyodbc) |
-| `formatting.py` | Result → LLM-friendly text (tabular, truncated) |
+| `result_limits.py` | `collect`: the single collection path for query/schema tools (one source per database). Applies the `*_filter` glob per batch, admits display rows under `max_rows` and the output-char budget, cuts long cells, counts matched rows up to `max_count_rows` / the counting time limit, and catches statement timeouts inside the batch loop |
+| `formatting.py` | Result → LLM-friendly text (tabular, truncated). `render_limited` builds the `[Output truncated: ...]` message, fan-out footer, cell-cut line and per-database error lines |
 | `tool_logging.py` | Per-tool-call logging context manager (INFO counts, DEBUG params, ERROR duration) |
 | `verification/` | Verifier engine: environment, config, dependencies, builtin, connection, queries, updates. Orchestrated by `verify_all`. Consumed by the `verify` CLI subcommand and the server's `verify` MCP tool. |
 
@@ -228,9 +231,16 @@ installs:
   exists. Both parameters are keyword-only with a runtime-built `Literal` enum
   of the legal names.
 - `database = "*"` fans out a schema builtin across every database of the
-  selected connection (correctness path only — fetch-all, merge in config order,
-  truncate at the end). Merged rows carry a `_database` source column and a
-  per-database footer breakdown on truncation. There is no `connection = "*"`.
+  selected connection. Each database is one `result_limits.Source`, read in
+  config order in batches by the same `collect` call the single-target path
+  uses, so the display budget (`max_rows`, output chars) and the counting
+  budget (`max_count_rows`, counting time limit) are shared across databases.
+  Merged rows carry a `_database` source column. On truncation a
+  `Matched: ...` footer gives per-database counts — `N+` where counting
+  stopped early, `not queried (limit reached)` or `not queried (stopped:
+  statement timeout)` for databases after the stop — and a failing database
+  gets its own error line while the others are still read. There is no
+  `connection = "*"`.
 - `read_databases` is named for its result (the list of routable databases),
   matching the `read_*` builtin family; it reads config only and touches no
   database.
@@ -272,6 +282,12 @@ server — not by editing `databases`.
 - Parameterized queries only — no string interpolation
 - UPDATE requires unique key — prevents mass updates
 - Row limits on all results — prevents context overflow
+- `[limits]` bounds every query/schema result: `max_output_chars` (rendered
+  table size), `max_cell_chars` (long values are cut) and `max_count_rows`
+  (rows counted past the display set). Reads are batched, so memory stays at
+  about the display rows plus one batch
+- Statement timeout (`query_timeout_seconds`, all backends) and login timeout
+  (`connect_timeout_seconds`, SQL Server) — no query runs forever
 - Configured queries are proved read-only by AST inspection before registration
   and then execute through the backend's read-only path — unconditionally;
   `allow_updates` governs `updates.*` only. The DB-level backstop differs per

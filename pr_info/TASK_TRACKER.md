@@ -80,9 +80,9 @@ See [step_8.md](./steps/step_8.md)
 ### Step 9: Wire fan-out (`database="*"`) + architecture doc
 See [step_9.md](./steps/step_9.md)
 
-- [ ] Implementation (tests + production code)
-- [ ] Quality checks: pylint, pytest, mypy, lint-imports, vulture — fix all issues
-- [ ] Commit message prepared
+- [x] Implementation (tests + production code)
+- [x] Quality checks: pylint, pytest, mypy, lint-imports, vulture — fix all issues
+- [x] Commit message prepared
 
 ## Pull Request
 

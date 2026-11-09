@@ -76,6 +76,7 @@ _.model_config
 # =============================================================================
 # Pydantic @model_validator methods (invoked by Pydantic, not called directly)
 # =============================================================================
+_._check_count_rows
 _._default_max_rows_hard
 _._normalise_databases
 _._param_names_from_keys

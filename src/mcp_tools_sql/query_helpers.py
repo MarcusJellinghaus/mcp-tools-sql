@@ -8,15 +8,16 @@ a sibling-to-sibling dependency.
 
 from __future__ import annotations
 
+import functools
 import inspect
-from collections.abc import Awaitable, Callable
+from collections.abc import Awaitable, Callable, Generator
 from fnmatch import fnmatch
 from typing import TYPE_CHECKING, Annotated, Any, Literal, cast
 
 from pydantic import Field
 
 from mcp_tools_sql.config.models import LimitsConfig
-from mcp_tools_sql.formatting import MAX_ROWS_MIN, format_fanout_rows, render_limited
+from mcp_tools_sql.formatting import MAX_ROWS_MIN, render_limited
 from mcp_tools_sql.result_limits import Source, collect, counting_time_limit
 from mcp_tools_sql.tool_logging import log_tool_call
 from mcp_tools_sql.utils.data_type_utility.type_mapping import resolve_python_type
@@ -30,9 +31,13 @@ from mcp_tools_sql.utils.sql_placeholders import (
 )
 
 if TYPE_CHECKING:
-    from mcp_tools_sql.backends.base import DatabaseBackend
+    from mcp_tools_sql.backends.base import DatabaseBackend, Deadline
     from mcp_tools_sql.backends.registry import BackendRegistry
-    from mcp_tools_sql.config.models import QueryConfig, ResolvedTargets
+    from mcp_tools_sql.config.models import (
+        QueryConfig,
+        ResolvedTarget,
+        ResolvedTargets,
+    )
 
 
 def extract_sql_params(sql: str) -> set[str]:
@@ -421,6 +426,31 @@ def build_target_params(
     return params
 
 
+def _tagged_batches(
+    registry: BackendRegistry,
+    target: ResolvedTarget,
+    sql: str,
+    params: dict[str, Any] | None,
+    counting: Deadline,
+) -> Generator[list[dict[str, Any]], None, None]:
+    """Yield the target's batches with a ``_database`` column added.
+
+    Yields:
+        Batches from the target's backend, each row tagged with
+        ``_database``.
+    """
+    inner = registry.backend_for(target).iter_readonly_batches(
+        sql, params, counting=counting
+    )
+    try:
+        for batch in inner:
+            for row in batch:
+                row["_database"] = target.database
+            yield batch
+    finally:
+        inner.close()
+
+
 def build_schema_body(
     name: str,
     config: QueryConfig,
@@ -436,11 +466,12 @@ def build_schema_body(
     call-time ``connection``/``database`` kwargs. For a pinned database it
     resolves exactly one target and delegates to the shared
     :func:`execute_and_format` core. For ``database="*"`` it fans out across
-    **every** database of the resolved connection, tags each row with a
-    ``_database`` column, merges in config order, caps the merged total at
-    ``max_rows``, and renders a per-database footer plus inline per-target
-    errors via :func:`format_fanout_rows`. The ``_database`` column appears
-    only on the fan-out path — single-target output is unchanged.
+    **every** database of the resolved connection: one :class:`Source` per
+    database (rows tagged with a ``_database`` column) read in config order by
+    :func:`collect` under shared display and counting budgets, rendered by
+    :func:`render_limited` with a per-database ``Matched:`` footer and inline
+    per-database errors. The ``_database`` column appears only on the fan-out
+    path — single-target output is unchanged.
 
     Returns:
         An async callable that resolves its target(s) then executes and formats
@@ -473,28 +504,47 @@ def build_schema_body(
         sql_params = extract_sql_params(resolved_sql)
         stripped = {k: v for k, v in kwargs.items() if k in sql_params}
 
-        merged: list[dict[str, Any]] = []
-        counts: dict[str, int] = {}
-        errors: list[tuple[str, str]] = []
+        def filter_rows(batch: list[dict[str, Any]]) -> list[dict[str, Any]]:
+            return apply_filter(batch, config.filter_column, filter_pattern)
+
+        # backend_for runs inside the generator, so collect records its
+        # errors per database instead of aborting the fan-out.
+        sources = [
+            Source(
+                database=t.database,
+                open=functools.partial(
+                    _tagged_batches, registry, t, resolved_sql, stripped or None
+                ),
+                enforces_counting=t.backend_name == "sqlite",
+            )
+            for t in fan_targets
+        ]
         async with log_tool_call(name, stripped, sql=resolved_sql) as rec:
-            for target in fan_targets:
-                try:
-                    rows = registry.backend_for(target).execute_readonly_query(
-                        resolved_sql, stripped or None
-                    )
-                    if filter_kwarg:
-                        rows = apply_filter(rows, config.filter_column, filter_pattern)
-                    for row in rows:
-                        row["_database"] = target.database
-                    counts[target.database] = len(rows)
-                    merged.extend(rows)
-                except Exception as exc:
-                    errors.append((target.database, str(exc)))
-            rec.record(rows=len(merged), cols=len(merged[0]) if merged else 0)
-        formatted = format_fanout_rows(
-            merged, counts, errors, requested, truncation_hint="Use filter to narrow."
+            result = collect(
+                sources,
+                max_rows=requested,
+                limits=effective_limits,
+                counting_seconds=counting_time_limit(
+                    fan_targets[0].config.query_timeout_seconds
+                ),
+                filter_rows=filter_rows,
+                record_errors=True,
+            )
+            rec.record(
+                rows=result.total, cols=len(result.rows[0]) if result.rows else 0
+            )
+        text = render_limited(
+            result,
+            max_rows=requested,
+            max_rows_hard=max(cast(int, config.max_rows_hard), MAX_ROWS_MIN),
+            has_sql_params=bool(sql_params),
+            filter_column=config.filter_column,
+            builtin=True,
+            fanout=len(fan_targets) > 1,
+            max_output_chars=effective_limits.max_output_chars,
+            max_cell_chars=effective_limits.max_cell_chars,
         )
-        return formatted + note
+        return text + note
 
     async def body(**kwargs: Any) -> str:
         conn = kwargs.pop("connection", None) or targets.file_default_connection

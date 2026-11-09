@@ -509,7 +509,11 @@ class _ReadOnlyOnlyBackend(_FanoutBackend):
 
 @pytest.mark.asyncio
 async def test_fanout_uses_execute_readonly_query() -> None:
-    """`database='*'` fans out through execute_readonly_query only."""
+    """`database='*'` reads through the read-only path only.
+
+    The fakes keep the default ``iter_readonly_batches``, which chunks
+    ``execute_readonly_query``.
+    """
     registry = _fanout_registry(
         _ReadOnlyOnlyBackend([{"name": "alice"}]),
         _ReadOnlyOnlyBackend([{"name": "carol"}]),
@@ -541,7 +545,7 @@ async def test_fanout_footer_counts_exact_and_capped_on_truncation() -> None:
 
     text = await body(database="*", max_rows=5)
 
-    assert "Showing 5 of 7 rows." in text
+    assert "showing 5 of 7 rows (max_rows=5 reached)." in text
     assert "Matched: sales 3, hr 4." in text
 
 
@@ -558,7 +562,7 @@ async def test_fanout_footer_absent_without_truncation() -> None:
 
     text = await body(database="*", max_rows=100)
 
-    assert "Showing" not in text
+    assert "Output truncated" not in text
     assert "Matched:" not in text
 
 
@@ -576,7 +580,7 @@ async def test_fanout_below_minimum_max_rows_notes_and_caps() -> None:
     text = await body(database="*", max_rows=-1)
 
     assert "Requested max_rows=-1 is below the minimum 1; using 1." in text
-    assert "Showing 1 of 3 rows." in text
+    assert "showing 1 of 3 rows (max_rows=1 reached)." in text
     assert "alice" in text
     assert "amy" not in text
     assert "carol" not in text
