@@ -35,4 +35,4 @@ Carry-over from log 1: the `mcp-coder-utils` floor (needs a release with `tool_s
 ## Final Status
 - Rounds: 2; code commit `6ce75fa` (registry close on failed server registration, hashable `SqlToolset`, `.importlinter` comment).
 - vulture: clean. lint-imports: 6 contracts kept, 0 broken.
-- **Open — blocks merge:** `pyproject.toml` has no `mcp-coder-utils` floor. The issue requires pinning a release that ships `mcp_coder_utils.tool_spec`; the latest tag is still 0.1.6. Needs a mcp-coder-utils release, then a pin bump (e.g. `mcp-coder-utils>=0.1.7`).
+- `mcp-coder-utils` floor: requirement dropped by Marcus — stays unpinned, resolved from GitHub main via `[tool.uv.sources]`. No open findings.
