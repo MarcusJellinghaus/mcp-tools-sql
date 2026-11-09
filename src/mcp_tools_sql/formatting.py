@@ -2,7 +2,8 @@
 
 from __future__ import annotations
 
-from typing import Any
+from dataclasses import dataclass
+from typing import Any, Literal
 
 from tabulate import tabulate
 
@@ -15,6 +16,43 @@ MAX_ROWS_MIN: int = 1
 # Appended to a statement-timeout message by tool-aware callers.
 TIMEOUT_HINT_PARAMS = "Use more selective parameters."
 TIMEOUT_HINT_NARROWER = "Use a narrower query."
+
+# Why counting ended: end of data, ``max_count_rows``, the counting time
+# limit, or the statement timeout.
+StopReason = Literal["end", "max_count", "counting", "timeout"]
+
+
+@dataclass
+class SourceCount:
+    """Matched-row count for one database of a limited read."""
+
+    database: str
+    matched: int = 0  # matched (post-filter) rows counted
+    complete: bool = True  # False -> rendered as "N+"
+    queried: bool = True  # False -> "not queried (...)"
+    error: str = ""  # per-database error line
+    timed_out: bool = False  # statement timeout before any matched row
+
+
+@dataclass
+class LimitedResult:
+    """Display rows plus per-database counts produced by ``collect``."""
+
+    rows: list[dict[str, str]]  # display rows, cells stringified/cut
+    sources: list[SourceCount]  # config order
+    display_limit: Literal["", "max_rows", "chars"] = ""
+    stop: StopReason = "end"
+    cells_cut: bool = False
+
+    @property
+    def total(self) -> int:
+        """Matched rows counted across all sources."""
+        return sum(s.matched for s in self.sources)
+
+    @property
+    def complete(self) -> bool:
+        """True when every matched row was counted."""
+        return self.stop == "end"
 
 
 def format_rows(
