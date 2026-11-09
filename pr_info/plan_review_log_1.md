@@ -19,3 +19,11 @@ Plan files read. Checking a few codebase facts the plan relies on (`_explain` ca
 Verdict(decision='tasks', tasks=['In pr_info/steps/step_6.md:82, arm `counting.at` as soon as the number of admitted rows reaches `max_rows`, and also when the char budget refuses a row, not only when the next matched row is refused. This follows issue §3: the counting limit is measured from when the display set is complete. Add a test step with a selective `*_filter` on SQLite whose next match lies far past the display set. It should assert that the read ends with `(counting stopped)` rather than `(stopped: statement timeout)`, within `query_timeout_seconds`.'], escalate_reason=None)
 **Changes**:
 applied
+
+## Round 3 — 2026-11-09
+**Findings**:
+Checking tabulate's column padding. The plan's char-budget formula depends on it.pr_info/steps/step_6.md:78 — high — The char-budget width formula `max(len(header), longest line of any cell)` doesn't match tabulate. tabulate sets each column's minimum width to `len(header) + MIN_PADDING`, where `MIN_PADDING` is 2 for every format except `pretty` (see `minwidths = [width_fn(h) + min_padding for h in headers]` in `tabulate.tabulate`). So whenever the header is the widest entry in a column, the rendered table is up to 2 × ncols chars per line wider than the budget allows. That breaks the acceptance criterion "rendered table length ≤ `max_output_chars`". Fix: use `max(len(header) + 2, longest cell line)`. The step-6 and step-8 char-budget tests should include a case where the header is the widest entry in a column.
+**Decisions**:
+Verdict(decision='tasks', tasks=["In pr_info/steps/step_6.md:78, change the char-budget column width formula to `max(len(header) + 2, longest line of any cell)`. tabulate's minimum column width is the header length plus MIN_PADDING (2 for the formats used), so this keeps the rendered table at or under `max_output_chars`. Add a case to the char-budget tests in step 6 and step 8 where the header is the widest entry in a column, and assert that the rendered length is at most `max_output_chars`."], escalate_reason=None)
+**Changes**:
+applied
