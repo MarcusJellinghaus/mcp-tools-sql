@@ -122,7 +122,13 @@ def test_verify_all_returns_verify_result_shape(
 
     result = verify_all(query_cfg, db_cfg)
 
-    assert set(result) == {"sections", "skipped_queries", "skipped_updates"}
+    assert set(result) == {"sections", "skipped_queries", "skipped_updates", "summary"}
+    assert set(result["summary"]) == {
+        "connections",
+        "query_count",
+        "update_count",
+        "allow_updates",
+    }
     assert isinstance(result["sections"], list)
     for section in result["sections"]:
         assert set(section) == {"title", "ok", "checks"}
@@ -375,3 +381,180 @@ def test_verify_all_skips_query_pinned_to_unreachable_connection(
     assert "prod" in checks["remote.sql"]["value"]
     # Default reachable → M2 ran, not skipped wholesale.
     assert result["skipped_queries"] is None
+
+
+# ---------------------------------------------------------------------------
+# Per-entry loading: a bad entry does not hide the other checks
+# ---------------------------------------------------------------------------
+
+
+def _sqlite_db_config(tmp_path: Path, sqlite_db: Path, extra: str = "") -> Path:
+    """Write a sqlite database config for ``sqlite_db`` and return its path."""
+    db_cfg = tmp_path / "db-config.toml"
+    db_cfg.write_text(
+        f'[connections.default]\nbackend = "sqlite"\npath = "{sqlite_db.as_posix()}"\n'
+        + extra,
+        encoding="utf-8",
+    )
+    return db_cfg
+
+
+def _query_config(tmp_path: Path, text: str) -> Path:
+    """Write ``text`` as the project query config and return its path."""
+    query_cfg = tmp_path / "mcp-tools-sql.toml"
+    query_cfg.write_text(text, encoding="utf-8")
+    return query_cfg
+
+
+_GOOD_AND_BAD_QUERIES = (
+    'connection = "default"\n\n'
+    '[queries.good]\nsql = "SELECT * FROM customers"\nmax_rows_default = 10\n\n'
+    '[queries.bad]\ndescription = "no sql"\n'
+)
+
+
+def test_verify_all_bad_query_entry_does_not_block_checks(
+    tmp_path: Path,
+    sqlite_db: Path,
+) -> None:
+    """One invalid query entry: CONNECTION runs and QUERIES covers the valid one."""
+    query_cfg = _query_config(tmp_path, _GOOD_AND_BAD_QUERIES)
+    db_cfg = _sqlite_db_config(tmp_path, sqlite_db)
+
+    result = verify_all(query_cfg, db_cfg, project_dir=tmp_path)
+
+    sections = _by_title(result)
+    assert sections["DEPENDENCIES"]["ok"] is True
+    assert "CONNECTION" in sections
+    query_rows = list(sections["QUERIES"]["checks"])
+    assert query_rows
+    assert all(key.startswith("good.") for key in query_rows)
+    assert sections["CONFIG"]["checks"]["queries.bad.parse"]["ok"] is False
+    assert result["summary"]["query_count"] == 1
+
+
+def test_verify_all_non_table_queries_still_runs_updates(
+    tmp_path: Path,
+    sqlite_db: Path,
+) -> None:
+    """``queries = 5``: CONNECTION present, UPDATES still runs, zero queries."""
+    query_cfg = _query_config(tmp_path, 'connection = "default"\nqueries = 5\n')
+    db_cfg = _sqlite_db_config(tmp_path, sqlite_db)
+
+    result = verify_all(query_cfg, db_cfg, project_dir=tmp_path)
+
+    titles = _titles(result)
+    assert "CONNECTION" in titles
+    assert "UPDATES" in titles
+    assert result["summary"]["query_count"] == 0
+
+
+def test_verify_all_top_level_failure_zero_counts(
+    tmp_path: Path,
+    sqlite_db: Path,
+) -> None:
+    """Top-level validation failure leaves both summary counts at zero."""
+    query_cfg = _query_config(
+        tmp_path,
+        'connection = 5\n\n[queries.q]\nsql = "SELECT 1"\n\n[updates.u]\ntable = "t"\n',
+    )
+    db_cfg = _sqlite_db_config(tmp_path, sqlite_db)
+
+    result = verify_all(query_cfg, db_cfg, project_dir=tmp_path)
+
+    assert result["summary"]["query_count"] == 0
+    assert result["summary"]["update_count"] == 0
+
+
+def test_verify_all_skip_counts_ignore_invalid_entries(tmp_path: Path) -> None:
+    """Failed connection with one valid and one invalid query skips one query."""
+    query_cfg = _query_config(tmp_path, _GOOD_AND_BAD_QUERIES)
+    db_cfg = tmp_path / "db-config.toml"
+    db_cfg.write_text(
+        '[connections.default]\nbackend = "sqlite"\npath = ""\n', encoding="utf-8"
+    )
+
+    result = verify_all(query_cfg, db_cfg, project_dir=tmp_path)
+
+    assert result["skipped_queries"] == 1
+    assert result["skipped_updates"] == 0
+
+
+# ---------------------------------------------------------------------------
+# Summary block
+# ---------------------------------------------------------------------------
+
+
+def test_verify_all_summary_happy_path(tmp_path: Path, sqlite_db: Path) -> None:
+    """A reachable connection and valid entries are reflected in the summary."""
+    query_cfg = _query_config(
+        tmp_path,
+        'connection = "default"\n\n'
+        '[queries.q]\nsql = "SELECT * FROM customers"\nmax_rows_default = 10\n\n'
+        '[updates.u]\ntable = "customers"\n'
+        'key = { field = "id" }\nfields = [{ field = "name" }]\n',
+    )
+    db_cfg = _sqlite_db_config(tmp_path, sqlite_db)
+
+    result = verify_all(query_cfg, db_cfg, project_dir=tmp_path)
+
+    assert result["summary"] == {
+        "connections": {"default": True},
+        "query_count": 1,
+        "update_count": 1,
+        "allow_updates": True,
+    }
+
+
+def test_verify_all_summary_allow_updates_false(
+    tmp_path: Path,
+    sqlite_db: Path,
+) -> None:
+    """``allow_updates = false`` reaches the summary."""
+    query_cfg = _query_config(tmp_path, 'connection = "default"\n')
+    db_cfg = _sqlite_db_config(
+        tmp_path, sqlite_db, "\n[security]\nallow_updates = false\n"
+    )
+
+    result = verify_all(query_cfg, db_cfg, project_dir=tmp_path)
+
+    assert result["summary"]["allow_updates"] is False
+
+
+def test_verify_all_summary_invalid_database_config(tmp_path: Path) -> None:
+    """An invalid database config gives ``allow_updates is None`` and no connections."""
+    query_cfg = _query_config(tmp_path, 'connection = "default"\n')
+    db_cfg = tmp_path / "db-config.toml"
+    db_cfg.write_text('[connections.default]\nport = "nope"\n', encoding="utf-8")
+
+    result = verify_all(query_cfg, db_cfg, project_dir=tmp_path)
+
+    assert result["summary"]["allow_updates"] is None
+    assert result["summary"]["connections"] == {}
+
+
+# ---------------------------------------------------------------------------
+# project_dir
+# ---------------------------------------------------------------------------
+
+
+def test_verify_all_uses_project_dir_for_discovery(
+    tmp_path: Path,
+    sqlite_db: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """``project_dir`` wins over cwd when discovering the query config."""
+    proj = tmp_path / "proj"
+    proj.mkdir()
+    expected = proj / "mcp-tools-sql.toml"
+    expected.write_text('connection = "default"\n', encoding="utf-8")
+    elsewhere = tmp_path / "elsewhere"
+    elsewhere.mkdir()
+    monkeypatch.chdir(elsewhere)
+    db_cfg = _sqlite_db_config(tmp_path, sqlite_db)
+
+    result = verify_all(None, db_cfg, project_dir=proj)
+
+    row = _by_title(result)["CONFIG"]["checks"]["query_config_path"]
+    assert row["ok"] is True
+    assert row["value"] == str(expected)

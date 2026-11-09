@@ -29,6 +29,21 @@ class VerifySection(TypedDict):
     checks: dict[str, CheckResult]
 
 
+class VerifySummary(TypedDict):
+    """Condensed facts about a verify run.
+
+    ``connections`` maps each connection to whether all its database probes
+    passed (``{}`` when targets could not be resolved). ``query_count`` /
+    ``update_count`` count valid entries only. ``allow_updates`` is ``None``
+    when the database config failed to parse.
+    """
+
+    connections: dict[str, bool]
+    query_count: int
+    update_count: int
+    allow_updates: bool | None
+
+
 class VerifyResult(TypedDict):
     """Full result of :func:`mcp_tools_sql.verification.verify_all`.
 
@@ -40,6 +55,7 @@ class VerifyResult(TypedDict):
     sections: list[VerifySection]
     skipped_queries: int | None
     skipped_updates: int | None
+    summary: VerifySummary
 
 
 def make_entry(

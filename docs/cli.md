@@ -206,7 +206,7 @@ Sections, in order:
 | Section | Purpose |
 |---------|---------|
 | `ENVIRONMENT` | Python version, virtualenv status, installed package versions of `mcp_tools_sql` and `mcp_coder_utils`. |
-| `CONFIG` | Project query config and database config: resolved path, parse status, sensitive-key warning when credentials are detected in the project query config. |
+| `CONFIG` | Project query config and database config: resolved path, parse status, sensitive-key warning when credentials are detected in the project query config. Each `[queries.*]` / `[updates.*]` entry is validated on its own: an invalid entry gets a `queries.<name>.parse` / `updates.<name>.parse` row (a non-table `queries` / `updates` value gets `queries.parse` / `updates.parse`), and the remaining entries still go through every other check. |
 | `DEPENDENCIES` | Backend-conditional checks (e.g. `pyodbc` and an ODBC driver for `mssql`, `psycopg` for `postgresql`, none for `sqlite`). |
 | `BUILTIN` | Built-in default queries load successfully and have at least one tool registered. |
 | `CONNECTION` | Backend-shape checks (host/port/database/path/credentials), then `SELECT 1` against the configured database. A sqlite `path` of `:memory:` reports `[WARN]`: every fresh connection to `:memory:` is a new, empty database, so read paths silently return zero rows while `updates.*` still writes to the persistent connection. On Linux only, when the connection uses `backend = "mssql"` with `trusted_connection = true`, an extra `kerberos_ticket` row runs `klist -s` and reports `[ERR]` when no cached Kerberos ticket is found. |

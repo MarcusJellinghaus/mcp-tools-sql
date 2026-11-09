@@ -7,22 +7,21 @@ from pathlib import Path
 
 from mcp_tools_sql.backends.base import DatabaseBackend
 from mcp_tools_sql.backends.registry import BackendRegistry
-from mcp_tools_sql.config.loader import (
-    discover_query_config,
-    load_database_config,
-    load_query_config,
-    resolve_targets,
-)
-from mcp_tools_sql.config.models import QueryFileConfig, ResolvedTargets
+from mcp_tools_sql.config.loader import resolve_targets
+from mcp_tools_sql.config.models import ResolvedTargets
 from mcp_tools_sql.verification._helpers import (
     CheckResult,
     VerifyResult,
     VerifySection,
+    VerifySummary,
     checks_ok,
     make_entry,
 )
 from mcp_tools_sql.verification.builtin import verify_builtin
-from mcp_tools_sql.verification.config_files import verify_config_files
+from mcp_tools_sql.verification.config_files import (
+    LoadedConfigs,
+    verify_config_files,
+)
 from mcp_tools_sql.verification.connection import verify_connection
 from mcp_tools_sql.verification.dependencies import verify_dependencies
 from mcp_tools_sql.verification.environment import verify_environment
@@ -32,53 +31,42 @@ from mcp_tools_sql.verification.updates import verify_updates
 logger = logging.getLogger(__name__)
 
 
-def _resolve_targets_for_verify(
-    config_path: Path | None,
-    db_config_path: Path | None,
-) -> ResolvedTargets | None:
+def _resolve_loaded_targets(loaded: LoadedConfigs) -> ResolvedTargets | None:
     """Best-effort target resolution for the CONNECTION section.
 
     Returns:
-        Resolved :class:`ResolvedTargets`, or ``None`` if configs cannot
-        be loaded or the file-default connection cannot be resolved.
+        Resolved :class:`ResolvedTargets`, or ``None`` if either config did
+        not load or the file-default connection cannot be resolved.
     """
+    if loaded.query_config is None or loaded.db_config is None:
+        return None
     try:
-        resolved_query = discover_query_config(config_path, project_dir=Path.cwd())
-        qcfg = load_query_config(resolved_query)
-        dbcfg = load_database_config(db_config_path)
-        return resolve_targets(qcfg, dbcfg)
-    except (ValueError, OSError) as exc:
+        return resolve_targets(loaded.query_config, loaded.db_config)
+    except ValueError as exc:
         logger.debug("Could not resolve targets: %s", exc)
         return None
 
 
-def _load_query_config_for_counts(
-    config_path: Path | None,
-) -> tuple[int, int]:
-    """Return ``(query_count, update_count)`` from the project query config.
+def _build_summary(
+    loaded: LoadedConfigs,
+    reachable: dict[tuple[str, str], bool],
+) -> VerifySummary:
+    """Condense connection reachability, entry counts and ``allow_updates``.
 
     Returns:
-        ``(0, 0)`` if the config cannot be loaded.
+        A :class:`VerifySummary`; a connection is ``True`` only when every one
+        of its database probes passed.
     """
-    try:
-        resolved_query = discover_query_config(config_path, project_dir=Path.cwd())
-        qcfg = load_query_config(resolved_query)
-        return len(qcfg.queries), len(qcfg.updates)
-    except (ValueError, OSError) as exc:
-        logger.debug("Could not load query config for counts: %s", exc)
-        return 0, 0
-
-
-def _load_query_config_for_m2(
-    config_path: Path | None,
-) -> QueryFileConfig | None:
-    """Return the parsed :class:`QueryFileConfig` or ``None`` on failure."""
-    try:
-        resolved_query = discover_query_config(config_path, project_dir=Path.cwd())
-        return load_query_config(resolved_query)
-    except (ValueError, OSError) as exc:
-        logger.debug("Could not load query config for M2: %s", exc)
-        return None
+    connections: dict[str, bool] = {}
+    for (conn, _db), ok in reachable.items():
+        connections[conn] = connections.get(conn, True) and ok
+    qc = loaded.query_config
+    return {
+        "connections": connections,
+        "query_count": len(qc.queries) if qc else 0,
+        "update_count": len(qc.updates) if qc else 0,
+        "allow_updates": loaded.allow_updates,
+    }
 
 
 def collect_install_instructions(
@@ -170,6 +158,7 @@ def _verify_connections(
 def verify_all(
     config_path: Path | None,
     db_config_path: Path | None,
+    project_dir: Path | None = None,
 ) -> VerifyResult:
     """Run every verification section and return a :class:`VerifyResult`.
 
@@ -177,17 +166,22 @@ def verify_all(
     ENVIRONMENT → CONFIG → DEPENDENCIES → BUILTIN → CONNECTION →
     QUERIES → UPDATES → INSTALL INSTRUCTIONS.
 
+    The configs are loaded once (entry by entry) and shared by every later
+    section. Without ``config_path``, the query config is discovered under
+    ``project_dir`` (default: the current directory).
+
     Returns:
         A :class:`VerifyResult` whose ``sections`` follow the order above.
         ``skipped_queries`` / ``skipped_updates`` hold the unchecked entry
         counts when the default connection failed, else ``None``.
+        ``summary`` condenses reachability, entry counts and ``allow_updates``.
     """
+    project_dir = project_dir or Path.cwd()
     sections: list[VerifySection] = []
     sections.append(_section("ENVIRONMENT", verify_environment()))
-    sections.append(
-        _section("CONFIG", verify_config_files(config_path, db_config_path))
-    )
-    resolved_targets = _resolve_targets_for_verify(config_path, db_config_path)
+    loaded = verify_config_files(config_path, db_config_path, project_dir)
+    sections.append(_section("CONFIG", loaded.checks))
+    resolved_targets = _resolve_loaded_targets(loaded)
     default_target = resolved_targets.default if resolved_targets is not None else None
     backend = default_target.backend_name if default_target is not None else "unknown"
     configured_driver = (
@@ -202,7 +196,10 @@ def verify_all(
 
     skipped_queries: int | None = None
     skipped_updates: int | None = None
-    if resolved_targets is not None:
+    reachable: dict[tuple[str, str], bool] = {}
+    # Targets resolve only when both configs loaded, so query_config is set.
+    query_config = loaded.query_config
+    if resolved_targets is not None and query_config is not None:
         registry = BackendRegistry()
         try:
             connection_checks, default_ok, reachable = _verify_connections(
@@ -210,34 +207,31 @@ def verify_all(
             )
             sections.append(_section("CONNECTION", connection_checks))
             if default_ok:
-                query_config = _load_query_config_for_m2(config_path)
-                if query_config is not None:
-                    sections.append(
-                        _section(
-                            "QUERIES",
-                            verify_queries(
-                                query_config.queries,
-                                resolved_targets,
-                                registry,
-                                reachable,
-                            ),
-                        )
+                sections.append(
+                    _section(
+                        "QUERIES",
+                        verify_queries(
+                            query_config.queries,
+                            resolved_targets,
+                            registry,
+                            reachable,
+                        ),
                     )
-                    sections.append(
-                        _section(
-                            "UPDATES",
-                            verify_updates(
-                                query_config.updates,
-                                resolved_targets,
-                                registry,
-                                reachable,
-                            ),
-                        )
-                    )
-            else:
-                skipped_queries, skipped_updates = _load_query_config_for_counts(
-                    config_path
                 )
+                sections.append(
+                    _section(
+                        "UPDATES",
+                        verify_updates(
+                            query_config.updates,
+                            resolved_targets,
+                            registry,
+                            reachable,
+                        ),
+                    )
+                )
+            else:
+                skipped_queries = len(query_config.queries)
+                skipped_updates = len(query_config.updates)
         finally:
             registry.close_all()
 
@@ -249,4 +243,5 @@ def verify_all(
         "sections": sections,
         "skipped_queries": skipped_queries,
         "skipped_updates": skipped_updates,
+        "summary": _build_summary(loaded, reachable),
     }
