@@ -8,7 +8,7 @@ Restructure (behaviour-preserving). TDD: tests first.
 ## WHERE
 - `src/mcp_tools_sql/sql_ast/placeholders.py` — add `SqlParseError`, `translate_parse_errors`;
   decorate parsing functions; drop `ParseError`/`SqlglotError` from `__all__`.
-- `src/mcp_tools_sql/sql_ast/summarize_queries.py` — decorate `validate_where`.
+- `src/mcp_tools_sql/sql_ast/summarize_queries.py` — no decorator (see HOW: `validate_where`).
 - `src/mcp_tools_sql/query_helpers.py` — catch `SqlParseError`.
 - Render tails: `count_tools.py`, `validation_tools.py`, `summarize/tools.py`
   ("Unexpected error." branch) and `cli/commands/tool_dispatch.py` (generic tail).
@@ -40,8 +40,10 @@ import cycle) and are listed in `__all__`.
   `count_statements`, `extract_param_names`, `first_statement_kind`,
   `translate_named_to_qmark`, `substitute_named_with_literals`, `read_only_violation`,
   `keyword_absorption_violation`, `passthrough_source_violation`, `has_leading_cte`,
-  `build_count_query` (check each with `search_files` for `parse`); in
-  `summarize_queries.py`: `validate_where`.
+  `build_count_query` (check each with `search_files` for `parse`).
+- `validate_where` (`summarize_queries.py`) is **not** decorated: it runs `basic_preflight` on
+  its probe before `sqlglot.parse_one` (`summarize/sql.py:201-208`), so a parse error returns
+  `(None, "Invalid SQL. TokenError …")` and never reaches the parse call.
 - `basic_preflight`: `except SqlParseError as exc:` and render
   `f"Invalid SQL. {exc.original_class} (SQL parsed as {dialect}): {exc.detail}"` — byte-identical.
 - `query_helpers.py`: import `SqlParseError` instead of `SqlglotError`; both `except` sites
@@ -78,7 +80,10 @@ def wrapper(*args, **kwargs):
   `original_class == "ParseError"`, `__cause__` is the original; `TokenError` → `"TokenError"`;
   `KeyError`/`ValueError` pass unchanged; return value passes through.
 - Parametrized over the decorated public functions with `"SELECT 'unterminated"`
-  (sqlglot `TokenError`): each raises `SqlParseError`, never a raw `SqlglotError`.
+  (sqlglot `TokenError`): each raises `SqlParseError`, never a raw `SqlglotError`
+  (`validate_where` is not in this list).
+- `validate_where("x = 'unterminated", build_table_ref("dbo", "t", "sqlite"), None, "sqlite")`
+  returns `(None, verdict)` with `verdict.startswith("Invalid SQL. TokenError")`, and raises nothing.
 - `basic_preflight("SELECT 'x", None, "sqlite")` text unchanged (existing tests already pin it).
 - `query_helpers.extract_sql_params("SELECT 'x")` → `set()`; `read_only_rejection` message unchanged.
 
