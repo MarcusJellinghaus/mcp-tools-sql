@@ -176,6 +176,46 @@ def _normalised(paths: list[str]) -> list[str]:
     return [os.path.normcase(str(Path(p).resolve())) for p in paths]
 
 
+_TOOLSET_NO_MCP_SCRIPT = """\
+import asyncio
+import sqlite3
+import sys
+from pathlib import Path
+
+from mcp_tools_sql.toolset import build_toolset
+
+tmp = Path(sys.argv[1])
+db = tmp / "test.db"
+sqlite3.connect(str(db)).close()
+qcfg = tmp / "mcp-tools-sql.toml"
+qcfg.write_text('connection = "default"\\n', encoding="utf-8")
+dbcfg = tmp / "db.toml"
+dbcfg.write_text(
+    f'[connections.default]\\nbackend = "sqlite"\\npath = "{db.as_posix()}"\\n',
+    encoding="utf-8",
+)
+with build_toolset(qcfg, dbcfg) as toolset:
+    spec = next(s for s in toolset.specs if s.name == "read_tables")
+    asyncio.run(spec.fn(schema="main"))
+print("mcp" in sys.modules or any(m.startswith("mcp.") for m in sys.modules))
+"""
+
+
+def test_toolset_does_not_import_mcp(tmp_path: Path) -> None:
+    """Building and calling a toolset never imports the ``mcp`` package."""
+    script = tmp_path / "toolset_probe.py"
+    script.write_text(_TOOLSET_NO_MCP_SCRIPT, encoding="utf-8")
+    src_parent = str(Path(mcp_tools_sql.__file__).resolve().parent.parent)
+
+    result = execute_subprocess(
+        [sys.executable, "-P", str(script), str(tmp_path)],
+        CommandOptions(timeout_seconds=120, env={"PYTHONPATH": src_parent}),
+    )
+
+    assert not result.timed_out and result.return_code == 0, result.stderr[-4000:]
+    assert result.stdout.strip() == "False"
+
+
 def test_all_mcp_tools_sql_modules_import(tmp_path: Path) -> None:
     report_path = tmp_path / "import_report.json"
     src_parent = str(Path(mcp_tools_sql.__file__).resolve().parent.parent)
