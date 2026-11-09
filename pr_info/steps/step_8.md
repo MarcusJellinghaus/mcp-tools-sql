@@ -17,7 +17,9 @@ Restructure. TDD: tests first.
   - new `tests/backends/test_mssql_explain.py` (moved SHOWPLAN tests, using `fake_pyodbc`);
   - `tests/test_validation_tools.py` — remove the three `_explain` MSSQL unit tests (moved);
   - `tests/test_tool_timeouts.py` — fake backend: drop `get_isolated_connection`, add `isolated`
-    to `explain`; T-SQL tests drive the fake `explain`;
+    to `explain`; delete `test_validate_sql_tsql_hyt00_is_timeout`,
+    `test_validate_sql_tsql_other_sqlstate_is_not_timeout`, `_tsql_conn` and the `_DriverError`
+    stand-in (both cases move to `tests/backends/test_mssql_explain.py`, driven by `fake_pyodbc`);
   - test fakes' `explain` gain `*, isolated: bool = False` and lose `get_isolated_connection`:
     `tests/test_query_limits_tools.py`, `tests/test_schema_tools_fanout_limits.py`,
     `tests/test_schema_tools_multitarget.py`, `tests/backends/test_batched_read.py`,
@@ -43,7 +45,7 @@ def explain(
 
 # mssql.py
 @contextmanager
-def _isolated_connection(self) -> Iterator[Any]: ...          # renamed, body unchanged
+def _isolated_connection(self) -> Iterator[Any]: ...          # renamed; finally: conn.close() inside self._timeouts()
 def explain(self, sql, params=None, *, isolated=False) -> str: ...
 def _showplan(self, conn: Any, explain_sql: str) -> str: ...   # SHOWPLAN ON / stmt / OFF
 ```
@@ -53,8 +55,9 @@ def _showplan(self, conn: Any, explain_sql: str) -> str: ...   # SHOWPLAN ON / s
   raises `ValueError` with no connect) and do not check `_closed`. Persistent path keeps
   connect-then-substitute.
 - `_isolated_connection` is entered **outside** `_timeouts()` (login errors are already neutral,
-  login `HYT00` stays a `BackendConnectionError`); its `finally: conn.close()` runs inside
-  `with self._timeouts():` so a close error is translated.
+  login `HYT00` stays a `BackendConnectionError`). Its body changes in one place: the
+  `finally: conn.close()` now runs inside `with self._timeouts():` so a close error is translated
+  (no raw pyodbc error escapes the backend).
 - `validation_tools.py`: remove `_explain`, `translate_timeout`, `substitute_named_with_literals`
   imports that become unused; in `core` use
   `plan = backend.explain(sql, params, isolated=True)`. The timeout comes from the backend's own
@@ -96,7 +99,12 @@ Plan text identical to today's for both paths.
   `fake.connect.assert_not_called()` (retargeted `test_mssql_explain_non_finite_float_raises_value_error`).
 - After `close()`, `explain(..., isolated=True)` still works; `explain(...)` (persistent) raises `RuntimeError`.
 - Statement `HYT00` during isolated SHOWPLAN → `QueryTimeoutError`; login `HYT00` on the isolated
-  connect → `BackendConnectionError`.
+  connect → `BackendConnectionError` (statement case moved from
+  `test_validate_sql_tsql_hyt00_is_timeout`).
+- Non-timeout SQLSTATE during isolated SHOWPLAN: statement raising `fake.Error("42000", "driver message")`
+  → `BackendError` (not `QueryTimeoutError`), `original_class == "Error"`, `str` equal to the
+  original's (moved from `test_validate_sql_tsql_other_sqlstate_is_not_timeout`).
+- Isolated connection `close()` raising `fake.Error` → `BackendError` with `original_class == "Error"`.
 - SQLite: `explain(sql, params, isolated=True) == explain(sql, params)`.
 - `validate_sql` (mock backend) calls `explain` with `isolated=True` on both dialects.
 
@@ -110,7 +118,8 @@ Plan text identical to today's for both paths.
 ## LLM prompt
 > Read `pr_info/steps/summary.md` and `pr_info/steps/step_8.md`. Write
 > `tests/backends/test_mssql_explain.py` first (moving the three MSSQL `_explain` tests out of
-> `tests/test_validation_tools.py`). Then add `isolated` to `DatabaseBackend.explain`, implement
+> `tests/test_validation_tools.py` and the two T-SQL SHOWPLAN cases out of
+> `tests/test_tool_timeouts.py`, deleting `_DriverError` there). Then add `isolated` to `DatabaseBackend.explain`, implement
 > it in MSSQL via `_isolated_connection()` + `_showplan()`, accept-and-ignore it in SQLite,
 > remove `get_isolated_connection` everywhere (ABC, SQLite, test fakes, vulture whitelist), and
 > make `validation_tools` call `backend.explain(sql, params, isolated=True)`. Retarget the MSSQL

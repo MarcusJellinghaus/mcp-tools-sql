@@ -54,8 +54,10 @@ def source_batch_sql(ref: SourceRef) -> str          # inner SELECT rendered as 
 `dialect` stays the parameter name of `.sql()` (tests call `ref.sql(dialect=...)`).
 
 ## HOW
-- Builders: `.from_(table_ref)` → `.from_(table_ref._node)`; `.where(predicate)` →
-  `.where(predicate._node)`. `validate_where` returns `Predicate(where_clause.this)`.
+- Builders: `.from_(table_ref)` → `.from_(table_ref._node)`, and every `table_ref.copy()` →
+  `table_ref._node.copy()` (e.g. `build_value_list_sql`'s `.from_(table_ref.copy())` at
+  `summarize/sql.py:647` and `:655`; `search_files` for `table_ref.copy()` / `predicate.copy()` to
+  catch the rest); `.where(predicate)` → `.where(predicate._node)` (same for any `predicate.copy()`). `validate_where` returns `Predicate(where_clause.this)`.
   (`W0212` protected-access is disabled project-wide; `_node` is accessed only inside `sql_ast`.)
 - `summarize/source.py`:
   - delete `import sqlglot`, `from sqlglot import exp`, `_SOURCE_ALIAS`;

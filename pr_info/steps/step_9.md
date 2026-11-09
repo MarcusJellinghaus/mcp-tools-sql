@@ -15,8 +15,9 @@ Steps 6–8 are done: `search_files` for `get_isolated_connection` in `src/` ret
   `summarize/tools.py`, `cli/commands/tool_dispatch.py`
 - Tests: `tests/summarize/test_source.py`, `tests/summarize/test_tools.py`,
   `tests/summarize/test_tools_query_source.py`, `tests/cli/test_tool_dispatch.py`,
-  `tests/test_tool_timeouts.py` (if it still uses a raw stand-in), and any other test using
+  and any other test using
   `sqlite3.*Error(...)` / `pyodbc.*` as a mock side effect (`search_files` for `sqlite3\.\w*Error\(`).
+  `tests/test_tool_timeouts.py` needs nothing here: step 8 already removed `_DriverError` and its assertion.
 
 ## WHAT
 No new functions. Remove:
