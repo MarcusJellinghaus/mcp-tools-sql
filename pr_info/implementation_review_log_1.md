@@ -19,3 +19,11 @@ Backends and result_limits look sound so far; checking the tool wiring, config a
 Verdict(decision='tasks', tasks=["In src/mcp_tools_sql/result_limits.py around line 200: when a fan-out database fails with a non-timeout error, also drop the display rows it already contributed. Record len(rows) before that database's loop and truncate rows back to that length on error, so the rows shown match the counted total and 'showing X of Y' can never have X > Y. Add a test where db1 adds display rows and then raises a non-timeout error while db2 succeeds, and assert the shown rows and total only reflect db2.", "In src/mcp_tools_sql/result_limits.py around line 151: when stop='max_count' fires on a database's first matched row (so count.matched == 0), set count.queried = False so the footer reads 'not queried (limit reached)' instead of '<db> 0+'. Add a test where db1 ends exactly at max_count_rows and check db2's footer text."], escalate_reason=None)
 **Changes**:
 applied
+
+## Round 3 — 2026-11-09
+**Findings**:
+Tests and mypy pass. Last check: confirming summarize's metadata/probe calls sit inside the new timeout branch.NO FINDINGS
+**Decisions**:
+Verdict(decision='dismiss', tasks=[], escalate_reason=None)
+**Changes**:
+dismiss
