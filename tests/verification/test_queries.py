@@ -646,4 +646,57 @@ def test_read_only_rows_sit_between_sql_and_params(
         "ordered.params",
         "ordered.max_rows_default",
         "ordered.max_rows_hard",
+        "ordered.description",
     ]
+
+
+@pytest.mark.parametrize("description", ["", "  "])
+def test_verify_one_query_warns_on_empty_description(
+    sqlite_targets: ResolvedTargets,
+    sqlite_registry: BackendRegistry,
+    all_reachable: dict[tuple[str, str], bool],
+    description: str,
+) -> None:
+    """Empty/whitespace description → trailing ``.description`` WARN row."""
+    qcfg = QueryConfig(
+        sql="SELECT * FROM customers",
+        params={},
+        max_rows_default=10,
+        description=description,
+    )
+    result = verify_one_query(
+        "nodesc", qcfg, sqlite_targets, sqlite_registry, all_reachable
+    )
+
+    assert list(result.keys()) == [
+        "nodesc.sql",
+        "nodesc.read_only[sqlite]",
+        "nodesc.params",
+        "nodesc.max_rows_default",
+        "nodesc.max_rows_hard",
+        "nodesc.description",
+    ]
+    row = result["nodesc.description"]
+    assert row["severity"] == "warning"
+    assert row["ok"] is False
+    assert row["value"] == "(empty)"
+    assert checks_ok(result) is True
+
+
+def test_verify_one_query_no_description_row_when_described(
+    sqlite_targets: ResolvedTargets,
+    sqlite_registry: BackendRegistry,
+    all_reachable: dict[tuple[str, str], bool],
+) -> None:
+    """A non-empty description emits no ``.description`` row."""
+    qcfg = QueryConfig(
+        sql="SELECT * FROM customers",
+        params={},
+        max_rows_default=10,
+        description="List all customers.",
+    )
+    result = verify_one_query(
+        "described", qcfg, sqlite_targets, sqlite_registry, all_reachable
+    )
+
+    assert "described.description" not in result

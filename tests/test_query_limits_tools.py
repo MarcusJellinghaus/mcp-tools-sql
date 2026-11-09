@@ -26,7 +26,8 @@ from mcp_tools_sql.config.models import (
 )
 from mcp_tools_sql.query_tools import QueryTools
 from mcp_tools_sql.schema_tools import SchemaTools
-from mcp_tools_sql.server import ToolServer
+from mcp_tools_sql.server import FastMCPSink, ToolServer
+from mcp_tools_sql.toolset import assemble_toolset
 from tests.target_helpers import single_target, sqlite_backend
 
 _TRUNC = "\n\n[Output truncated"
@@ -115,13 +116,15 @@ def _query_mcp(
     limits: LimitsConfig | None = None,
 ) -> FastMCP:
     mcp = FastMCP("test-query-limits")
-    QueryTools(*single_target(backend), queries, limits=limits).register(mcp)
+    QueryTools(*single_target(backend), queries, limits=limits).register(
+        FastMCPSink(mcp)
+    )
     return mcp
 
 
 def _schema_mcp(backend: DatabaseBackend) -> FastMCP:
     mcp = FastMCP("test-schema-limits")
-    SchemaTools(*single_target(backend)).register(mcp)
+    SchemaTools(*single_target(backend)).register(FastMCPSink(mcp))
     return mcp
 
 
@@ -421,14 +424,14 @@ async def test_tool_server_passes_limits(tmp_path: Path) -> None:
         limits=LimitsConfig(max_cell_chars=5),
     )
     registry, targets = single_target(backend)
-    server = ToolServer(qcfg, targets, registry, allow_updates=False)
-    server._register_builtin_tools()  # pylint: disable=protected-access
-    server._register_configured_tools()  # pylint: disable=protected-access
-
-    query_text = await _call(server.mcp, "query_notes", {})
-    schema_text = await _call(
-        server.mcp, "read_columns", {"schema": "main", "table": "big"}
-    )
+    server = ToolServer(assemble_toolset(qcfg, targets, registry, False))
+    try:
+        query_text = await _call(server.mcp, "query_notes", {})
+        schema_text = await _call(
+            server.mcp, "read_columns", {"schema": "main", "table": "big"}
+        )
+    finally:
+        server.close()
 
     assert "Long values were cut at 5 chars." in query_text
     assert "Long values were cut at 5 chars." in schema_text

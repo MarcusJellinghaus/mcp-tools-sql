@@ -170,7 +170,7 @@ layer = "infrastructure"
 depends_on = []
 
 [[modules]]
-path = "mcp_tools_sql.server"
+path = "mcp_tools_sql.toolset"
 layer = "server"
 depends_on = [
     { path = "mcp_tools_sql.schema_tools" },
@@ -183,7 +183,16 @@ depends_on = [
     { path = "mcp_tools_sql.tool_logging" },
     { path = "mcp_tools_sql.backends" },
     { path = "mcp_tools_sql.config" },
-    { path = "mcp_tools_sql.formatting" },
+    { path = "mcp_tools_sql.utils" },
+]
+
+[[modules]]
+path = "mcp_tools_sql.server"
+layer = "server"
+depends_on = [
+    { path = "mcp_tools_sql.toolset" },
+    { path = "mcp_tools_sql.schema_tools" },
+    { path = "mcp_tools_sql.config" },
     { path = "mcp_tools_sql.utils" },
 ]
 

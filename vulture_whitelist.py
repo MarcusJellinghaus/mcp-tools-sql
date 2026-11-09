@@ -111,7 +111,6 @@ _.__exit__
 # Stub functions - will be used when implemented
 # =============================================================================
 _.load_query_config
-_.create_server
 _.format_rows
 _.format_columns
 _.format_update_result

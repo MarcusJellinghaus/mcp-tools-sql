@@ -65,13 +65,13 @@ from mcp_tools_sql.summarize.sql import (
 )
 from mcp_tools_sql.tool_builder import build_tool_fn
 from mcp_tools_sql.tool_logging import log_tool_call
+from mcp_tools_sql.utils.tool_spec import tool_spec
 
 if TYPE_CHECKING:
-    from mcp.server.fastmcp import FastMCP
-
     from mcp_tools_sql.backends.base import DatabaseBackend
     from mcp_tools_sql.backends.registry import BackendRegistry
     from mcp_tools_sql.config.models import ResolvedTargets
+    from mcp_tools_sql.utils.tool_spec import ToolSink
 
 
 _DESCRIPTION = (
@@ -308,14 +308,14 @@ def _counts_inconsistent(p: ColumnProfile) -> bool:
 
 
 class SummarizeTools:
-    """Registers the ``summarize_columns`` tool on an MCP server."""
+    """Builds the ``summarize_columns`` tool spec."""
 
     def __init__(self, registry: BackendRegistry, targets: ResolvedTargets) -> None:
         self._registry = registry
         self._targets = targets
 
-    def register(self, mcp: FastMCP) -> None:
-        """Register the ``summarize_columns`` tool on ``mcp``.
+    def register(self, sink: ToolSink) -> None:
+        """Add the ``summarize_columns`` tool spec to ``sink``.
 
         The ``(connection, database)`` target -- and therefore the backend and
         sqlglot dialect -- is resolved per call from optional keyword-only
@@ -399,7 +399,15 @@ class SummarizeTools:
 
         sig_params = _base_summarize_params() + build_target_params(targets, star=False)
         fn = build_tool_fn("summarize_columns", sig_params, core, _DESCRIPTION)
-        mcp.add_tool(fn, name="summarize_columns", description=_DESCRIPTION)
+        sink.add(
+            tool_spec(
+                fn,
+                group="sql.profiling",
+                read_only=True,
+                name="summarize_columns",
+                description=_DESCRIPTION,
+            )
+        )
 
 
 def _run(

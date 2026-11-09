@@ -18,6 +18,7 @@ from mcp_tools_sql.config.models import (
     UpdateKeyConfig,
 )
 from mcp_tools_sql.count_tools import CountTools
+from mcp_tools_sql.server import FastMCPSink
 from mcp_tools_sql.summarize.tools import SummarizeTools
 from mcp_tools_sql.update_tools import UpdateTools
 from mcp_tools_sql.validation_tools import ValidationTools
@@ -97,7 +98,7 @@ def _tsql_conn(sqlstate: str) -> MagicMock:
 async def test_count_records_timeout() -> None:
     """``count_records`` reports the timeout with the narrower-query hint."""
     mcp = FastMCP("test-count-timeout")
-    CountTools(*single_target(_TimeoutBackend())).register(mcp)
+    CountTools(*single_target(_TimeoutBackend())).register(FastMCPSink(mcp))
     text = await _call(mcp, "count_records", {"sql": "SELECT 1 AS x"})
     assert text == _NARROWER
     assert "Invalid SQL" not in text
@@ -107,7 +108,7 @@ async def test_count_records_timeout() -> None:
 async def test_validate_sql_timeout() -> None:
     """``validate_sql`` reports the timeout with the narrower-query hint."""
     mcp = FastMCP("test-validate-timeout")
-    ValidationTools(*single_target(_TimeoutBackend())).register(mcp)
+    ValidationTools(*single_target(_TimeoutBackend())).register(FastMCPSink(mcp))
     text = await _call(mcp, "validate_sql", {"sql": "SELECT 1"})
     assert text == _NARROWER
     assert "Invalid SQL" not in text
@@ -117,7 +118,7 @@ async def test_validate_sql_timeout() -> None:
 async def test_summarize_columns_timeout() -> None:
     """``summarize_columns`` on a table source reports the timeout + hint."""
     mcp = FastMCP("test-summarize-timeout")
-    SummarizeTools(*single_target(_TimeoutBackend())).register(mcp)
+    SummarizeTools(*single_target(_TimeoutBackend())).register(FastMCPSink(mcp))
     text = await _call(
         mcp, "summarize_columns", {"schema": "main", "table": "customers"}
     )
@@ -137,7 +138,7 @@ async def test_update_tool_timeout() -> None:
         )
     }
     mcp = FastMCP("test-update-timeout")
-    UpdateTools(*single_target(_TimeoutBackend()), updates).register(mcp)
+    UpdateTools(*single_target(_TimeoutBackend()), updates).register(FastMCPSink(mcp))
     text = await _call(mcp, "update_set_name", {"id": 1, "name": "x"})
     assert text == _BARE
 
@@ -147,7 +148,9 @@ async def test_validate_sql_tsql_hyt00_is_timeout() -> None:
     """A ``HYT00`` from the SHOWPLAN cursor becomes the timeout message."""
     backend = _TimeoutBackend(conn=_tsql_conn("HYT00"))
     mcp = FastMCP("test-validate-hyt00")
-    ValidationTools(*single_target(backend, backend_name="mssql")).register(mcp)
+    ValidationTools(*single_target(backend, backend_name="mssql")).register(
+        FastMCPSink(mcp)
+    )
     text = await _call(mcp, "validate_sql", {"sql": "SELECT 1"})
     assert text == _NARROWER
 
@@ -157,7 +160,9 @@ async def test_validate_sql_tsql_other_sqlstate_is_not_timeout() -> None:
     """A non-timeout SQLSTATE keeps the existing error verdict."""
     backend = _TimeoutBackend(conn=_tsql_conn("42000"))
     mcp = FastMCP("test-validate-42000")
-    ValidationTools(*single_target(backend, backend_name="mssql")).register(mcp)
+    ValidationTools(*single_target(backend, backend_name="mssql")).register(
+        FastMCPSink(mcp)
+    )
     text = await _call(mcp, "validate_sql", {"sql": "SELECT 1"})
     assert "statement timeout" not in text
     assert text.startswith(("Invalid SQL.", "Unexpected error."))

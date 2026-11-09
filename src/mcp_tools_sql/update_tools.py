@@ -14,13 +14,13 @@ from mcp_tools_sql.identifiers import IDENTIFIER_PATTERN, identifier_error
 from mcp_tools_sql.tool_builder import _UNSET, build_tool_fn
 from mcp_tools_sql.tool_logging import log_tool_call
 from mcp_tools_sql.utils.data_type_utility.type_mapping import resolve_python_type
+from mcp_tools_sql.utils.tool_spec import tool_spec
 
 if TYPE_CHECKING:
-    from mcp.server.fastmcp import FastMCP
-
     from mcp_tools_sql.backends.base import DatabaseBackend
     from mcp_tools_sql.backends.registry import BackendRegistry
     from mcp_tools_sql.config.models import ResolvedTargets, UpdateConfig
+    from mcp_tools_sql.utils.tool_spec import ToolSink
 
 
 def _validate_identifier(value: str, update_name: str) -> None:
@@ -134,7 +134,7 @@ def _build_update_body(
 
 
 class UpdateTools:
-    """Registers configured update tools on an MCP server."""
+    """Builds the configured update tool specs."""
 
     def __init__(
         self,
@@ -146,11 +146,13 @@ class UpdateTools:
         self._targets = targets
         self._updates = updates
 
-    def register(self, mcp: FastMCP) -> None:
-        """Register one MCP tool per configured update as ``update_<name>``.
+    def register(self, sink: ToolSink) -> None:
+        """Add one tool spec per configured update to ``sink`` as ``update_<name>``.
 
         Each tool binds the backend for its pinned ``(connection, database)``
-        target, resolved once from the registry at registration time.
+        target, resolved once from the registry at registration time. An empty
+        or whitespace-only description falls back to a generated one; any
+        other description passes through unchanged.
 
         Raises:
             ValueError: If a tool name, table, schema, key field, or field
@@ -190,9 +192,18 @@ class UpdateTools:
             )
             sig_params = _build_update_sig_params(cfg)
             body = _build_update_body(name, cfg, qualified, backend)
-            fn = build_tool_fn(name, sig_params, body, cfg.description)
-            mcp.add_tool(
-                fn,
-                name=f"update_{name}",
-                description=cfg.description,
+            description = (
+                cfg.description
+                if cfg.description.strip()
+                else f"Run configured update `{name}`."
+            )
+            fn = build_tool_fn(name, sig_params, body, description)
+            sink.add(
+                tool_spec(
+                    fn,
+                    group="sql.update",
+                    read_only=False,
+                    name=f"update_{name}",
+                    description=description,
+                )
             )

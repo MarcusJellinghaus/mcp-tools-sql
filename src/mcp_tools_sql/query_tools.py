@@ -14,18 +14,18 @@ from mcp_tools_sql.query_helpers import (
     read_only_rejection,
 )
 from mcp_tools_sql.tool_builder import build_tool_fn
+from mcp_tools_sql.utils.tool_spec import tool_spec
 
 if TYPE_CHECKING:
-    from mcp.server.fastmcp import FastMCP
-
     from mcp_tools_sql.backends.registry import BackendRegistry
     from mcp_tools_sql.config.models import QueryConfig, ResolvedTargets
+    from mcp_tools_sql.utils.tool_spec import ToolSink
 
 logger = logging.getLogger(__name__)
 
 
 class QueryTools:
-    """Registers configured query tools on an MCP server."""
+    """Builds the configured query tool specs."""
 
     _NAME_RE = re.compile(r"^[a-zA-Z_][a-zA-Z0-9_]*$")
 
@@ -42,11 +42,13 @@ class QueryTools:
         self._queries = queries
         self._limits = limits if limits is not None else LimitsConfig()
 
-    def register(self, mcp: FastMCP) -> None:
-        """Register one MCP tool per configured query as ``query_<name>``.
+    def register(self, sink: ToolSink) -> None:
+        """Add one tool spec per configured query to ``sink`` as ``query_<name>``.
 
         Each tool binds the backend for its pinned ``(connection, database)``
-        target, resolved once from the registry at registration time.
+        target, resolved once from the registry at registration time. An empty
+        or whitespace-only description falls back to a generated one; any
+        other description passes through unchanged.
 
         A query whose resolved SQL is not provably read-only is skipped with a
         logged warning and registers no tool; the remaining queries register
@@ -83,9 +85,18 @@ class QueryTools:
                 timeout_seconds=target.config.query_timeout_seconds,
                 limits=self._limits,
             )
-            fn = build_tool_fn(name, sig_params, body, config.description)
-            mcp.add_tool(
-                fn,
-                name=f"query_{name}",
-                description=config.description,
+            description = (
+                config.description
+                if config.description.strip()
+                else f"Run configured query `{name}`."
+            )
+            fn = build_tool_fn(name, sig_params, body, description)
+            sink.add(
+                tool_spec(
+                    fn,
+                    group="sql.query",
+                    read_only=True,
+                    name=f"query_{name}",
+                    description=description,
+                )
             )

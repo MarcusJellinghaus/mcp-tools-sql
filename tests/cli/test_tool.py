@@ -149,6 +149,25 @@ def test_missing_config_prints_clean_error_and_exits_1(
     assert "Traceback" not in captured.err
 
 
+def test_unknown_pinned_connection_exits_1_with_config_hint(
+    tmp_path: Path, capsys: pytest.CaptureFixture[str]
+) -> None:
+    """A query config pinned to an undefined connection: exit 1 plus the config hint."""
+    _write_configs(tmp_path)
+    qcfg = tmp_path / "mcp-tools-sql.toml"
+    qcfg.write_text(
+        qcfg.read_text().replace('connection = "default"', 'connection = "nope"', 1)
+    )
+
+    rc = main(_argv(tmp_path))
+    captured = capsys.readouterr()
+
+    assert rc == 1
+    assert "Error:" in captured.err
+    assert "mcp-tools-sql help config" in captured.err
+    assert "Traceback" not in captured.err
+
+
 def _write_query_bad_table_config(
     tmp_path: Path, *, allow_updates: bool = False
 ) -> None:

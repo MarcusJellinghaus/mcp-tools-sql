@@ -15,14 +15,14 @@ from mcp_tools_sql.query_helpers import (
     build_target_params,
 )
 from mcp_tools_sql.tool_builder import build_tool_fn
+from mcp_tools_sql.utils.tool_spec import tool_spec
 
 if TYPE_CHECKING:
     from collections.abc import Awaitable, Callable
 
-    from mcp.server.fastmcp import FastMCP
-
     from mcp_tools_sql.backends.registry import BackendRegistry
     from mcp_tools_sql.config.models import ResolvedTargets
+    from mcp_tools_sql.utils.tool_spec import ToolSink
 
 logger = logging.getLogger(__name__)
 
@@ -99,7 +99,7 @@ def build_read_databases_tool(
 
 
 class SchemaTools:
-    """Registers built-in schema-exploration tools on an MCP server."""
+    """Builds the built-in schema-exploration tool specs."""
 
     def __init__(
         self,
@@ -112,8 +112,8 @@ class SchemaTools:
         self._targets = targets
         self._limits = limits if limits is not None else LimitsConfig()
 
-    def register(self, mcp: FastMCP) -> None:
-        """Load default_queries.toml and register all schema tools on ``mcp``.
+    def register(self, sink: ToolSink) -> None:
+        """Load default_queries.toml and add one schema tool spec per query to ``sink``.
 
         Each tool resolves its ``(connection, database)`` target at call time,
         with ``database="*"`` fanning out across every database of the resolved
@@ -133,4 +133,12 @@ class SchemaTools:
                 limits=self._limits,
             )
             fn = build_tool_fn(name, sig_params, body, config.description)
-            mcp.add_tool(fn)
+            sink.add(
+                tool_spec(
+                    fn,
+                    group="sql.schema",
+                    read_only=True,
+                    name=name,
+                    description=config.description,
+                )
+            )

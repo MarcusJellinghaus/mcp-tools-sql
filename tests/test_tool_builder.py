@@ -4,10 +4,21 @@ from __future__ import annotations
 
 import asyncio
 import inspect
+import sqlite3
+from pathlib import Path
 from typing import Any
 
-from mcp_tools_sql.query_helpers import apply_filter, extract_sql_params
+import pytest
+
+from mcp_tools_sql.config.models import QueryConfig, QueryParamConfig
+from mcp_tools_sql.query_helpers import (
+    apply_filter,
+    build_query_body,
+    build_query_sig_params,
+    extract_sql_params,
+)
 from mcp_tools_sql.tool_builder import _UNSET, build_tool_fn
+from tests.target_helpers import sqlite_backend
 
 
 class TestExtractSqlParams:
@@ -126,6 +137,67 @@ class TestBuildToolFnAssembler:
         fn = build_tool_fn("noop", [], body, "")
         assert inspect.signature(fn).parameters == {}
         assert asyncio.run(fn()) == "fixed"
+
+
+class TestBuildToolFnDefaults:
+    """build_tool_fn fills omitted kwargs from the signature defaults."""
+
+    @staticmethod
+    def _recording_fn() -> tuple[Any, dict[str, Any]]:
+        seen: dict[str, Any] = {}
+
+        async def body(**kwargs: Any) -> str:
+            seen.clear()
+            seen.update(kwargs)
+            return "ok"
+
+        kind = inspect.Parameter.POSITIONAL_OR_KEYWORD
+        sig_params = [
+            inspect.Parameter("name", kind=kind, annotation=str),
+            inspect.Parameter("opt", kind=kind, annotation=str | None, default=None),
+            inspect.Parameter("unset", kind=kind, annotation=Any, default=_UNSET),
+            inspect.Parameter("count", kind=kind, annotation=int, default=5),
+        ]
+        return build_tool_fn("rec", sig_params, body, "doc"), seen
+
+    def test_omitted_kwargs_get_defaults(self) -> None:
+        fn, seen = self._recording_fn()
+        asyncio.run(fn(name="a"))
+        assert seen == {"name": "a", "opt": None, "unset": _UNSET, "count": 5}
+        assert seen["unset"] is _UNSET
+
+    def test_all_kwargs_unchanged(self) -> None:
+        fn, seen = self._recording_fn()
+        asyncio.run(fn(name="a", opt="b", unset="c", count=7))
+        assert seen == {"name": "a", "opt": "b", "unset": "c", "count": 7}
+
+    def test_unknown_kwarg_raises(self) -> None:
+        fn, _ = self._recording_fn()
+        with pytest.raises(TypeError):
+            asyncio.run(fn(name="a", bogus=1))
+
+    def test_optional_sql_param_omitted_binds_null(self, tmp_path: Path) -> None:
+        """An omitted optional ``:p`` binds as NULL instead of failing."""
+        db = tmp_path / "t.db"
+        conn = sqlite3.connect(db)
+        conn.execute("CREATE TABLE t (name TEXT)")
+        conn.executemany("INSERT INTO t (name) VALUES (?)", [("alpha",), ("beta",)])
+        conn.commit()
+        conn.close()
+
+        config = QueryConfig(
+            sql="SELECT * FROM t WHERE (:p IS NULL OR name = :p)",
+            params={"p": QueryParamConfig(name="p", type="str", required=False)},
+        )
+        backend = sqlite_backend(db)
+        try:
+            body = build_query_body("q", config, backend, "sqlite", timeout_seconds=30)
+            fn = build_tool_fn("q", build_query_sig_params(config), body, "doc")
+            text = asyncio.run(fn())
+        finally:
+            backend.close()
+        assert "alpha" in text
+        assert "beta" in text
 
 
 class TestUnsetSentinel:

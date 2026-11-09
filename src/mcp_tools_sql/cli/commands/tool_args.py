@@ -12,7 +12,7 @@ from pydantic.fields import FieldInfo
 from mcp_tools_sql.cli.parsers import HelpHintArgumentParser
 
 if TYPE_CHECKING:
-    from mcp.server.fastmcp.tools.base import Tool
+    from mcp_tools_sql.utils.tool_spec import ToolSpec
 
 
 def _parse_kv(value: str) -> tuple[str, str]:
@@ -88,14 +88,14 @@ def _add_argument(parser: argparse.ArgumentParser, param: inspect.Parameter) -> 
     )
 
 
-def build_tool_argparser(tool: Tool, prog: str) -> argparse.ArgumentParser:
+def build_tool_argparser(spec: ToolSpec, prog: str) -> argparse.ArgumentParser:
     """Build an `argparse.ArgumentParser` for one tool's call signature.
 
     Returns:
-        A parser with one flag per parameter of ``tool.fn``'s signature.
+        A parser with one flag per parameter of ``spec.fn``'s signature.
     """
     parser = HelpHintArgumentParser(prog=prog)
-    for param in inspect.signature(tool.fn).parameters.values():
+    for param in inspect.signature(spec.fn).parameters.values():
         if param.name == "params":
             parser.add_argument(
                 "--param",

@@ -38,6 +38,7 @@ from mcp_tools_sql.utils.sql_placeholders import (
     build_count_query,
     has_leading_cte,
 )
+from mcp_tools_sql.utils.tool_spec import tool_spec
 
 try:
     import pyodbc  # pylint: disable=import-error
@@ -49,10 +50,9 @@ except ImportError:
 _INVALID_SQL_EXC: tuple[type[BaseException], ...] = (sqlite3.Error, *_PYODBC_ERROR)
 
 if TYPE_CHECKING:
-    from mcp.server.fastmcp import FastMCP
-
     from mcp_tools_sql.backends.registry import BackendRegistry
     from mcp_tools_sql.config.models import ResolvedTargets
+    from mcp_tools_sql.utils.tool_spec import ToolSink
 
 
 _DESCRIPTION = (
@@ -96,14 +96,14 @@ def _base_count_params() -> list[inspect.Parameter]:
 
 
 class CountTools:
-    """Registers the ``count_records`` tool on an MCP server."""
+    """Builds the ``count_records`` tool spec."""
 
     def __init__(self, registry: BackendRegistry, targets: ResolvedTargets) -> None:
         self._registry = registry
         self._targets = targets
 
-    def register(self, mcp: FastMCP) -> None:
-        """Register the ``count_records`` tool on ``mcp``.
+    def register(self, sink: ToolSink) -> None:
+        """Add the ``count_records`` tool spec to ``sink``.
 
         The ``(connection, database)`` target — and therefore the backend and
         sqlglot dialect — is resolved per call from optional keyword-only
@@ -154,4 +154,12 @@ class CountTools:
 
         sig_params = _base_count_params() + build_target_params(targets)
         fn = build_tool_fn("count_records", sig_params, core, _DESCRIPTION)
-        mcp.add_tool(fn, name="count_records", description=_DESCRIPTION)
+        sink.add(
+            tool_spec(
+                fn,
+                group="sql.profiling",
+                read_only=True,
+                name="count_records",
+                description=_DESCRIPTION,
+            )
+        )

@@ -15,6 +15,7 @@ from mcp_tools_sql.config.models import (
     UpdateFieldConfig,
     UpdateKeyConfig,
 )
+from mcp_tools_sql.server import FastMCPSink
 from mcp_tools_sql.update_tools import UpdateTools
 from tests.target_helpers import RecordingRegistry, make_target
 
@@ -85,7 +86,7 @@ def test_unpinned_update_binds_default_target(sqlite_db: Path) -> None:
     registry, targets, by_key = _multi_target_registry(backend)
     mcp = FastMCP("test-update-pin-default")
 
-    UpdateTools(registry, targets, _set_name_update()).register(mcp)
+    UpdateTools(registry, targets, _set_name_update()).register(FastMCPSink(mcp))
 
     assert registry.calls == [by_key["default"]]
 
@@ -96,7 +97,9 @@ def test_update_pinned_to_connection_binds_that_backend(sqlite_db: Path) -> None
     registry, targets, by_key = _multi_target_registry(backend)
     mcp = FastMCP("test-update-pin-connection")
 
-    UpdateTools(registry, targets, _set_name_update(connection="second")).register(mcp)
+    UpdateTools(registry, targets, _set_name_update(connection="second")).register(
+        FastMCPSink(mcp)
+    )
 
     assert registry.calls == [by_key["second"]]
 
@@ -109,7 +112,9 @@ def test_update_pinned_to_database_resolves_default_connection(
     registry, targets, by_key = _multi_target_registry(backend)
     mcp = FastMCP("test-update-pin-database")
 
-    UpdateTools(registry, targets, _set_name_update(database="hr")).register(mcp)
+    UpdateTools(registry, targets, _set_name_update(database="hr")).register(
+        FastMCPSink(mcp)
+    )
 
     assert registry.calls == [by_key["hr"]]
     assert registry.calls[0].connection == "default"
@@ -124,5 +129,5 @@ def test_update_pinned_to_unknown_target_raises(sqlite_db: Path) -> None:
 
     with pytest.raises(ValueError, match="nope"):
         UpdateTools(registry, targets, _set_name_update(connection="nope")).register(
-            mcp
+            FastMCPSink(mcp)
         )

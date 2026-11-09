@@ -19,6 +19,7 @@ from mcp.shared.memory import create_connected_server_and_client_session
 
 from mcp_tools_sql.backends.sqlite import SQLiteBackend
 from mcp_tools_sql.config.models import ConnectionConfig
+from mcp_tools_sql.server import FastMCPSink
 from mcp_tools_sql.summarize import SummarizeTools
 from tests.target_helpers import single_target
 
@@ -44,7 +45,9 @@ async def client_for(
         A connected MCP client session exposing ``summarize_columns``.
     """
     mcp = FastMCP("test-summarize")
-    SummarizeTools(*single_target(backend, backend_name=backend_name)).register(mcp)
+    SummarizeTools(*single_target(backend, backend_name=backend_name)).register(
+        FastMCPSink(mcp)
+    )
     async with create_connected_server_and_client_session(
         mcp, raise_exceptions=True
     ) as client:

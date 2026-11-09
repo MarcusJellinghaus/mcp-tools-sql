@@ -26,6 +26,7 @@ from mcp_tools_sql.schema_tools import (
     SchemaTools,
     build_read_databases_tool,
 )
+from mcp_tools_sql.server import FastMCPSink
 from tests.target_helpers import RecordingRegistry, make_target
 
 # ---------------------------------------------------------------------------
@@ -334,7 +335,7 @@ async def test_multi_install_exposes_selector_params_in_schema(
         }
     )
     mcp = FastMCP("test-multi-schema")
-    SchemaTools(registry, targets).register(mcp)
+    SchemaTools(registry, targets).register(FastMCPSink(mcp))
 
     async with create_connected_server_and_client_session(
         mcp, raise_exceptions=True

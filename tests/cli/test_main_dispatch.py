@@ -295,7 +295,7 @@ def test_upstream_setup_logging_accepts_console_level() -> None:
 
     Every other test in this package runs against a monkeypatched
     `setup_logging` (see the autouse fixture in `conftest.py`), so nothing else
-    would notice an mcp-coder-utils older than the `>=0.1.6.dev0` floor —
+    would notice a stale mcp-coder-utils install without `console_level` —
     the suite would stay green while every real launch died with
     `TypeError: unexpected keyword argument 'console_level'`.
     """

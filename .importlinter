@@ -14,6 +14,7 @@ layers =
     mcp_tools_sql.main
     mcp_tools_sql.cli
     mcp_tools_sql.server
+    mcp_tools_sql.toolset
     mcp_tools_sql.verification
     mcp_tools_sql.schema_tools | mcp_tools_sql.query_tools | mcp_tools_sql.update_tools | mcp_tools_sql.validation_tools | mcp_tools_sql.count_tools | mcp_tools_sql.summarize
     mcp_tools_sql.query_helpers
@@ -40,7 +41,22 @@ forbidden_modules =
     mcp_tools_sql.validation_tools
     mcp_tools_sql.count_tools
     mcp_tools_sql.summarize
+    mcp_tools_sql.toolset
     mcp_tools_sql.server
+
+# Only the MCP server imports the mcp SDK directly; toolkits, toolset,
+# verification and utils stay importable without it (agent-workbench export
+# path). The CLI still reaches mcp indirectly via server.
+[importlinter:contract:no_mcp_on_export_path]
+name = No mcp on the export path
+type = forbidden
+source_modules =
+    mcp_tools_sql
+forbidden_modules =
+    mcp
+ignore_imports =
+    mcp_tools_sql.server -> mcp
+allow_indirect_imports = True
 
 [importlinter:contract:mcp_coder_utils_isolation]
 name = MCP Coder Utils Isolation
