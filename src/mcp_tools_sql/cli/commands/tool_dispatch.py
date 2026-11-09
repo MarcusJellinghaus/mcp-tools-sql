@@ -68,4 +68,5 @@ async def invoke_tool(spec: ToolSpec, kwargs: dict[str, Any]) -> tuple[int, str]
     except ValidationError as exc:
         return EXIT_REJECTED, str(exc)
     except Exception as exc:  # pylint: disable=broad-except
-        return classify_exception(exc), f"{type(exc).__name__}: {exc}"
+        name = getattr(exc, "original_class", type(exc).__name__)
+        return classify_exception(exc), f"{name}: {exc}"

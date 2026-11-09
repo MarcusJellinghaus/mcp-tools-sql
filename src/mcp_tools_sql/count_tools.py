@@ -149,7 +149,8 @@ class CountTools:
                 except RuntimeError as exc:
                     return f"Database connection error. {type(exc).__name__}: {exc}"
                 except Exception as exc:
-                    return f"Unexpected error. {type(exc).__name__}: {exc}"
+                    name = getattr(exc, "original_class", type(exc).__name__)
+                    return f"Unexpected error. {name}: {exc}"
                 return str(rows[0]["row_count"])
 
         sig_params = _base_count_params() + build_target_params(targets)

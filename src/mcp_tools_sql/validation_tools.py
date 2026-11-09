@@ -206,7 +206,8 @@ class ValidationTools:
                 except RuntimeError as exc:
                     return f"Database connection error. {type(exc).__name__}: {exc}"
                 except Exception as exc:
-                    return f"Unexpected error. {type(exc).__name__}: {exc}"
+                    name = getattr(exc, "original_class", type(exc).__name__)
+                    return f"Unexpected error. {name}: {exc}"
                 if return_plan:
                     return f"Valid.\nExecution plan:\n{plan}"
                 return "Valid."

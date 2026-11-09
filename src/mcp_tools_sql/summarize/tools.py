@@ -395,7 +395,8 @@ class SummarizeTools:
                 except RuntimeError as exc:
                     return f"Database connection error. {type(exc).__name__}: {exc}"
                 except Exception as exc:
-                    return f"Unexpected error. {type(exc).__name__}: {exc}"
+                    name = getattr(exc, "original_class", type(exc).__name__)
+                    return f"Unexpected error. {name}: {exc}"
 
         sig_params = _base_summarize_params() + build_target_params(targets, star=False)
         fn = build_tool_fn("summarize_columns", sig_params, core, _DESCRIPTION)

@@ -13,7 +13,7 @@ from mcp_tools_sql.config.models import QueryConfig
 from mcp_tools_sql.query_helpers import read_only_rejection
 from mcp_tools_sql.query_tools import QueryTools
 from mcp_tools_sql.server import FastMCPSink
-from mcp_tools_sql.sql_ast.placeholders import ParseError, read_only_violation
+from mcp_tools_sql.sql_ast.placeholders import SqlParseError, read_only_violation
 from tests.target_helpers import single_target, sqlite_backend
 
 if TYPE_CHECKING:
@@ -208,10 +208,11 @@ def test_zero_statement_sql_is_a_rejection_message(sql: str, dialect: str) -> No
 
     This gate is unaffected by the zero-statement check in ``basic_preflight``
     -- it never calls it -- because it already wraps the whole composition in
-    ``except SqlglotError``, and ``parse_one`` raises ``ParseError`` here.
+    ``except SqlParseError``, and ``read_only_violation`` raises it here.
     """
-    with pytest.raises(ParseError):
+    with pytest.raises(SqlParseError) as excinfo:
         read_only_violation(sql, dialect)
+    assert excinfo.value.original_class == "ParseError"
 
     message = read_only_rejection(sql, dialect)
 
@@ -238,7 +239,7 @@ def test_parse_error_message_is_one_line_without_escapes() -> None:
     single warning line, so a newline or a terminal escape would corrupt both.
     """
     sql = "SELECT * FROMX badtable"
-    with pytest.raises(ParseError) as excinfo:
+    with pytest.raises(SqlParseError) as excinfo:
         read_only_violation(sql, "sqlite")
     raw = str(excinfo.value)
     assert "\n" in raw  # the premise: sqlglot's own text is multi-line
