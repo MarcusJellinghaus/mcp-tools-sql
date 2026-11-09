@@ -194,7 +194,7 @@ the config models.
 ### `verify` — validate setup without starting the server
 
 ```text
-mcp-tools-sql [--config PATH] [--database-config PATH] verify [--output-format text|json]
+mcp-tools-sql [--config PATH] [--database-config PATH] verify [--output-format text|json] [--short]
 ```
 
 `verify` runs a series of checks and prints the result section by
@@ -205,6 +205,18 @@ section. Supply `--config` and `--database-config` on the top-level
 |------|---------|
 | `--output-format text` | Default. Human-readable sections, as in the examples below. |
 | `--output-format json` | Print the full `verify_all` result as one JSON document on stdout, and nothing else. The shape is documented in [python-api.md](python-api.md). |
+| `--short` | Text output only (ignored with `--output-format json`). Print one summary line, then only the `[ERR]` / `[WARN]` rows, grouped under their `=== SECTION ===` headers. No trailing `N checks passed` line. Same exit codes as the full output. |
+
+When everything passes, `--short` prints a single line:
+
+```text
+$ mcp-tools-sql verify --short
+Config loaded. Connections: A, B, C reachable. 12 queries, 3 updates OK.
+```
+
+The entries part reads `not checked (connection failed)` when the
+`CONNECTION` section failed, and ends in
+`(not exposed: allow_updates=false)` when updates are disabled.
 
 For scripts, the exit codes are the contract and are the same in every
 output format: see [Exit codes](#exit-codes-1).

@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import json
 from pathlib import Path
+from unittest.mock import MagicMock
 
 import pytest
 
@@ -101,3 +102,41 @@ def test_public_api_exports() -> None:
         "VerifyResult",
     ):
         assert name in verification.__all__
+
+
+def test_short_output_on_valid_configs_exits_0(
+    query_config: Path,
+    database_config: Path,
+    capsys: pytest.CaptureFixture[str],
+) -> None:
+    """`verify --short` prints the summary line only, without the totals line."""
+    rc = main(_argv(query_config, database_config, "--short"))
+    out = capsys.readouterr().out
+
+    assert rc == 0
+    assert out.startswith("Config loaded.")
+    assert "checks passed" not in out
+
+
+def test_short_output_with_failing_connection_exits_1(
+    query_config: Path,
+    database_config: Path,
+    monkeypatch: pytest.MonkeyPatch,
+    capsys: pytest.CaptureFixture[str],
+) -> None:
+    """`verify --short` lists the failing CONNECTION rows and exits 1."""
+    failing = MagicMock(name="failing_backend")
+    failing.connect.return_value = None
+    failing.execute_query.side_effect = RuntimeError("cannot connect")
+    failing.close.return_value = None
+    monkeypatch.setattr(
+        "mcp_tools_sql.backends.registry.create_backend",
+        MagicMock(return_value=failing),
+    )
+
+    rc = main(_argv(query_config, database_config, "--short"))
+    out = capsys.readouterr().out
+
+    assert rc == 1
+    assert "=== CONNECTION ===" in out
+    assert "[ERR]" in out
