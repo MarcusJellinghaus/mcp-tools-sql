@@ -169,9 +169,10 @@ class DatabaseBackend(ABC):
 
         Callers that stop early MUST close the generator (``gen.close()`` or
         ``contextlib.closing``) so the backend releases its cursor and
-        connection. After a :class:`QueryTimeoutError` never continue
-        fetching: on SQLite a later ``fetchmany`` returns ``[]``, which is
-        indistinguishable from end of data.
+        connection. A :class:`QueryTimeoutError` is raised if execute or a
+        fetch hit the statement timeout or the counting deadline. After one
+        never continue fetching: on SQLite a later ``fetchmany`` returns
+        ``[]``, which is indistinguishable from end of data.
 
         Args:
             sql: The SELECT statement to execute.
@@ -182,10 +183,6 @@ class DatabaseBackend(ABC):
         Yields:
             Non-empty lists of row dicts, each at most ``FETCH_BATCH_SIZE``
             long.
-
-        Raises:
-            QueryTimeoutError: If execute or a fetch hit the statement
-                timeout or the counting deadline.
         """
         rows = self.execute_readonly_query(sql, params)
         for start in range(0, len(rows), FETCH_BATCH_SIZE):

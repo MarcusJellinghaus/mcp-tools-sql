@@ -12,6 +12,7 @@ from mcp_tools_sql.backends.base import (
     FETCH_BATCH_SIZE,
     DatabaseBackend,
     Deadline,
+    QueryTimeoutError,
     translate_timeout,
 )
 from mcp_tools_sql.config.models import ConnectionConfig
@@ -179,10 +180,10 @@ class MSSQLBackend(DatabaseBackend):
         try:
             yield
         except Exception as exc:
-            timeout = translate_timeout(exc, self._config.query_timeout_seconds)
-            if timeout is None:
+            seconds = self._config.query_timeout_seconds
+            if translate_timeout(exc, seconds) is None:
                 raise
-            raise timeout from exc
+            raise QueryTimeoutError(seconds) from exc
 
     def connect(self) -> None:
         """Open a connection to SQL Server (lazy, idempotent, thread-safe).
@@ -287,8 +288,9 @@ class MSSQLBackend(DatabaseBackend):
         :meth:`execute_readonly_query`. Execute and the fetch loop run under
         the connection's statement timeout; *counting* is ignored (the
         caller checks the clock between batches). The cursor is closed in
-        ``finally``, so closing the generator early releases it. Never
-        continue fetching after a :class:`QueryTimeoutError`.
+        ``finally``, so closing the generator early releases it. A
+        :class:`QueryTimeoutError` is raised if execute or a fetch hit the
+        statement timeout; never continue fetching after one.
 
         Args:
             sql: The SELECT statement to execute.
@@ -298,10 +300,6 @@ class MSSQLBackend(DatabaseBackend):
         Yields:
             Non-empty lists of column-name keyed dicts, each at most
             ``FETCH_BATCH_SIZE`` long.
-
-        Raises:
-            QueryTimeoutError: If execute or a fetch hit the statement
-                timeout.
         """
         conn = self._ensure_connected()
         sql_q, args = self._params_for_pyodbc(sql, params)

@@ -108,9 +108,8 @@ def _explain(
             finally:
                 cursor.close()
         except Exception as exc:
-            timeout = translate_timeout(exc, timeout_seconds)
-            if timeout is not None:
-                raise timeout from exc
+            if translate_timeout(exc, timeout_seconds) is not None:
+                raise QueryTimeoutError(timeout_seconds) from exc
             raise
 
 

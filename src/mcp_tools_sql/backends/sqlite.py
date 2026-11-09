@@ -13,6 +13,7 @@ from mcp_tools_sql.backends.base import (
     FETCH_BATCH_SIZE,
     DatabaseBackend,
     Deadline,
+    QueryTimeoutError,
     translate_timeout,
 )
 from mcp_tools_sql.config.models import ConnectionConfig
@@ -38,6 +39,7 @@ def _statement_deadline(
 
     Raises:
         QueryTimeoutError: When a statement was interrupted.
+        sqlite3.Error: Any other driver error, re-raised unchanged.
     """
     stop = time.monotonic() + seconds
 
@@ -51,9 +53,8 @@ def _statement_deadline(
     try:
         yield
     except sqlite3.Error as exc:
-        translated = translate_timeout(exc, seconds)
-        if translated is not None:
-            raise translated from exc
+        if translate_timeout(exc, seconds) is not None:
+            raise QueryTimeoutError(seconds) from exc
         raise
     finally:
         conn.set_progress_handler(None, 0)
@@ -118,12 +119,11 @@ class SQLiteBackend(DatabaseBackend):
     ) -> list[dict[str, Any]]:
         """Execute a SELECT query under the statement timeout.
 
+        Raises :class:`QueryTimeoutError` (from :func:`_statement_deadline`)
+        if execute + fetch exceed ``query_timeout_seconds``.
+
         Returns:
             Rows as a list of dicts.
-
-        Raises:
-            QueryTimeoutError: If execute + fetch exceed
-                ``query_timeout_seconds``.
         """
         conn = self._require_connection()
         with _statement_deadline(conn, self._config.query_timeout_seconds):
@@ -138,15 +138,15 @@ class SQLiteBackend(DatabaseBackend):
         Opens a brand-new single-use connection to the same database file,
         sets ``query_only`` so the DB rejects any write, runs the query, and
         closes the connection in ``finally``. The persistent connection is
-        never touched. Execute + fetch run under the statement timeout.
+        never touched. Execute + fetch run under the statement timeout and
+        raise :class:`QueryTimeoutError` if they exceed
+        ``query_timeout_seconds``.
 
         Returns:
             Rows as a list of dicts.
 
         Raises:
             ValueError: If the connection path is empty.
-            QueryTimeoutError: If execute + fetch exceed
-                ``query_timeout_seconds``.
         """
         path = self._config.path
         if not path:
@@ -175,8 +175,9 @@ class SQLiteBackend(DatabaseBackend):
         :meth:`execute_readonly_query`. Execute and the whole fetch loop run
         under the statement timeout and the optional *counting* deadline. The
         cursor and connection are closed in ``finally``, so closing the
-        generator early releases both. Never continue fetching after a
-        :class:`QueryTimeoutError`.
+        generator early releases both. A :class:`QueryTimeoutError` is raised
+        if the statement timeout or the counting deadline interrupted execute
+        or fetch; never continue fetching after one.
 
         Args:
             sql: The SELECT statement to execute.
@@ -189,8 +190,6 @@ class SQLiteBackend(DatabaseBackend):
 
         Raises:
             ValueError: If the connection path is empty.
-            QueryTimeoutError: If the statement timeout or the counting
-                deadline interrupted execute or fetch.
         """
         path = self._config.path
         if not path:
@@ -223,7 +222,8 @@ class SQLiteBackend(DatabaseBackend):
         write, closed in ``finally``, persistent connection never touched.
         Only the result shape differs: ordered column names plus positional
         row tuples, so duplicate column names survive. Execute + fetch run
-        under the statement timeout.
+        under the statement timeout and raise :class:`QueryTimeoutError` if
+        they exceed ``query_timeout_seconds``.
 
         Args:
             sql: The SELECT statement to execute.
@@ -235,8 +235,6 @@ class SQLiteBackend(DatabaseBackend):
 
         Raises:
             ValueError: If the connection path is empty.
-            QueryTimeoutError: If execute + fetch exceed
-                ``query_timeout_seconds``.
         """
         path = self._config.path
         if not path:
@@ -255,12 +253,11 @@ class SQLiteBackend(DatabaseBackend):
     def execute_update(self, sql: str, params: dict[str, Any] | None = None) -> int:
         """Execute an UPDATE/INSERT under the statement timeout.
 
+        Raises :class:`QueryTimeoutError` (from :func:`_statement_deadline`)
+        if execute + commit exceed ``query_timeout_seconds``.
+
         Returns:
             Number of affected rows.
-
-        Raises:
-            QueryTimeoutError: If execute + commit exceed
-                ``query_timeout_seconds``.
         """
         conn = self._require_connection()
         with _statement_deadline(conn, self._config.query_timeout_seconds):
@@ -273,11 +270,9 @@ class SQLiteBackend(DatabaseBackend):
 
         SQLite's ``EXPLAIN QUERY PLAN`` requires bound values to compile
         parameterized SQL, so callers must pass ``params`` whenever the SQL
-        references ``:name`` placeholders.
-
-        Raises:
-            QueryTimeoutError: If execute + fetch exceed
-                ``query_timeout_seconds``.
+        references ``:name`` placeholders. Raises :class:`QueryTimeoutError`
+        (from :func:`_statement_deadline`) if execute + fetch exceed
+        ``query_timeout_seconds``.
         """
         conn = self._require_connection()
         with _statement_deadline(conn, self._config.query_timeout_seconds):
