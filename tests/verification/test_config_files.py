@@ -219,3 +219,26 @@ def test_sensitive_keys_row_is_warning(
     assert row["severity"] == "warning"
     assert "password" in row["value"]
     assert checks_ok(result) is True
+
+
+def test_database_config_parse_error_hides_password(
+    valid_query_config: Path,
+    tmp_path: Path,
+) -> None:
+    """A database config parse error does not echo the connection's password."""
+    db_cfg = tmp_path / "db-config.toml"
+    db_cfg.write_text(
+        "[connections.c]\n"
+        'backend = "mssql"\n'
+        'host = "h"\n'
+        'database = "a"\n'
+        'databases = ["b"]\n'
+        'password = "s3cret-pw"\n',
+        encoding="utf-8",
+    )
+
+    result = verify_config_files(valid_query_config, db_config_path=db_cfg)
+
+    row = result["database_config_parse"]
+    assert row["ok"] is False
+    assert "s3cret-pw" not in row.get("error", "")

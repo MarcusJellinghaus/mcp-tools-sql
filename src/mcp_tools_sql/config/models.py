@@ -43,6 +43,8 @@ def _raw_to_specs(raw: Any) -> list[dict[str, Any]]:
 class ConnectionConfig(BaseModel):
     """Database connection parameters (stored in database config)."""
 
+    model_config = ConfigDict(hide_input_in_errors=True)
+
     backend: str = "sqlite"  # sqlite | mssql | postgresql
     host: str = ""
     port: int = 0
@@ -237,6 +239,8 @@ class QueryFileConfig(BaseModel):
 
 class DatabaseConfig(BaseModel):
     """Root model for database config (~/.mcp-tools-sql/config.toml)."""
+
+    model_config = ConfigDict(hide_input_in_errors=True)
 
     connections: dict[str, ConnectionConfig] = {}
     security: SecurityConfig = SecurityConfig()
