@@ -214,6 +214,7 @@ class MSSQLBackend(DatabaseBackend):
                 autocommit=True,
                 timeout=self._config.connect_timeout_seconds,
             )
+            conn.timeout = self._config.query_timeout_seconds
         except pyodbc.Error as exc:
             exc.args = tuple(
                 _sanitize(a, self._config.password) if isinstance(a, str) else a
@@ -224,7 +225,6 @@ class MSSQLBackend(DatabaseBackend):
                 exc, (pyodbc.OperationalError, pyodbc.InterfaceError)
             )
             raise neutral from exc
-        conn.timeout = self._config.query_timeout_seconds
         return conn
 
     @contextmanager

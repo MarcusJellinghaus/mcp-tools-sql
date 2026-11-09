@@ -32,6 +32,7 @@ from sqlglot import exp
 from mcp_tools_sql.sql_ast.placeholders import (
     arbitrary_sql_violation,
     basic_preflight,
+    translate_parse_errors,
 )
 
 Category = Literal["numeric", "temporal", "string", "boolean", "other"]
@@ -201,6 +202,7 @@ def build_table_ref(schema: str, table: str, dialect: str) -> SourceRef:
     return SourceRef(exp.Table(this=this))
 
 
+@translate_parse_errors
 def validate_where(
     where: str | None,
     table_ref: SourceRef,
