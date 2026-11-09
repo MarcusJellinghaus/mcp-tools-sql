@@ -241,7 +241,7 @@ async def test_schema_body_binds_selected_database(sqlite_db: Path) -> None:
         }
     )
 
-    body = build_schema_body("read_tables", _tables_config(), registry, targets, "")
+    body = build_schema_body("read_tables", _tables_config(), registry, targets)
     text = await body(database="hr")
 
     assert registry.calls[-1].connection == "default"
@@ -265,7 +265,7 @@ async def test_schema_body_connection_only_uses_connection_default(
         }
     )
 
-    body = build_schema_body("read_tables", _tables_config(), registry, targets, "")
+    body = build_schema_body("read_tables", _tables_config(), registry, targets)
     await body(connection="other")
 
     assert registry.calls[-1].connection == "other"
@@ -288,7 +288,7 @@ async def test_schema_body_cross_connection_mismatch_returns_verdict(
         }
     )
 
-    body = build_schema_body("read_tables", _tables_config(), registry, targets, "")
+    body = build_schema_body("read_tables", _tables_config(), registry, targets)
     text = await body(connection="other", database="hr")
 
     assert "other" in text
@@ -311,7 +311,7 @@ async def test_schema_body_unpinned_resolves_default_target(sqlite_db: Path) -> 
         }
     )
 
-    body = build_schema_body("read_tables", _tables_config(), registry, targets, "")
+    body = build_schema_body("read_tables", _tables_config(), registry, targets)
     await body()
 
     assert registry.calls[-1].connection == "default"
@@ -466,7 +466,7 @@ async def test_fanout_merges_rows_with_database_column_in_config_order() -> None
         _FanoutBackend([{"name": "carol"}]),
     )
     body = build_schema_body(
-        "read_tables", _tables_config(), registry, _multi_targets(), ""
+        "read_tables", _tables_config(), registry, _multi_targets()
     )
 
     text = await body(database="*")
@@ -509,13 +509,17 @@ class _ReadOnlyOnlyBackend(_FanoutBackend):
 
 @pytest.mark.asyncio
 async def test_fanout_uses_execute_readonly_query() -> None:
-    """`database='*'` fans out through execute_readonly_query only."""
+    """`database='*'` reads through the read-only path only.
+
+    The fakes keep the default ``iter_readonly_batches``, which chunks
+    ``execute_readonly_query``.
+    """
     registry = _fanout_registry(
         _ReadOnlyOnlyBackend([{"name": "alice"}]),
         _ReadOnlyOnlyBackend([{"name": "carol"}]),
     )
     body = build_schema_body(
-        "read_tables", _tables_config(), registry, _multi_targets(), ""
+        "read_tables", _tables_config(), registry, _multi_targets()
     )
 
     text = await body(database="*")
@@ -536,12 +540,12 @@ async def test_fanout_footer_counts_exact_and_capped_on_truncation() -> None:
         _FanoutBackend([{"id": i} for i in range(4)]),
     )
     body = build_schema_body(
-        "read_tables", _tables_config(), registry, _multi_targets(), ""
+        "read_tables", _tables_config(), registry, _multi_targets()
     )
 
     text = await body(database="*", max_rows=5)
 
-    assert "Showing 5 of 7 rows." in text
+    assert "showing 5 of 7 rows (max_rows=5 reached)." in text
     assert "Matched: sales 3, hr 4." in text
 
 
@@ -553,12 +557,12 @@ async def test_fanout_footer_absent_without_truncation() -> None:
         _FanoutBackend([{"id": 2}]),
     )
     body = build_schema_body(
-        "read_tables", _tables_config(), registry, _multi_targets(), ""
+        "read_tables", _tables_config(), registry, _multi_targets()
     )
 
     text = await body(database="*", max_rows=100)
 
-    assert "Showing" not in text
+    assert "Output truncated" not in text
     assert "Matched:" not in text
 
 
@@ -570,13 +574,13 @@ async def test_fanout_below_minimum_max_rows_notes_and_caps() -> None:
         _FanoutBackend([{"name": "carol"}]),
     )
     body = build_schema_body(
-        "read_tables", _tables_config(), registry, _multi_targets(), ""
+        "read_tables", _tables_config(), registry, _multi_targets()
     )
 
     text = await body(database="*", max_rows=-1)
 
     assert "Requested max_rows=-1 is below the minimum 1; using 1." in text
-    assert "Showing 1 of 3 rows." in text
+    assert "showing 1 of 3 rows (max_rows=1 reached)." in text
     assert "alice" in text
     assert "amy" not in text
     assert "carol" not in text
@@ -590,7 +594,7 @@ async def test_fanout_one_target_error_rendered_inline() -> None:
         _FanoutBackend([], raises=RuntimeError("boom")),
     )
     body = build_schema_body(
-        "read_tables", _tables_config(), registry, _multi_targets(), ""
+        "read_tables", _tables_config(), registry, _multi_targets()
     )
 
     text = await body(database="*")
@@ -608,7 +612,7 @@ async def test_fanout_name_filter_applies_per_target_before_merge() -> None:
         _FanoutBackend([{"name": "alfred"}, {"name": "gamma"}]),
     )
     body = build_schema_body(
-        "read_columns", _filter_config(), registry, _multi_targets(), ""
+        "read_columns", _filter_config(), registry, _multi_targets()
     )
 
     text = await body(database="*", name_filter="al*")
@@ -627,7 +631,7 @@ async def test_pinned_database_has_no_database_column() -> None:
         _FanoutBackend([{"name": "carol"}]),
     )
     body = build_schema_body(
-        "read_tables", _tables_config(), registry, _multi_targets(), ""
+        "read_tables", _tables_config(), registry, _multi_targets()
     )
 
     text = await body(database="hr")

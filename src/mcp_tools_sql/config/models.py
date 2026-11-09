@@ -6,6 +6,10 @@ from typing import Any, Self
 
 from pydantic import BaseModel, ConfigDict, Field, model_validator
 
+# max_rows_hard of the bundled schema tools (default_queries.toml); `config`
+# cannot import `schema_tools`, so tests/test_default_queries.py keeps it in sync.
+BUILTIN_MAX_ROWS_HARD: int = 100
+
 
 class DatabaseSpec(BaseModel):
     """A single database (catalog) within a connection."""
@@ -59,6 +63,8 @@ class ConnectionConfig(BaseModel):
     trust_server_certificate: bool = False
     driver: str = "ODBC Driver 18 for SQL Server"  # MSSQL only
     path: str = ""  # SQLite file path
+    query_timeout_seconds: int = Field(default=30, gt=0)
+    connect_timeout_seconds: int = Field(default=15, gt=0)  # SQL Server only
 
     @model_validator(mode="before")
     @classmethod
@@ -229,12 +235,58 @@ class SecurityConfig(BaseModel):
     allow_updates: bool = True
 
 
+class LimitsConfig(BaseModel):
+    """Output and counting limits for query/schema tools (``[limits]``)."""
+
+    max_output_chars: int = Field(default=80_000, gt=0)
+    max_cell_chars: int = Field(default=500, gt=0)
+    max_count_rows: int = Field(default=100_000, ge=BUILTIN_MAX_ROWS_HARD)
+
+
+def count_rows_violation(
+    limits: LimitsConfig, queries: dict[str, QueryConfig]
+) -> str | None:
+    """Return a message for the first query whose hard limit exceeds counting.
+
+    The effective hard limit is floored at 1, matching
+    ``formatting.MAX_ROWS_MIN`` (``config`` cannot import ``formatting``).
+
+    Returns:
+        A one-line violation message, or ``None`` when every query fits.
+    """
+    for name, query in queries.items():
+        hard = max(query.max_rows_hard or query.max_rows_default, 1)
+        if hard > limits.max_count_rows:
+            return (
+                f"[queries.{name}] max_rows_hard {hard} exceeds "
+                f"[limits] max_count_rows {limits.max_count_rows}"
+            )
+    return None
+
+
 class QueryFileConfig(BaseModel):
     """Root model for the project query config file (mcp-tools-sql.toml)."""
 
     connection: str = ""  # named connection reference
     queries: dict[str, QueryConfig] = {}
     updates: dict[str, UpdateConfig] = {}
+    limits: LimitsConfig = LimitsConfig()
+
+    @model_validator(mode="after")
+    def _check_count_rows(self) -> Self:
+        """Reject a query whose ``max_rows_hard`` exceeds ``max_count_rows``.
+
+        Returns:
+            The validated model instance.
+
+        Raises:
+            ValueError: If a query's effective hard limit exceeds
+                ``[limits] max_count_rows``.
+        """
+        violation = count_rows_violation(self.limits, self.queries)
+        if violation:
+            raise ValueError(violation)
+        return self
 
 
 class DatabaseConfig(BaseModel):

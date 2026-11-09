@@ -33,7 +33,8 @@ from typing import TYPE_CHECKING, Annotated, Any, Literal
 
 from pydantic import Field
 
-from mcp_tools_sql.backends.base import to_dialect
+from mcp_tools_sql.backends.base import QueryTimeoutError, to_dialect
+from mcp_tools_sql.formatting import TIMEOUT_HINT_NARROWER
 from mcp_tools_sql.query_helpers import build_target_params
 from mcp_tools_sql.summarize.render import (
     COLUMN_CAP,
@@ -375,6 +376,8 @@ class SummarizeTools:
                     return _run(
                         backend, rec, built, predicate, params, columns, n, dialect
                     )
+                except QueryTimeoutError as exc:
+                    return f"{exc} {TIMEOUT_HINT_NARROWER}"
                 except INVALID_SQL_EXC as exc:
                     # A probe failure is not a LOB failure (the probe is a bare
                     # ``SELECT *``), so ``built`` must already be a resolved

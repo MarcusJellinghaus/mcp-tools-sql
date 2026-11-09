@@ -4,11 +4,17 @@ from __future__ import annotations
 
 import logging
 import threading
-from collections.abc import Iterator
+from collections.abc import Generator, Iterator
 from contextlib import contextmanager
 from typing import Any
 
-from mcp_tools_sql.backends.base import DatabaseBackend
+from mcp_tools_sql.backends.base import (
+    FETCH_BATCH_SIZE,
+    DatabaseBackend,
+    Deadline,
+    QueryTimeoutError,
+    translate_timeout,
+)
 from mcp_tools_sql.config.models import ConnectionConfig
 from mcp_tools_sql.utils.sql_placeholders import (
     substitute_named_with_literals,
@@ -107,7 +113,13 @@ def build_sanitized_connection_string(config: ConnectionConfig) -> str:
 
 
 class MSSQLBackend(DatabaseBackend):
-    """Backend for Microsoft SQL Server via pyodbc."""
+    """Backend for Microsoft SQL Server via pyodbc.
+
+    Every connection carries a login timeout (``connect_timeout_seconds``) and
+    a statement timeout (``query_timeout_seconds``). A ``HYT00`` raised by
+    execute/fetch is translated to :class:`QueryTimeoutError`; a ``HYT00``
+    from ``connect()`` is a login timeout and propagates untranslated.
+    """
 
     def __init__(self, config: ConnectionConfig) -> None:
         self._config = config
@@ -123,6 +135,11 @@ class MSSQLBackend(DatabaseBackend):
         from the error's ``args`` in place before re-raising the original
         exception (type, sqlstate, and traceback preserved).
 
+        The login timeout is ``connect_timeout_seconds``; a ``HYT00`` raised
+        here is a login timeout and is not translated to
+        :class:`QueryTimeoutError`. The statement timeout
+        (``query_timeout_seconds``) is set on the returned connection.
+
         Returns:
             The live pyodbc connection.
 
@@ -137,7 +154,11 @@ class MSSQLBackend(DatabaseBackend):
             build_sanitized_connection_string(self._config),
         )
         try:
-            return pyodbc.connect(conn_str, autocommit=True)
+            conn = pyodbc.connect(
+                conn_str,
+                autocommit=True,
+                timeout=self._config.connect_timeout_seconds,
+            )
         except pyodbc.Error as exc:
             exc.args = tuple(
                 _sanitize(a, self._config.password) if isinstance(a, str) else a
@@ -145,6 +166,24 @@ class MSSQLBackend(DatabaseBackend):
             )
             logger.debug("MSSQL connect failed: %s %r", type(exc).__name__, exc.args)
             raise
+        conn.timeout = self._config.query_timeout_seconds
+        return conn
+
+    @contextmanager
+    def _timeouts(self) -> Iterator[None]:
+        """Translate ``HYT00`` from execute/fetch into ``QueryTimeoutError``.
+
+        Raises:
+            QueryTimeoutError: If the wrapped cursor work hit the statement
+                timeout; any other exception propagates unchanged.
+        """
+        try:
+            yield
+        except Exception as exc:
+            seconds = self._config.query_timeout_seconds
+            if translate_timeout(exc, seconds) is None:
+                raise
+            raise QueryTimeoutError(seconds) from exc
 
     def connect(self) -> None:
         """Open a connection to SQL Server (lazy, idempotent, thread-safe).
@@ -214,9 +253,11 @@ class MSSQLBackend(DatabaseBackend):
         sql_q, args = self._params_for_pyodbc(sql, params)
         cursor = conn.cursor()
         try:
-            cursor.execute(sql_q, args)
-            columns = [d[0] for d in cursor.description]
-            return [dict(zip(columns, row, strict=True)) for row in cursor.fetchall()]
+            with self._timeouts():
+                cursor.execute(sql_q, args)
+                columns = [d[0] for d in cursor.description]
+                rows = cursor.fetchall()
+            return [dict(zip(columns, row, strict=True)) for row in rows]
         finally:
             cursor.close()
 
@@ -233,6 +274,53 @@ class MSSQLBackend(DatabaseBackend):
             Rows as a list of column-name keyed dicts.
         """
         return self.execute_query(sql, params)
+
+    def iter_readonly_batches(
+        self,
+        sql: str,
+        params: dict[str, Any] | None = None,
+        *,
+        counting: Deadline | None = None,  # pylint: disable=unused-argument
+    ) -> Generator[list[dict[str, Any]], None, None]:
+        """Yield rows in batches via ``cursor.fetchmany`` on the persistent connection.
+
+        Read-only by the documented read-only login, like
+        :meth:`execute_readonly_query`. Execute and the fetch loop run under
+        the connection's statement timeout; *counting* is ignored (the
+        caller checks the clock between batches). The cursor is closed in
+        ``finally``, so closing the generator early releases it; an early
+        close cancels the statement first so the driver does not drain the
+        pending rows. A
+        :class:`QueryTimeoutError` is raised if execute or a fetch hit the
+        statement timeout; never continue fetching after one.
+
+        Args:
+            sql: The SELECT statement to execute.
+            params: Optional values for ``:name`` placeholders in *sql*.
+            counting: Ignored on SQL Server.
+
+        Yields:
+            Non-empty lists of column-name keyed dicts, each at most
+            ``FETCH_BATCH_SIZE`` long.
+        """
+        conn = self._ensure_connected()
+        sql_q, args = self._params_for_pyodbc(sql, params)
+        cursor = conn.cursor()
+        try:
+            with self._timeouts():
+                cursor.execute(sql_q, args)
+                columns = [d[0] for d in cursor.description]
+                while batch := cursor.fetchmany(FETCH_BATCH_SIZE):
+                    yield [dict(zip(columns, row, strict=True)) for row in batch]
+        except GeneratorExit:
+            # Closed early: cancel so close() does not drain the pending rows.
+            try:
+                cursor.cancel()
+            except Exception:  # pylint: disable=broad-exception-caught
+                logger.debug("MSSQL cursor cancel failed", exc_info=True)
+            raise
+        finally:
+            cursor.close()
 
     def execute_readonly_query_with_columns(
         self, sql: str, params: dict[str, Any] | None = None
@@ -258,9 +346,11 @@ class MSSQLBackend(DatabaseBackend):
         sql_q, args = self._params_for_pyodbc(sql, params)
         cursor = conn.cursor()
         try:
-            cursor.execute(sql_q, args)
-            columns = [d[0] for d in cursor.description or ()]
-            return columns, [tuple(row) for row in cursor.fetchall()]
+            with self._timeouts():
+                cursor.execute(sql_q, args)
+                columns = [d[0] for d in cursor.description or ()]
+                rows = cursor.fetchall()
+            return columns, [tuple(row) for row in rows]
         finally:
             cursor.close()
 
@@ -274,7 +364,8 @@ class MSSQLBackend(DatabaseBackend):
         sql_q, args = self._params_for_pyodbc(sql, params)
         cursor = conn.cursor()
         try:
-            cursor.execute(sql_q, args)
+            with self._timeouts():
+                cursor.execute(sql_q, args)
             return int(cursor.rowcount)
         finally:
             cursor.close()
@@ -315,12 +406,13 @@ class MSSQLBackend(DatabaseBackend):
         explain_sql = substitute_named_with_literals(sql, params or {}, "tsql")
         cursor = conn.cursor()
         try:
-            cursor.execute("SET SHOWPLAN_TEXT ON")
-            try:
-                cursor.execute(explain_sql)
-                rows = cursor.fetchall()
-            finally:
-                cursor.execute("SET SHOWPLAN_TEXT OFF")
+            with self._timeouts():
+                cursor.execute("SET SHOWPLAN_TEXT ON")
+                try:
+                    cursor.execute(explain_sql)
+                    rows = cursor.fetchall()
+                finally:
+                    cursor.execute("SET SHOWPLAN_TEXT OFF")
             return "\n".join(r[0] for r in rows if r and r[0])
         finally:
             cursor.close()

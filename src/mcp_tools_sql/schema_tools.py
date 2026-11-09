@@ -7,7 +7,7 @@ import tomllib
 from pathlib import Path
 from typing import TYPE_CHECKING
 
-from mcp_tools_sql.config.models import QueryConfig
+from mcp_tools_sql.config.models import LimitsConfig, QueryConfig
 from mcp_tools_sql.formatting import format_rows
 from mcp_tools_sql.query_helpers import (
     build_query_sig_params,
@@ -101,15 +101,16 @@ def build_read_databases_tool(
 class SchemaTools:
     """Registers built-in schema-exploration tools on an MCP server."""
 
-    _TRUNCATION_HINT = "Use filter to narrow."
-
     def __init__(
         self,
         registry: BackendRegistry,
         targets: ResolvedTargets,
+        *,
+        limits: LimitsConfig | None = None,
     ) -> None:
         self._registry = registry
         self._targets = targets
+        self._limits = limits if limits is not None else LimitsConfig()
 
     def register(self, mcp: FastMCP) -> None:
         """Load default_queries.toml and register all schema tools on ``mcp``.
@@ -129,7 +130,7 @@ class SchemaTools:
                 config,
                 self._registry,
                 self._targets,
-                self._TRUNCATION_HINT,
+                limits=self._limits,
             )
             fn = build_tool_fn(name, sig_params, body, config.description)
             mcp.add_tool(fn)

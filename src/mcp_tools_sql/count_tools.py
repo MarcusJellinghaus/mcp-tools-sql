@@ -26,7 +26,8 @@ from typing import TYPE_CHECKING, Annotated, Any
 
 from pydantic import Field
 
-from mcp_tools_sql.backends.base import to_dialect
+from mcp_tools_sql.backends.base import QueryTimeoutError, to_dialect
+from mcp_tools_sql.formatting import TIMEOUT_HINT_NARROWER
 from mcp_tools_sql.query_helpers import build_target_params
 from mcp_tools_sql.tool_builder import build_tool_fn
 from mcp_tools_sql.tool_logging import log_tool_call
@@ -139,6 +140,8 @@ class CountTools:
                 wrapped = build_count_query(sql, dialect)
                 try:
                     rows = backend.execute_readonly_query(wrapped, params)
+                except QueryTimeoutError as exc:
+                    return f"{exc} {TIMEOUT_HINT_NARROWER}"
                 except _INVALID_SQL_EXC as exc:
                     return f"Invalid SQL. {type(exc).__name__}: {exc}"
                 except (KeyError, TypeError, ValueError) as exc:

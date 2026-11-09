@@ -34,11 +34,10 @@ def _assemble(
     config: QueryConfig,
     backend: SQLiteBackend,
     backend_name: str = "sqlite",
-    truncation_hint: str = "",
 ) -> Callable[..., Any]:
     """Helper: build sig_params + body then call the assembler."""
     sig_params = build_query_sig_params(config)
-    body = build_query_body(name, config, backend, backend_name, truncation_hint)
+    body = build_query_body(name, config, backend, backend_name, timeout_seconds=30)
     return build_tool_fn(name, sig_params, body, config.description)
 
 
@@ -188,8 +187,7 @@ class TestSchemaToolsTruncation:
                 "read_columns", {"schema": "main", "table": "wide_table"}
             )
             text = result.content[0].text  # type: ignore[union-attr]
-            assert "Showing 100 of 150 rows" in text
-            assert "Use filter to narrow" in text
+            assert "showing 100 of 150 rows (max_rows=100 reached)." in text
 
     async def test_wide_table_custom_max_rows(self, sqlite_wide_db: Path) -> None:
         """read_columns with max_rows=10 truncates at 10 and shows message."""
@@ -202,7 +200,7 @@ class TestSchemaToolsTruncation:
                 {"schema": "main", "table": "wide_table", "max_rows": 10},
             )
             text = result.content[0].text  # type: ignore[union-attr]
-            assert "Showing 10 of 150 rows" in text
+            assert "showing 10 of 150 rows (max_rows=10 reached)." in text
 
     async def test_no_truncation_within_limit(self, sqlite_db: Path) -> None:
         """Small table with 3 columns → no truncation message."""
@@ -388,29 +386,23 @@ async def test_clamp_and_truncation_both_appear(sqlite_wide_db: Path) -> None:
         max_rows_default=5,
         max_rows_hard=10,
     )
-    fn = _assemble(
-        "clamp_trunc_test",
-        qcfg,
-        backend,
-        "sqlite",
-        truncation_hint="Use filter to narrow.",
-    )
+    fn = _assemble("clamp_trunc_test", qcfg, backend, "sqlite")
 
     text = await fn(table="wide_table", max_rows=500)
 
-    assert "Showing 10 of 150 rows" in text
-    assert "Use filter to narrow" in text
+    assert "showing 10 of 150 rows (max_rows=10 reached)." in text
+    assert "To see more rows: refine parameters." in text
     assert "Requested max_rows=500 exceeds hard limit 10" in text
 
 
 # ---------------------------------------------------------------------------
-# Truncation-hint plumbing (regression guard)
+# Truncation next-step plumbing (regression guard)
 # ---------------------------------------------------------------------------
 
 
 @pytest.mark.asyncio
-async def test_truncation_hint_preserved(sqlite_wide_db: Path) -> None:
-    """SchemaTools routes ``truncation_hint`` through to format_rows output."""
+async def test_truncation_next_step_rendered(sqlite_wide_db: Path) -> None:
+    """SchemaTools output names a next step when read_columns is truncated."""
     mcp = _make_mcp_with_tools(str(sqlite_wide_db))
     async with create_connected_server_and_client_session(
         mcp, raise_exceptions=True
@@ -419,4 +411,4 @@ async def test_truncation_hint_preserved(sqlite_wide_db: Path) -> None:
             "read_columns", {"schema": "main", "table": "wide_table"}
         )
         text = result.content[0].text  # type: ignore[union-attr]
-        assert "Use filter to narrow" in text
+        assert "To see more rows: refine parameters." in text

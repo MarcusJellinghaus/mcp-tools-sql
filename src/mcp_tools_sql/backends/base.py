@@ -3,9 +3,54 @@
 from __future__ import annotations
 
 from abc import ABC, abstractmethod
+from collections.abc import Generator
 from contextlib import AbstractContextManager
+from dataclasses import dataclass
 from types import TracebackType
 from typing import Any, Self
+
+_SQLITE_INTERRUPT = 9
+_SQLSTATE_TIMEOUT = "HYT00"
+
+FETCH_BATCH_SIZE: int = 500
+
+
+class QueryTimeoutError(Exception):
+    """A statement exceeded the connection's query_timeout_seconds."""
+
+    def __init__(self, seconds: int) -> None:
+        self.seconds = seconds
+        super().__init__(f"Query aborted after {seconds} s (statement timeout).")
+
+
+@dataclass
+class Deadline:
+    """Caller-set counting deadline (time.monotonic()), None = not armed."""
+
+    at: float | None = None
+
+
+def translate_timeout(exc: BaseException, seconds: int) -> QueryTimeoutError | None:
+    """Map a driver timeout error to :class:`QueryTimeoutError`.
+
+    Recognises SQLite's ``SQLITE_INTERRUPT`` (``sqlite_errorcode == 9``) and
+    the ODBC statement-timeout SQLSTATE ``HYT00`` (``exc.args[0]``). Reads
+    attributes only, so no driver module is imported.
+
+    Args:
+        exc: The exception raised by the driver.
+        seconds: The statement timeout that was in force.
+
+    Returns:
+        A :class:`QueryTimeoutError` when *exc* is a statement timeout,
+        otherwise ``None``.
+    """
+    if getattr(exc, "sqlite_errorcode", None) == _SQLITE_INTERRUPT:
+        return QueryTimeoutError(seconds)
+    if exc.args and exc.args[0] == _SQLSTATE_TIMEOUT:
+        return QueryTimeoutError(seconds)
+    return None
+
 
 # keep in sync with the create_backend dispatch chain in backends/registry.py
 _DIALECTS: dict[str, str] = {
@@ -107,6 +152,41 @@ class DatabaseBackend(ABC):
             one plain tuple per row positionally aligned with *columns*. Both
             are empty when the statement produces no result set.
         """
+
+    def iter_readonly_batches(
+        self,
+        sql: str,
+        params: dict[str, Any] | None = None,
+        *,
+        counting: Deadline | None = None,  # pylint: disable=unused-argument
+    ) -> Generator[list[dict[str, Any]], None, None]:
+        """Yield read-only result rows in batches.
+
+        Same DB-enforced read-only guarantee as
+        :meth:`execute_readonly_query`. This default runs that method and
+        slices its result, ignoring *counting*; backends override it to
+        fetch with ``cursor.fetchmany`` so only one batch is in memory.
+
+        Callers that stop early MUST close the generator (``gen.close()`` or
+        ``contextlib.closing``) so the backend releases its cursor and
+        connection. A :class:`QueryTimeoutError` is raised if execute or a
+        fetch hit the statement timeout or the counting deadline. After one
+        never continue fetching: on SQLite a later ``fetchmany`` returns
+        ``[]``, which is indistinguishable from end of data.
+
+        Args:
+            sql: The SELECT statement to execute.
+            params: Optional values for ``:name`` placeholders in *sql*.
+            counting: Optional caller-set counting deadline; backends that
+                enforce it interrupt the statement once it passes.
+
+        Yields:
+            Non-empty lists of row dicts, each at most ``FETCH_BATCH_SIZE``
+            long.
+        """
+        rows = self.execute_readonly_query(sql, params)
+        for start in range(0, len(rows), FETCH_BATCH_SIZE):
+            yield rows[start : start + FETCH_BATCH_SIZE]
 
     @abstractmethod
     def execute_update(self, sql: str, params: dict[str, Any] | None = None) -> int:

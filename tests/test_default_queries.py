@@ -6,6 +6,7 @@ from pathlib import Path
 
 import pytest
 
+from mcp_tools_sql.config.models import BUILTIN_MAX_ROWS_HARD
 from mcp_tools_sql.schema_tools import load_default_queries
 
 EXPECTED_NAMES = {"read_schemas", "read_tables", "read_columns", "read_relations"}
@@ -47,6 +48,15 @@ class TestDefaultQueriesLoading:
         queries = load_default_queries()
         columns_config = queries["read_columns"]
         assert columns_config.filter_column == "name"
+
+    def test_builtin_hard_limit_within_constant(self) -> None:
+        """Every built-in's effective max_rows_hard <= BUILTIN_MAX_ROWS_HARD."""
+        queries = load_default_queries()
+        for name, config in queries.items():
+            hard = max(config.max_rows_hard or config.max_rows_default, 1)
+            assert hard <= BUILTIN_MAX_ROWS_HARD, (
+                f"{name}: max_rows_hard {hard} exceeds BUILTIN_MAX_ROWS_HARD"
+            )
 
     def test_read_columns_has_only_schema_and_table_params(self) -> None:
         """read_columns user-declared params are exactly {schema, table}."""
