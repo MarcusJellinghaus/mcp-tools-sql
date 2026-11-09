@@ -21,6 +21,67 @@ This tracks **Feature Implementation** consisting of multiple **Tasks**.
 
 ## Tasks
 
-<!-- Tasks populated from pr_info/steps/ by prepare_task_tracker -->
+### Step 1: `utils/tool_spec.py` shim — [step_1.md](./steps/step_1.md)
+
+- [ ] Implementation (tests + production code)
+- [ ] Quality checks: pylint, pytest, mypy — fix all issues
+- [ ] Commit message prepared
+
+### Step 2: `build_tool_fn` applies signature defaults — [step_2.md](./steps/step_2.md)
+
+- [ ] Implementation (tests + production code)
+- [ ] Quality checks: pylint, pytest, mypy — fix all issues
+- [ ] Commit message prepared
+
+### Step 3: `verify` warns on empty query/update descriptions — [step_3.md](./steps/step_3.md)
+
+- [ ] Implementation (tests + production code)
+- [ ] Quality checks: pylint, pytest, mypy — fix all issues
+- [ ] Commit message prepared
+
+### Step 4: Toolkits register into a `ToolSink` — [step_4.md](./steps/step_4.md)
+
+- [ ] Implementation (tests + production code)
+- [ ] Quality checks: pylint, pytest, mypy — fix all issues
+- [ ] Commit message prepared
+
+### Step 5: `mcp_tools_sql.toolset` module — [step_5.md](./steps/step_5.md)
+
+- [ ] Implementation (tests + production code)
+- [ ] Quality checks: pylint, pytest, mypy — fix all issues
+- [ ] Commit message prepared
+
+### Step 6: `ToolServer(toolset)` and eager `build_tool_server` — [step_6.md](./steps/step_6.md)
+
+- [ ] Implementation (tests + production code)
+- [ ] Quality checks: pylint, pytest, mypy — fix all issues
+- [ ] Commit message prepared
+
+### Step 7: CLI `tool` subcommand on `ToolSpec`s — [step_7.md](./steps/step_7.md)
+
+- [ ] Implementation (tests + production code)
+- [ ] Quality checks: pylint, pytest, mypy — fix all issues
+- [ ] Commit message prepared
+
+### Step 8: Import contracts: no `mcp` on the export path — [step_8.md](./steps/step_8.md)
+
+- [ ] Implementation (tests + production code)
+- [ ] Quality checks: pylint, pytest, mypy — fix all issues
+- [ ] Commit message prepared
+
+### Step 9: Docs — [step_9.md](./steps/step_9.md)
+
+- [ ] Implementation (tests + production code)
+- [ ] Quality checks: pylint, pytest, mypy — fix all issues
+- [ ] Commit message prepared
+
+### Step 10: Bump the `mcp-coder-utils` pin — [step_10.md](./steps/step_10.md)
+
+- [ ] Implementation (tests + production code)
+- [ ] Quality checks: pylint, pytest, mypy — fix all issues
+- [ ] Commit message prepared
 
 ## Pull Request
+
+- [ ] PR review: review the full branch diff against the base branch and address findings
+- [ ] PR summary prepared
