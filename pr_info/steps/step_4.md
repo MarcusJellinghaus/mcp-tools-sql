@@ -8,7 +8,7 @@ pass. One commit: `feat(toolset): fail early on broken connection setup`.
 
 ## WHERE
 - `src/mcp_tools_sql/toolset.py`
-- `tests/test_toolset_build_errors.py` (new)
+- `tests/test_toolset.py` (mirrors `toolset.py`)
 
 ## WHAT
 ```python
@@ -31,8 +31,8 @@ for row in check_connections(db_config.connections):
 `build_tool_server`, `main.py` (`server` hint) and `cli/commands/tool.py`
 (`Error: …`) already catch `ValueError` — no change.
 
-## Tests (write first) — `tests/test_toolset_build_errors.py`
-Write sqlite query/db configs like `tests/test_toolset.py::_write_configs`,
+## Tests (write first) — `tests/test_toolset.py`
+Add to the existing module. Write sqlite query/db configs with its `_write_configs` helper,
 adding a second connection per case. Patch
 `mcp_tools_sql.backends.connection_check.pyodbc_version` / `odbc_drivers`.
 Monkeypatch `mcp_tools_sql.toolset.BackendRegistry` with a `MagicMock` to

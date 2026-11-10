@@ -10,7 +10,7 @@ CLI output must not change (`verify_snapshot.txt` unchanged). One commit:
 
 ## WHERE
 - `src/mcp_tools_sql/verification/orchestrator.py`
-- `tests/verification/test_collect_sections.py` (new)
+- `tests/verification/test_orchestrator.py` (mirrors `orchestrator.py`)
 
 ## WHAT
 ```python
@@ -54,8 +54,10 @@ collect_sections:
 No INSTALL INSTRUCTIONS section in `collect_sections`. Warnings do not skip the
 build row (`section["ok"]` already treats warnings as passing).
 
-## Tests (write first) — `tests/verification/test_collect_sections.py`
-Use sqlite configs in `tmp_path` and a recording `build_probe`.
+## Tests (write first) — `tests/verification/test_orchestrator.py`
+Add to the existing module (reuse its `_query_config` / `_sqlite_db_config`
+helpers). Use sqlite configs in `tmp_path` and a recording `build_probe`.
+The module is ~560 lines; parametrize to stay under the 750-line limit.
 - Order with `connect=False`: ENVIRONMENT, CONFIG, DEPENDENCIES, BUILTIN,
   TOOLSET, CONNECTION, QUERIES; no UPDATES; no `select_1`; no `<q>.sql`.
 - `connect=True`, valid sqlite: + `select_1`, `<q>.sql` EXPLAIN ok, UPDATES rows.

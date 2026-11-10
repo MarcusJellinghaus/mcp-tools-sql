@@ -11,7 +11,8 @@ pass. One commit: `refactor(backends): supported-backend set and pyodbc alias he
 - `src/mcp_tools_sql/backends/registry.py`
 - `src/mcp_tools_sql/verification/connection.py`
 - `src/mcp_tools_sql/verification/updates.py`
-- Tests: `tests/backends/test_backend_names.py` (new), `tests/backends/test_registry.py`,
+- Tests: `tests/backends/test_base_names.py` (new; `backends/base.py` tests are
+  already split as `test_base_errors.py` / `test_base_timeout.py`), `tests/backends/test_registry.py`,
   `tests/verification/test_connection.py`, `tests/verification/test_updates.py`
 
 ## WHAT
@@ -50,7 +51,7 @@ before the `== "sqlite"` / `in ("mssql", "postgresql")` checks.
 QUERIES variant keys (`read_only[pyodbc]`, `resolve_sql`) stay raw — do not touch `queries.py`.
 
 ## Tests (write first)
-- `test_backend_names.py`: `SUPPORTED_BACKENDS == {"sqlite", "mssql", "pyodbc"}`;
+- `test_base_names.py`: `SUPPORTED_BACKENDS == {"sqlite", "mssql", "pyodbc"}`;
   `normalize_backend("pyodbc") == "mssql"`; `"mssql"`, `"sqlite"`, `"postgresql"` unchanged.
 - `test_registry.py`: `create_backend` with `backend="postgresql"` raises
   `ValueError` listing the supported names; `pyodbc` still yields `MSSQLBackend`;

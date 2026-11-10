@@ -1,28 +1,38 @@
-# Step 7 — Public `toolset.verify` and the `utils/toolkit.py` shim
+# Step 7 — Public `toolset.verify` and the `utils/<home>.py` shim
 
 ## LLM prompt
 Read `pr_info/steps/summary.md`, then implement `pr_info/steps/step_7.md`.
-Precondition: `from mcp_coder_utils.toolkit import VerifyItem` must work in the
-project environment — check it with a scratch probe
-(`.scratch/test_probe.py`, run via `run_pytest_check` with
-`extra_args: ["-p", "no:cacheprovider", ".scratch/test_probe.py"]`, then delete
-`.scratch/`). If it fails, write one line to `pr_info/.blocked.txt` and stop.
+Precondition — find `VerifyItem`'s home per mcp-coder-utils#61: read #61
+(`github_issue_view`, `reference_name="mcp-coder-utils"`), then probe both
+candidates with a scratch probe (`.scratch/test_probe.py`, run via
+`run_pytest_check` with `extra_args: ["-p", "no:cacheprovider", ".scratch/test_probe.py"]`,
+then delete `.scratch/`):
+`from mcp_coder_utils.tool_verify import VerifyItem, VerifyStatus` (or the
+module #61 names, if different) and
+`from mcp_coder_utils.toolkit import VerifyItem, VerifyStatus`.
+- the #61 module works → `<home>` = that module (e.g. `tool_verify`).
+- otherwise `toolkit` works → `<home>` = `toolkit` (current home; #61 has not moved it).
+- neither works → write one line to `pr_info/.blocked.txt` and stop.
+
+The local shim is `src/mcp_tools_sql/utils/<home>.py` and imports from
+`mcp_coder_utils.<home>`. Below, `<home>` stands for the chosen name; step 8
+and `.claude/CLAUDE.md` use the same name.
 Write the tests first, then the code. Run `run_format_code`, pylint, pytest
 (`extra_args: ["-n", "auto"]`), mypy, ruff, lint-imports, tach, vulture and
 deptry; all must pass. One commit:
 `feat(toolset): public verify via the shared VerifyItem contract`.
 
 ## WHERE
-- New: `src/mcp_tools_sql/utils/toolkit.py`
+- New: `src/mcp_tools_sql/utils/<home>.py` (`<home>` from the precondition)
 - `src/mcp_tools_sql/toolset.py`
-- Tests: `tests/test_toolset_verify.py` (new), `tests/test_module_imports.py`
+- Tests: `tests/test_toolset.py`, `tests/test_module_imports.py`
 
 ## WHAT
-`utils/toolkit.py`:
+`utils/<home>.py`:
 ```python
 """Verification result contract — thin shim over mcp-coder-utils."""
 
-from mcp_coder_utils.toolkit import VerifyItem, VerifyStatus
+from mcp_coder_utils.<home> import VerifyItem, VerifyStatus
 
 __all__ = ["VerifyItem", "VerifyStatus"]
 ```
@@ -30,7 +40,7 @@ __all__ = ["VerifyItem", "VerifyStatus"]
 `toolset.py`:
 ```python
 if TYPE_CHECKING:
-    from mcp_tools_sql.utils.toolkit import VerifyItem, VerifyStatus
+    from mcp_tools_sql.utils.<home> import VerifyItem, VerifyStatus
     from mcp_tools_sql.verification import CheckResult
 
 def verify(
@@ -44,13 +54,15 @@ def _message(row: CheckResult) -> str
 ```
 Import `collect_sections` from `mcp_tools_sql.verification.orchestrator` at
 module top. Import `VerifyItem` **inside** `verify`
-(`# pylint: disable=import-outside-toplevel`), with a comment: toolkit imports
-jsonschema; `build_toolset` and server start must not pay for it (#39).
+(`# pylint: disable=import-outside-toplevel`), with a comment: the result
+contract is only needed by `verify`; `build_toolset` and server start must not
+pay for its import (#39; `toolkit` pulls in jsonschema). Keep the lazy import
+whichever `<home>` was chosen.
 Leave the inner `verify` closure in `_build_verify_tool` as is.
 
 ## ALGORITHM
 ```
-from mcp_tools_sql.utils.toolkit import VerifyItem       # lazy
+from mcp_tools_sql.utils.<home> import VerifyItem        # lazy
 sections = collect_sections(query_config, database_config, connect=connect,
                             build_probe=lambda: build_toolset(query_config, database_config).close())
 return [VerifyItem(name=f"{s['title'].lower()}.{key}", status=_status(row),
@@ -62,8 +74,10 @@ _message: " - ".join(p for p in (row.get("value", ""), row.get("error", "")) if 
 Docstring: never raises for problems it detects; `connect=False` opens no
 connection, does no DNS lookup and runs no subprocess.
 
-## Tests (write first) — `tests/test_toolset_verify.py`
-Sqlite configs in `tmp_path`; patch `mcp_tools_sql.backends.connection_check.pyodbc_version` /
+## Tests (write first) — `tests/test_toolset.py`
+Add to the existing module (it mirrors `toolset.py`); reuse its
+`_write_configs` helper where it fits; parametrize the mapping / error-row
+cases so the module stays under the 750-line limit. Sqlite configs in `tmp_path`; patch `mcp_tools_sql.backends.connection_check.pyodbc_version` /
 `odbc_drivers` where mssql is involved.
 - **No connection under `connect=False`:** config with default sqlite + `prod`
   mssql (host, database, `trusted_connection = true`), `sys.platform` patched
@@ -95,7 +109,8 @@ Sqlite configs in `tmp_path`; patch `mcp_tools_sql.backends.connection_check.pyo
   `error`, `toolset.build` `warning` skipped; `verify` does not raise.
 
 `tests/test_module_imports.py` `_TOOLSET_NO_MCP_SCRIPT`: after the
-`build_toolset` block, print `"mcp_coder_utils.toolkit" in sys.modules`; then
+`build_toolset` block, print
+`any(m in sys.modules for m in ("mcp_coder_utils.toolkit", "mcp_coder_utils.<home>"))`; then
 call `verify(qcfg, dbcfg)` (default `connect=False`) and print the existing
 `mcp` check. Assert stdout lines are `["False", "False"]`.
 

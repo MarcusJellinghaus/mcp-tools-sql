@@ -28,7 +28,7 @@ Part of agent-workbench#13; implements mcp-coder-utils#61 (verification contract
 | Orchestrator | `verify_all` only | Shared `_head_sections()` (ENVIRONMENT, CONFIG, DEPENDENCIES, BUILTIN + loaded configs/targets). `verify_all` unchanged in signature, result, order and gating. New `collect_sections(config_path, db_config_path, *, connect, build_probe)` adds a TOOLSET section (`build` row) after BUILTIN, then CONNECTION, QUERIES, and UPDATES (only `connect=True`), with per-target gating instead of default-down gating |
 | `toolset.build` row | – | `build_probe` callback injected by `toolset` (verification sits below toolset in the layers). Exception → `error` row; any earlier ERR row in the head sections → `warning` "skipped (earlier errors)" |
 | Public library API | `verify_all` / `CheckResult` | `toolset.verify` maps sections to `VerifyItem`: `name = <section lowercased>.<key unchanged>`, status `ok`/`warning`/`error`, `message = "value - error"`, `hint = install_hint or None`. INSTALL INSTRUCTIONS is never produced by `collect_sections` |
-| Shared type | – | `VerifyItem` from `mcp_coder_utils.toolkit` via new shim `utils/toolkit.py` (named after #61's current home; rename the shim if #61 moves the type). Imported **lazily** inside `verify` (toolkit imports `jsonschema`, ~125 ms, #39) |
+| Shared type | – | `VerifyItem` from `mcp_coder_utils.<home>` via new shim `utils/<home>.py`, where `<home>` is the module #61 settled on (e.g. `tool_verify`), else the current home `toolkit`; step 7 determines it by probing both. Imported **lazily** inside `verify` (`toolkit` imports `jsonschema`, ~125 ms, #39) |
 
 Layering is unchanged: `toolset` → `verification` → `backends` → `config` →
 `utils`. No `.importlinter` / `tach.toml` change beyond the `psycopg_isolation`
@@ -39,12 +39,9 @@ still imports no `mcp`.
 
 ### Created
 - `src/mcp_tools_sql/backends/connection_check.py` — per-connection dependency check
-- `src/mcp_tools_sql/utils/toolkit.py` — shim re-exporting `VerifyItem`, `VerifyStatus`
+- `src/mcp_tools_sql/utils/<home>.py` — shim re-exporting `VerifyItem`, `VerifyStatus` (`<home>` per step 7)
 - `tests/backends/test_connection_check.py`
-- `tests/backends/test_backend_names.py`
-- `tests/test_toolset_build_errors.py`
-- `tests/test_toolset_verify.py`
-- `tests/verification/test_collect_sections.py`
+- `tests/backends/test_base_names.py` (follows the existing `test_base_*.py` split of `backends/base.py` tests)
 
 ### Modified
 - `src/mcp_tools_sql/backends/base.py` — `SUPPORTED_BACKENDS`, `normalize_backend`
@@ -61,7 +58,8 @@ still imports no `mcp`.
 - Tests: `tests/backends/test_registry.py`, `tests/backends/test_dependency_probes.py`,
   `tests/verification/test_dependencies.py`, `tests/verification/test_connection.py`,
   `tests/verification/test_queries.py`, `tests/verification/test_updates.py`,
-  `tests/cli/test_verify.py`, `tests/config/test_loader.py`, `tests/test_module_imports.py`
+  `tests/cli/test_verify.py`, `tests/config/test_loader.py`, `tests/test_module_imports.py`,
+  `tests/test_toolset.py` (build errors, `verify`), `tests/verification/test_orchestrator.py` (`collect_sections`)
 - Docs: `docs/python-api.md`, `docs/architecture/architecture.md`,
   `docs/quality-and-security-checks.md`, `docs/cli.md`, `docs/configuration.md`,
   `.claude/CLAUDE.md` (Shared Libraries list)
@@ -77,7 +75,7 @@ still imports no `mcp`.
 4. `build_toolset` fails early on dependency errors
 5. Config-only section parameters (CONNECTION `connect`, QUERIES `registry=None`)
 6. Orchestrator: shared head + `collect_sections` with `toolset.build` row
-7. Public `toolset.verify` + `utils/toolkit.py` shim
+7. Public `toolset.verify` + `utils/<home>.py` shim (`<home>` = #61's module, else `toolkit`)
 8. Docs
 
 Every step: tests first, then implementation; run `run_format_code`, pylint,

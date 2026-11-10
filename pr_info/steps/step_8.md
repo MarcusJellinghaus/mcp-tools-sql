@@ -42,5 +42,7 @@ text. One commit: `docs: library verify, early build failures, per-connection de
   `--database-config` path that does not exist is an error; `None` → default
   location, defaults when absent. `backend` table cell: any `postgresql`
   connection now fails startup (unsupported until #29), not only when a query targets it.
-- `.claude/CLAUDE.md` "Shared Libraries": add `toolkit` to the shim list
-  (`log_utils`, `user_app_data`, `subprocess_runner`, `tool_spec`, `toolkit`).
+- `.claude/CLAUDE.md` "Shared Libraries": add the step 7 shim `<home>` (the
+  `utils/<home>.py` created there, e.g. `tool_verify` or `toolkit`) to the shim
+  list (`log_utils`, `user_app_data`, `subprocess_runner`, `tool_spec`, `<home>`).
+  `docs/python-api.md` names `VerifyItem`'s module as `mcp_coder_utils.<home>`.
