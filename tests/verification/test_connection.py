@@ -383,6 +383,30 @@ def test_verify_connection_mssql_includes_sanitized_conn_string(
     assert "Server=h,1433" in value
 
 
+def test_verify_connection_pyodbc_alias_gets_mssql_rows(
+    ok_backend: MagicMock,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """backend="pyodbc" → driver, dns_lookup and conn_string rows like mssql."""
+    monkeypatch.setattr(
+        "mcp_tools_sql.verification.connection.socket.gethostbyname",
+        MagicMock(return_value="10.1.2.3"),
+    )
+    conn = ConnectionConfig(
+        backend="pyodbc",
+        host="h",
+        database="d",
+        username="u",
+        password="p",
+    )
+    result = verify_connection(_target(conn, database="d"), ok_backend)
+    assert result["backend"]["value"] == "pyodbc"
+    assert "driver" in result
+    assert result["dns_lookup"]["ok"] is True
+    assert result["dns_lookup"]["value"] == "10.1.2.3"
+    assert result["conn_string"]["ok"] is True
+
+
 def test_verify_connection_sqlite_omits_conn_string(tmp_path: Path) -> None:
     """sqlite backend → no conn_string row (mssql-only)."""
     db_path = tmp_path / "real.sqlite"

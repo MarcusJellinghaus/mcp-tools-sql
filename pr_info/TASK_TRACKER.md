@@ -24,9 +24,9 @@ This tracks **Feature Implementation** consisting of multiple **Tasks**.
 ### Step 1: Backend names — supported set and `pyodbc` alias
 [Detail](./steps/step_1.md)
 
-- [ ] Implementation (tests + production code)
-- [ ] Quality checks — fix all issues
-- [ ] Commit message prepared
+- [x] Implementation (tests + production code)
+- [x] Quality checks — fix all issues
+- [x] Commit message prepared
 
 ### Step 2: Per-connection dependency check; DEPENDENCIES per connection; remove psycopg probe
 [Detail](./steps/step_2.md)

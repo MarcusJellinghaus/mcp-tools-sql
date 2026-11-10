@@ -4,7 +4,11 @@ from __future__ import annotations
 
 import logging
 
-from mcp_tools_sql.backends.base import _DIALECTS, DatabaseBackend
+from mcp_tools_sql.backends.base import (
+    SUPPORTED_BACKENDS,
+    DatabaseBackend,
+    normalize_backend,
+)
 from mcp_tools_sql.config.models import ConnectionConfig, ResolvedTarget
 
 logger = logging.getLogger(__name__)
@@ -17,21 +21,25 @@ def create_backend(config: ConnectionConfig) -> DatabaseBackend:
         A DatabaseBackend instance for the requested backend type.
 
     Raises:
-        ValueError: If the backend type is not supported.
+        ValueError: If the backend type is not in ``SUPPORTED_BACKENDS``, or is
+            a supported name without a dispatch branch here.
     """
-    if config.backend == "sqlite":
+    if config.backend not in SUPPORTED_BACKENDS:
+        msg = (
+            f"Unsupported backend: {config.backend}. "
+            f"Supported: {', '.join(sorted(SUPPORTED_BACKENDS))}."
+        )
+        raise ValueError(msg)
+    kind = normalize_backend(config.backend)
+    if kind == "sqlite":
         from mcp_tools_sql.backends.sqlite import SQLiteBackend
 
         return SQLiteBackend(config)
-    if config.backend in ("mssql", "pyodbc"):
+    if kind == "mssql":
         from mcp_tools_sql.backends.mssql import MSSQLBackend
 
         return MSSQLBackend(config)
-    msg = (
-        f"Unsupported backend: {config.backend}. "
-        f"Supported: {', '.join(sorted(_DIALECTS))}."
-    )
-    raise ValueError(msg)
+    raise ValueError(f"No backend implementation for {config.backend!r}")
 
 
 class BackendRegistry:

@@ -6,7 +6,7 @@ import logging
 import socket
 import sys
 
-from mcp_tools_sql.backends.base import DatabaseBackend
+from mcp_tools_sql.backends.base import DatabaseBackend, normalize_backend
 from mcp_tools_sql.backends.mssql import build_sanitized_connection_string
 from mcp_tools_sql.config.models import ResolvedTarget
 from mcp_tools_sql.utils.subprocess_runner import CommandOptions, execute_subprocess
@@ -150,10 +150,11 @@ def verify_connection(
         Verifier rows for this pair.
     """
     connection = target.config
+    kind = normalize_backend(connection.backend)
     result: dict[str, CheckResult] = {}
     result["backend"] = make_entry(ok=True, value=connection.backend)
 
-    if connection.backend == "mssql":
+    if kind == "mssql":
         result["driver"] = make_entry(
             ok=bool(connection.driver),
             value=connection.driver or "(empty)",
@@ -207,23 +208,15 @@ def verify_connection(
             error="No credentials configured",
         )
 
-    if (
-        connection.backend == "mssql"
-        and connection.host
-        and not _has_control_chars(connection.host)
-    ):
+    if kind == "mssql" and connection.host and not _has_control_chars(connection.host):
         ok, value, error = _resolve_dns(connection.host)
         result["dns_lookup"] = make_entry(ok=ok, value=value, error=error)
 
-    if (
-        connection.backend == "mssql"
-        and connection.trusted_connection
-        and sys.platform == "linux"
-    ):
+    if kind == "mssql" and connection.trusted_connection and sys.platform == "linux":
         ok, value, error = _check_kerberos_ticket()
         result["kerberos_ticket"] = make_entry(ok=ok, value=value, error=error)
 
-    if connection.backend == "mssql":
+    if kind == "mssql":
         result["conn_string"] = make_entry(
             ok=True, value=build_sanitized_connection_string(connection)
         )
