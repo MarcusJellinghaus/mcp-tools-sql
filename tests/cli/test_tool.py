@@ -2,23 +2,22 @@
 
 from __future__ import annotations
 
-import sqlite3
 from pathlib import Path
 
 import pytest
 
 from mcp_tools_sql.main import main
+from tests.sqlite_fixtures import create_db, query
 
 
 def _write_configs(tmp_path: Path, *, allow_updates: bool = False) -> None:
     """Write a sqlite `mcp-tools-sql.toml` + `db.toml` pair under tmp_path."""
-    db = tmp_path / "test.db"
-    conn = sqlite3.connect(str(db))
-    conn.execute("CREATE TABLE customers (id INTEGER PRIMARY KEY, name TEXT)")
-    conn.execute("INSERT INTO customers VALUES (1, 'Bank A')")
-    conn.execute("INSERT INTO customers VALUES (2, 'Bank B')")
-    conn.commit()
-    conn.close()
+    db = create_db(
+        tmp_path / "test.db",
+        "CREATE TABLE customers (id INTEGER PRIMARY KEY, name TEXT);"
+        "INSERT INTO customers VALUES (1, 'Bank A');"
+        "INSERT INTO customers VALUES (2, 'Bank B');",
+    )
 
     qcfg = tmp_path / "mcp-tools-sql.toml"
     qcfg.write_text(
@@ -172,12 +171,11 @@ def _write_query_bad_table_config(
     tmp_path: Path, *, allow_updates: bool = False
 ) -> None:
     """Write configs where `queries.foo` references a non-existent table."""
-    db = tmp_path / "test.db"
-    conn = sqlite3.connect(str(db))
-    conn.execute("CREATE TABLE customers (id INTEGER PRIMARY KEY, name TEXT)")
-    conn.execute("INSERT INTO customers VALUES (1, 'Bob')")
-    conn.commit()
-    conn.close()
+    db = create_db(
+        tmp_path / "test.db",
+        "CREATE TABLE customers (id INTEGER PRIMARY KEY, name TEXT);"
+        "INSERT INTO customers VALUES (1, 'Bob');",
+    )
 
     qcfg = tmp_path / "mcp-tools-sql.toml"
     qcfg.write_text(
@@ -225,12 +223,11 @@ def test_builtin_read_tables_against_seeded_db_exits_0(
 
 def _write_query_with_id_param_config(tmp_path: Path) -> None:
     """Write a sqlite config with a `[queries.by_id]` entry bound on `:id`."""
-    db = tmp_path / "test.db"
-    conn = sqlite3.connect(str(db))
-    conn.execute("CREATE TABLE customers (id INTEGER PRIMARY KEY, name TEXT)")
-    conn.execute("INSERT INTO customers VALUES (1, 'Alice')")
-    conn.commit()
-    conn.close()
+    db = create_db(
+        tmp_path / "test.db",
+        "CREATE TABLE customers (id INTEGER PRIMARY KEY, name TEXT);"
+        "INSERT INTO customers VALUES (1, 'Alice');",
+    )
 
     qcfg = tmp_path / "mcp-tools-sql.toml"
     qcfg.write_text(
@@ -283,8 +280,9 @@ def test_query_against_missing_table_exits_1_no_traceback(
     """A query referencing a non-existent table: exit 1 on sqlite.
 
     SQLite raises `sqlite3.OperationalError` for both connection failures and
-    "no such table" — the documented, accepted sqlite-only exit-1 limitation
-    (see `tool_dispatch.py`'s `_CONNECTION_EXC`).
+    "no such table", which the backend translates to `BackendConnectionError`
+    — the documented, accepted sqlite-only exit-1 limitation (see
+    `tool_dispatch.py`'s `_CONNECTION_EXC`).
     """
     _write_query_bad_table_config(tmp_path)
 
@@ -306,18 +304,14 @@ def test_update_omitted_optional_field_leaves_column_unchanged(
     assert rc == 0
 
     db_path = tmp_path / "test.db"
-    conn = sqlite3.connect(str(db_path))
-    name = conn.execute("SELECT name FROM customers WHERE id = 1").fetchone()[0]
-    conn.close()
+    name = query(db_path, "SELECT name FROM customers WHERE id = 1")[0][0]
     assert name == "Alice"
 
     main(_argv(tmp_path, "update_set_name", "--id", "1"))
     captured2 = capsys.readouterr()
     assert "Traceback" not in captured2.err
 
-    conn = sqlite3.connect(str(db_path))
-    name_after = conn.execute("SELECT name FROM customers WHERE id = 1").fetchone()[0]
-    conn.close()
+    name_after = query(db_path, "SELECT name FROM customers WHERE id = 1")[0][0]
     assert name_after == "Alice"
 
 

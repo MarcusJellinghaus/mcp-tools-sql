@@ -5,13 +5,13 @@ from __future__ import annotations
 import argparse
 import re
 import shutil
-import sqlite3
 from pathlib import Path
 from unittest.mock import MagicMock
 
 import pytest
 
 from mcp_tools_sql.cli.commands import verify as verify_cmd
+from tests.sqlite_fixtures import create_db
 
 
 def _make_args(
@@ -432,13 +432,11 @@ def _extract_section(text: str, title: str) -> str:
 
 def _prepare_snapshot_db(db_path: Path) -> None:
     """Create the fixed sqlite schema used by the verify snapshot test."""
-    conn = sqlite3.connect(str(db_path))
-    try:
-        conn.execute("CREATE TABLE users (id INTEGER, email TEXT)")
-        conn.execute("CREATE TABLE customers (id INTEGER, name TEXT, country TEXT)")
-        conn.commit()
-    finally:
-        conn.close()
+    create_db(
+        db_path,
+        "CREATE TABLE users (id INTEGER, email TEXT);"
+        "CREATE TABLE customers (id INTEGER, name TEXT, country TEXT);",
+    )
 
 
 def test_verify_cli_queries_updates_snapshot(

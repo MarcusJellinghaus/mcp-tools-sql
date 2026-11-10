@@ -21,13 +21,13 @@ never become silent.
 
 from __future__ import annotations
 
-import sqlite3
 from pathlib import Path
 from typing import Any
 from unittest.mock import MagicMock
 
 import pytest
 
+from mcp_tools_sql.backends.base import BackendConnectionError
 from mcp_tools_sql.summarize.source import (
     DMF_FALLBACK_NOTE,
     ORDER_BY_STRIPPED_NOTE,
@@ -50,6 +50,15 @@ _STRING_SCALAR_ROW: dict[str, Any] = {
     "c0__len_max": 5,
     "c0__len_avg": 3.0,
 }
+
+
+def _operational(message: str) -> BackendConnectionError:
+    """Build the neutral error a backend raises for a driver OperationalError.
+
+    Returns:
+        A :class:`BackendConnectionError` naming ``OperationalError``.
+    """
+    return BackendConnectionError(message, original_class="OperationalError")
 
 
 def _probe_backend(
@@ -80,7 +89,7 @@ def _probe_backend(
     def fake(sql: str, params: dict[str, Any] | None = None) -> list[dict[str, Any]]:
         if "DM_EXEC_DESCRIBE_FIRST_RESULT_SET" in sql:
             if describe_rows is None:
-                raise sqlite3.OperationalError("VIEW SERVER STATE permission denied")
+                raise _operational("VIEW SERVER STATE permission denied")
             captured["describe_sql"] = sql
             return describe_rows
         if fail_queries_with is not None:
@@ -520,7 +529,7 @@ async def test_tsql_described_source_failure_gets_no_lob_hint() -> None:
         describe_rows=[
             {"name": "s", "column_ordinal": 1, "system_type_name": "nvarchar(50)"}
         ],
-        fail_queries_with=sqlite3.OperationalError("Msg 8134: divide by zero"),
+        fail_queries_with=_operational("Msg 8134: divide by zero"),
     )
     async with client_for(backend, backend_name="mssql") as client:
         out = await call_summarize(client, sql="SELECT s FROM t")
@@ -532,14 +541,13 @@ async def test_tsql_described_source_failure_gets_no_lob_hint() -> None:
 async def test_tsql_probed_source_failure_appends_lob_hint() -> None:
     """A driver error after a probed source resolved carries the LOB hint.
 
-    A ``sqlite3`` error stands in for the pyodbc one so the test runs without
-    the optional driver installed; the hint is gated on the *dialect* and
-    ``types_probed``, never on the exception type.
+    The hint is gated on the *dialect* and ``types_probed``, never on the
+    exception type.
     """
     backend, _captured = _probe_backend(
         ["s"],
         [("hello",)],
-        fail_queries_with=sqlite3.OperationalError("Msg 306: text/ntext/image"),
+        fail_queries_with=_operational("Msg 306: text/ntext/image"),
     )
     async with client_for(backend, backend_name="mssql") as client:
         out = await call_summarize(client, sql="SELECT s FROM t")
@@ -553,10 +561,8 @@ async def test_tsql_probe_failure_gets_no_lob_hint() -> None:
     backend = MagicMock()
     # The describe is tried first and fails the same way, so the call reaches
     # the probe -- which is the failure under test.
-    backend.execute_readonly_query.side_effect = sqlite3.OperationalError(
-        "no such table: t"
-    )
-    backend.execute_readonly_query_with_columns.side_effect = sqlite3.OperationalError(
+    backend.execute_readonly_query.side_effect = _operational("no such table: t")
+    backend.execute_readonly_query_with_columns.side_effect = _operational(
         "no such table: t"
     )
     async with client_for(backend, backend_name="mssql") as client:
@@ -571,7 +577,7 @@ async def test_sqlite_probed_source_failure_gets_no_lob_hint() -> None:
     backend, _captured = _probe_backend(
         ["s"],
         [("hello",)],
-        fail_queries_with=sqlite3.OperationalError("database disk image is malformed"),
+        fail_queries_with=_operational("database disk image is malformed"),
     )
     async with client_for(backend) as client:
         out = await call_summarize(client, sql="SELECT s FROM t")

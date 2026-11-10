@@ -4,7 +4,6 @@ from __future__ import annotations
 
 import asyncio
 import inspect
-import sqlite3
 from pathlib import Path
 from typing import Any
 
@@ -18,6 +17,7 @@ from mcp_tools_sql.query_helpers import (
     extract_sql_params,
 )
 from mcp_tools_sql.tool_builder import _UNSET, build_tool_fn
+from tests.sqlite_fixtures import create_db
 from tests.target_helpers import sqlite_backend
 
 
@@ -178,12 +178,11 @@ class TestBuildToolFnDefaults:
 
     def test_optional_sql_param_omitted_binds_null(self, tmp_path: Path) -> None:
         """An omitted optional ``:p`` binds as NULL instead of failing."""
-        db = tmp_path / "t.db"
-        conn = sqlite3.connect(db)
-        conn.execute("CREATE TABLE t (name TEXT)")
-        conn.executemany("INSERT INTO t (name) VALUES (?)", [("alpha",), ("beta",)])
-        conn.commit()
-        conn.close()
+        db = create_db(
+            tmp_path / "t.db",
+            "CREATE TABLE t (name TEXT);"
+            "INSERT INTO t (name) VALUES ('alpha'), ('beta');",
+        )
 
         config = QueryConfig(
             sql="SELECT * FROM t WHERE (:p IS NULL OR name = :p)",

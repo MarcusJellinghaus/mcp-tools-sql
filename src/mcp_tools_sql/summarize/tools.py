@@ -1,6 +1,6 @@
 """``SummarizeTools``: orchestration and registration for ``summarize_columns``.
 
-This module assembles the summarize package's SQL (``summarize/sql.py``) and
+This module assembles the summarize package's SQL (``sql_ast/summarize_queries.py``) and
 rendering (``summarize/render.py``) layers into the single ``summarize_columns``
 MCP tool. It mirrors ``count_tools.CountTools``: a :func:`build_tool_fn`-assembled
 tool that resolves its ``(connection, database)`` target per call via
@@ -33,9 +33,18 @@ from typing import TYPE_CHECKING, Annotated, Any, Literal
 
 from pydantic import Field
 
-from mcp_tools_sql.backends.base import QueryTimeoutError, to_dialect
+from mcp_tools_sql.backends.base import BackendError, QueryTimeoutError, to_dialect
 from mcp_tools_sql.formatting import TIMEOUT_HINT_NARROWER
 from mcp_tools_sql.query_helpers import build_target_params
+from mcp_tools_sql.sql_ast.summarize_queries import (
+    ColumnMeta,
+    Predicate,
+    build_count_sql,
+    build_scalar_sql,
+    build_value_list_sql,
+    clamp_n,
+    validate_where,
+)
 from mcp_tools_sql.summarize.render import (
     COLUMN_CAP,
     DISTINCT_GATE_ROWS,
@@ -50,18 +59,9 @@ from mcp_tools_sql.summarize.render import (
     unknown_columns_message,
 )
 from mcp_tools_sql.summarize.source import (
-    INVALID_SQL_EXC,
     Source,
     build_query_source,
     build_table_source,
-)
-from mcp_tools_sql.summarize.sql import (
-    ColumnMeta,
-    build_count_sql,
-    build_scalar_sql,
-    build_value_list_sql,
-    clamp_n,
-    validate_where,
 )
 from mcp_tools_sql.tool_builder import build_tool_fn
 from mcp_tools_sql.tool_logging import log_tool_call
@@ -378,7 +378,7 @@ class SummarizeTools:
                     )
                 except QueryTimeoutError as exc:
                     return f"{exc} {TIMEOUT_HINT_NARROWER}"
-                except INVALID_SQL_EXC as exc:
+                except BackendError as exc:
                     # A probe failure is not a LOB failure (the probe is a bare
                     # ``SELECT *``), so ``built`` must already be a resolved
                     # ``Source``. The dialect term matters too: on SQLite every
@@ -388,14 +388,16 @@ class SummarizeTools:
                         and isinstance(built, Source)
                         and built.types_probed
                     )
-                    message = f"Invalid SQL. {type(exc).__name__}: {exc}"
+                    name = getattr(exc, "original_class", type(exc).__name__)
+                    message = f"Invalid SQL. {name}: {exc}"
                     return (message + LOB_HINT) if probed else message
                 except (KeyError, TypeError, ValueError) as exc:
                     return f"Invalid parameters. {type(exc).__name__}: {exc}"
                 except RuntimeError as exc:
                     return f"Database connection error. {type(exc).__name__}: {exc}"
                 except Exception as exc:
-                    return f"Unexpected error. {type(exc).__name__}: {exc}"
+                    name = getattr(exc, "original_class", type(exc).__name__)
+                    return f"Unexpected error. {name}: {exc}"
 
         sig_params = _base_summarize_params() + build_target_params(targets, star=False)
         fn = build_tool_fn("summarize_columns", sig_params, core, _DESCRIPTION)
@@ -414,7 +416,7 @@ def _run(
     backend: DatabaseBackend,
     rec: Any,
     source: Source,
-    predicate: Any,
+    predicate: Predicate | None,
     params: dict[str, Any] | None,
     columns: list[str] | None,
     n: int,
@@ -438,7 +440,7 @@ def _run(
         backend: The resolved backend to execute read-only queries on.
         rec: The open :class:`ToolCallRecord` to record the profiled shape on.
         source: The resolved :class:`Source` to profile.
-        predicate: The validated ``where`` predicate AST, or ``None``.
+        predicate: The validated ``where`` predicate, or ``None``.
         params: Bound values for the predicate's ``:name`` placeholders.
         columns: Requested column names, ``None`` for all, ``[]`` an error.
         n: Requested value-list length (clamped in-pipeline).

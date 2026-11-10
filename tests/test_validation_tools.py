@@ -10,11 +10,12 @@ import pytest
 from mcp.server.fastmcp import FastMCP
 from mcp.shared.memory import create_connected_server_and_client_session
 
+from mcp_tools_sql.backends.base import BackendConnectionError
 from mcp_tools_sql.backends.mssql import MSSQLBackend
 from mcp_tools_sql.backends.sqlite import SQLiteBackend
 from mcp_tools_sql.config.models import ConnectionConfig
 from mcp_tools_sql.server import FastMCPSink
-from mcp_tools_sql.validation_tools import ValidationTools, _explain
+from mcp_tools_sql.validation_tools import ValidationTools
 from tests.conftest import MSSQLTestEnv
 from tests.target_helpers import single_target
 
@@ -47,6 +48,22 @@ async def _call_validate(
         args["database"] = database
     result = await client.call_tool("validate_sql", args)
     return result.content[0].text  # type: ignore[no-any-return]
+
+
+@pytest.mark.asyncio
+async def test_backend_error_renders_original_class() -> None:
+    """A neutral backend error from ``explain`` renders with the driver class."""
+    backend = MagicMock()
+    backend.explain.side_effect = BackendConnectionError(
+        "no such table: x", original_class="OperationalError"
+    )
+    mcp = FastMCP("test-validate-backend-error")
+    ValidationTools(*single_target(backend)).register(FastMCPSink(mcp))
+    async with create_connected_server_and_client_session(
+        mcp, raise_exceptions=True
+    ) as client:
+        text = await _call_validate(client, "SELECT * FROM x")
+    assert text == "Invalid SQL. OperationalError: no such table: x"
 
 
 # ---------------------------------------------------------------------------
@@ -259,83 +276,26 @@ async def test_preflight_zero_statements_is_a_verdict(
 
 
 # ---------------------------------------------------------------------------
-# MSSQL _explain unit test (mocked)
+# Plan request (mocked backend)
 # ---------------------------------------------------------------------------
 
 
-def test_mssql_explain_showplan_sequence() -> None:
-    """``_explain`` MSSQL branch runs the SHOWPLAN dance in the right order."""
-    cursor = MagicMock()
-    cursor.fetchall.return_value = [("StmtText",), ("plan-row-1",)]
-    conn = MagicMock()
-    conn.cursor.return_value = cursor
-
-    isolated_cm = MagicMock()
-    isolated_cm.__enter__ = MagicMock(return_value=conn)
-    isolated_cm.__exit__ = MagicMock(return_value=False)
-
+@pytest.mark.asyncio
+@pytest.mark.parametrize("backend_name", ["sqlite", "mssql"])
+async def test_explain_called_isolated(backend_name: str) -> None:
+    """``validate_sql`` always asks the backend for an isolated plan."""
     backend = MagicMock()
-    backend.get_isolated_connection = MagicMock(return_value=isolated_cm)
-
-    plan = _explain(backend, "mssql", "SELECT :a", {"a": 1}, 30)
-
-    assert plan == "StmtText\nplan-row-1"
-    call_sequence = [call.args[0] for call in cursor.execute.call_args_list]
-    assert call_sequence == [
-        "SET SHOWPLAN_TEXT ON",
-        "SELECT 1",
-        "SET SHOWPLAN_TEXT OFF",
-    ]
-    # execute(explain_sql) was called positionally without a params argument.
-    explain_call = cursor.execute.call_args_list[1]
-    assert explain_call.args == ("SELECT 1",)
-    assert explain_call.kwargs == {}
-    cursor.close.assert_called_once()
-
-
-def test_mssql_explain_non_finite_float_raises_value_error() -> None:
-    """Non-finite floats surface as ``ValueError`` from ``substitute_named_with_literals``.
-
-    Lives at the unit layer (not MSSQL integration) because the ValueError
-    is raised by ``_sql_literal`` before any DB connection is opened, and
-    ``float('inf')`` cannot survive the JSON serialisation used by the MCP
-    transport — so this code path is unreachable via the MCP client.
-    """
-    backend = MagicMock()
-    with pytest.raises(ValueError, match="non-finite"):
-        _explain(backend, "mssql", "SELECT :x", {"x": float("inf")}, 30)
-    backend.get_isolated_connection.assert_not_called()
-
-
-def test_mssql_explain_showplan_off_runs_on_execute_failure() -> None:
-    """``SET SHOWPLAN_TEXT OFF`` still runs when the explained statement raises."""
-    cursor = MagicMock()
-
-    def execute_side_effect(sql: str, *_: Any, **__: Any) -> None:
-        if sql == "SELECT bogus":
-            raise RuntimeError("explain failed")
-
-    cursor.execute.side_effect = execute_side_effect
-    conn = MagicMock()
-    conn.cursor.return_value = cursor
-
-    isolated_cm = MagicMock()
-    isolated_cm.__enter__ = MagicMock(return_value=conn)
-    isolated_cm.__exit__ = MagicMock(return_value=False)
-
-    backend = MagicMock()
-    backend.get_isolated_connection = MagicMock(return_value=isolated_cm)
-
-    with pytest.raises(RuntimeError, match="explain failed"):
-        _explain(backend, "mssql", "SELECT bogus", None, 30)
-
-    call_sequence = [call.args[0] for call in cursor.execute.call_args_list]
-    assert call_sequence == [
-        "SET SHOWPLAN_TEXT ON",
-        "SELECT bogus",
-        "SET SHOWPLAN_TEXT OFF",
-    ]
-    cursor.close.assert_called_once()
+    backend.explain.return_value = "plan"
+    mcp = FastMCP("test-validate-isolated")
+    ValidationTools(*single_target(backend, backend_name=backend_name)).register(
+        FastMCPSink(mcp)
+    )
+    async with create_connected_server_and_client_session(
+        mcp, raise_exceptions=True
+    ) as client:
+        text = await _call_validate(client, "SELECT :a", params={"a": 1})
+    assert text == "Valid."
+    backend.explain.assert_called_once_with("SELECT :a", {"a": 1}, isolated=True)
 
 
 # ---------------------------------------------------------------------------

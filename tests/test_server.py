@@ -5,7 +5,6 @@ from __future__ import annotations
 import argparse
 import logging
 import re
-import sqlite3
 import warnings
 from pathlib import Path
 from typing import Any
@@ -32,12 +31,12 @@ from mcp_tools_sql.server import (
     run_server,
 )
 from mcp_tools_sql.toolset import SqlToolset, assemble_toolset
+from tests.sqlite_fixtures import create_db
 
 
 def _write_sqlite_configs(tmp_path: Path) -> argparse.Namespace:
     """Create a SQLite project + database config and return parsed args."""
-    db = tmp_path / "test.db"
-    sqlite3.connect(str(db)).close()
+    db = create_db(tmp_path / "test.db")
     qcfg = tmp_path / "mcp-tools-sql.toml"
     qcfg.write_text('connection = "default"\n')
     dbcfg = tmp_path / "db.toml"
@@ -211,12 +210,11 @@ def test_startup_log_reports_connection_and_database_counts(
 @pytest.mark.asyncio
 async def test_configured_query_registered_as_tool(tmp_path: Path) -> None:
     """A configured `[queries.foo]` entry registers as `query_foo` on the server."""
-    db = tmp_path / "test.db"
-    conn = sqlite3.connect(str(db))
-    conn.execute("CREATE TABLE customers (id INTEGER PRIMARY KEY, name TEXT)")
-    conn.execute("INSERT INTO customers VALUES (1, 'Alice')")
-    conn.commit()
-    conn.close()
+    db = create_db(
+        tmp_path / "test.db",
+        "CREATE TABLE customers (id INTEGER PRIMARY KEY, name TEXT);"
+        "INSERT INTO customers VALUES (1, 'Alice');",
+    )
 
     qcfg_path = tmp_path / "mcp-tools-sql.toml"
     qcfg_path.write_text(
@@ -254,11 +252,7 @@ async def test_write_query_not_registered_even_with_allow_updates(
     tmp_path: Path,
 ) -> None:
     """The read-only gate is unconditional: allow_updates does not unlock it."""
-    db = tmp_path / "test.db"
-    conn = sqlite3.connect(str(db))
-    conn.execute("CREATE TABLE Orders (id INTEGER PRIMARY KEY)")
-    conn.commit()
-    conn.close()
+    db = create_db(tmp_path / "test.db", "CREATE TABLE Orders (id INTEGER PRIMARY KEY)")
 
     qcfg_path = tmp_path / "mcp-tools-sql.toml"
     qcfg_path.write_text(
@@ -327,10 +321,8 @@ def test_startup_builtin_tools_counter_includes_programmatic_builtins(
 
 def _write_multi_sqlite_configs(tmp_path: Path) -> argparse.Namespace:
     """Create two SQLite connections (two targets) and return parsed args."""
-    db_a = tmp_path / "a.db"
-    db_b = tmp_path / "b.db"
-    sqlite3.connect(str(db_a)).close()
-    sqlite3.connect(str(db_b)).close()
+    db_a = create_db(tmp_path / "a.db")
+    db_b = create_db(tmp_path / "b.db")
     qcfg = tmp_path / "mcp-tools-sql.toml"
     qcfg.write_text('connection = "default"\n')
     dbcfg = tmp_path / "db.toml"
@@ -401,11 +393,10 @@ _UPDATE_SET_NAME = (
 
 def _write_update_configs(tmp_path: Path, allow_updates: bool) -> argparse.Namespace:
     """Create configs with an [updates.set_name] entry and given allow_updates."""
-    db = tmp_path / "test.db"
-    conn = sqlite3.connect(str(db))
-    conn.execute("CREATE TABLE customers (id INTEGER PRIMARY KEY, name TEXT)")
-    conn.commit()
-    conn.close()
+    db = create_db(
+        tmp_path / "test.db",
+        "CREATE TABLE customers (id INTEGER PRIMARY KEY, name TEXT)",
+    )
 
     qcfg = tmp_path / "mcp-tools-sql.toml"
     qcfg.write_text('connection = "default"\n' + _UPDATE_SET_NAME)
@@ -589,10 +580,10 @@ async def test_mcp_tools_match_specs(tmp_path: Path) -> None:
 
     args = _write_multi_sqlite_configs(tmp_path)
     for db in ("a.db", "b.db"):
-        conn = sqlite3.connect(str(tmp_path / db))
-        conn.execute("CREATE TABLE customers (id INTEGER PRIMARY KEY, name TEXT)")
-        conn.commit()
-        conn.close()
+        create_db(
+            tmp_path / db,
+            "CREATE TABLE customers (id INTEGER PRIMARY KEY, name TEXT)",
+        )
     args.config.write_text(
         'connection = "default"\n'
         "\n[queries.foo]\n"

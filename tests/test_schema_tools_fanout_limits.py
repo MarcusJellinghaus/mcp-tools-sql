@@ -2,8 +2,7 @@
 
 from __future__ import annotations
 
-from collections.abc import Generator, Iterator
-from contextlib import contextmanager
+from collections.abc import Generator
 from typing import Any
 
 import pytest
@@ -55,13 +54,10 @@ class _StreamBackend(DatabaseBackend):
     def execute_update(self, sql: str, params: dict[str, Any] | None = None) -> int:
         raise AssertionError("unused")
 
-    def explain(self, sql: str, params: dict[str, Any] | None = None) -> str:
+    def explain(
+        self, sql: str, params: dict[str, Any] | None = None, *, isolated: bool = False
+    ) -> str:
         raise AssertionError("unused")
-
-    @contextmanager
-    def get_isolated_connection(self) -> Iterator[Any]:
-        """Unused in these tests."""
-        yield None
 
     def iter_readonly_batches(
         self,

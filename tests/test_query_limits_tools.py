@@ -3,9 +3,7 @@
 from __future__ import annotations
 
 import itertools
-import sqlite3
-from collections.abc import Generator, Iterator
-from contextlib import contextmanager
+from collections.abc import Generator
 from pathlib import Path
 from types import SimpleNamespace
 from typing import Any
@@ -28,6 +26,7 @@ from mcp_tools_sql.query_tools import QueryTools
 from mcp_tools_sql.schema_tools import SchemaTools
 from mcp_tools_sql.server import FastMCPSink, ToolServer
 from mcp_tools_sql.toolset import assemble_toolset
+from tests.sqlite_fixtures import create_db, query
 from tests.target_helpers import single_target, sqlite_backend
 
 _TRUNC = "\n\n[Output truncated"
@@ -66,13 +65,10 @@ class _BatchBackend(DatabaseBackend):
     def execute_update(self, sql: str, params: dict[str, Any] | None = None) -> int:
         raise AssertionError("unused")
 
-    def explain(self, sql: str, params: dict[str, Any] | None = None) -> str:
+    def explain(
+        self, sql: str, params: dict[str, Any] | None = None, *, isolated: bool = False
+    ) -> str:
         raise AssertionError("unused")
-
-    @contextmanager
-    def get_isolated_connection(self) -> Iterator[Any]:
-        """Unused in these tests."""
-        yield None
 
     def iter_readonly_batches(
         self,
@@ -101,12 +97,11 @@ def _make_db(tmp_path: Path, rows: list[tuple[int, str, str]]) -> Path:
     Returns:
         Path of the SQLite database file.
     """
-    db_path = tmp_path / "big.db"
-    conn = sqlite3.connect(str(db_path))
-    conn.execute("CREATE TABLE big (id INTEGER, name TEXT, note TEXT)")
-    conn.executemany("INSERT INTO big VALUES (?, ?, ?)", rows)
-    conn.commit()
-    conn.close()
+    db_path = create_db(
+        tmp_path / "big.db", "CREATE TABLE big (id INTEGER, name TEXT, note TEXT)"
+    )
+    for row in rows:
+        query(db_path, "INSERT INTO big VALUES (?, ?, ?)", row)
     return db_path
 
 
@@ -200,12 +195,10 @@ async def test_sqlite_read_tables_truncation_has_no_param_phrase(
     tmp_path: Path,
 ) -> None:
     """read_tables declares ``schema`` but its SQLite SQL binds nothing."""
-    db_path = tmp_path / "tables.db"
-    conn = sqlite3.connect(str(db_path))
-    for name in ("a", "b", "c"):
-        conn.execute(f"CREATE TABLE {name} (id INTEGER)")
-    conn.commit()
-    conn.close()
+    db_path = create_db(
+        tmp_path / "tables.db",
+        "".join(f"CREATE TABLE {name} (id INTEGER);" for name in ("a", "b", "c")),
+    )
     mcp = _schema_mcp(sqlite_backend(db_path))
 
     text = await _call(mcp, "read_tables", {"schema": "main", "max_rows": 2})

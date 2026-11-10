@@ -19,16 +19,16 @@ from pydantic import Field
 from mcp_tools_sql.config.models import LimitsConfig
 from mcp_tools_sql.formatting import MAX_ROWS_MIN, render_limited
 from mcp_tools_sql.result_limits import Source, collect, counting_time_limit
-from mcp_tools_sql.tool_logging import log_tool_call
-from mcp_tools_sql.utils.data_type_utility.type_mapping import resolve_python_type
-from mcp_tools_sql.utils.sql_placeholders import (
-    SqlglotError,
+from mcp_tools_sql.sql_ast.placeholders import (
+    SqlParseError,
     extract_param_names,
     keyword_absorption_violation,
     passthrough_source_violation,
     read_only_violation,
     single_line,
 )
+from mcp_tools_sql.tool_logging import log_tool_call
+from mcp_tools_sql.utils.data_type_utility.type_mapping import resolve_python_type
 
 if TYPE_CHECKING:
     from mcp_tools_sql.backends.base import DatabaseBackend, Deadline
@@ -48,9 +48,9 @@ def extract_sql_params(sql: str) -> set[str]:
     is best-effort, and the dedicated EXPLAIN check owns the "is this valid
     SQL" verdict during verification.
 
-    ``SqlglotError`` is the base caught rather than ``ParseError``, because
-    sqlglot signals an unterminated string literal, block comment or bracket
-    with a sibling ``TokenError`` that ``ParseError`` does not cover.
+    ``SqlParseError`` is caught: it covers sqlglot's ``ParseError`` and the
+    sibling ``TokenError`` raised for an unterminated string literal, block
+    comment or bracket.
 
     Returns:
         Set of parameter names found in the SQL string, or an empty set when
@@ -58,7 +58,7 @@ def extract_sql_params(sql: str) -> set[str]:
     """
     try:
         return extract_param_names(sql)
-    except SqlglotError:
+    except SqlParseError:
         return set()
 
 
@@ -70,9 +70,9 @@ def read_only_rejection(sql: str, dialect: str) -> str | None:
     (:func:`passthrough_source_violation`) and the fail-closed parse contract
     into a single verdict.
 
-    The parse contract catches ``SqlglotError``, not just ``ParseError``: an
-    unterminated string literal, block comment or bracket raises a sibling
-    ``TokenError``. Letting that escape would abort server startup over one
+    The parse contract catches ``SqlParseError``, which also covers sqlglot's
+    sibling ``TokenError`` for an unterminated string literal, block comment or
+    bracket. Letting that escape would abort server startup over one
     unbalanced quote in one ``[queries.*]`` entry, and would crash ``verify``
     instead of printing the row that makes the rejection discoverable.
 
@@ -95,7 +95,7 @@ def read_only_rejection(sql: str, dialect: str) -> str | None:
             verdict = keyword_absorption_violation(sql, dialect)
         if verdict is None:
             verdict = passthrough_source_violation(sql, dialect)
-    except SqlglotError as exc:
+    except SqlParseError as exc:
         detail = single_line(str(exc))
         return f"Not read-only. SQL could not be parsed as {dialect}: {detail}"
     return verdict

@@ -15,11 +15,12 @@ It also hosts the shared, dialect-aware analysis helpers reused across the
 SQL-consuming tools: :func:`count_statements`,
 :func:`first_statement_kind`, :func:`has_leading_cte` (with its shared
 :data:`LEADING_CTE_REJECTION` message), and the shared :func:`basic_preflight`.
-sqlglot's :class:`~sqlglot.errors.ParseError` and its base
-:class:`~sqlglot.errors.SqlglotError` are re-exported so callers can implement
-the fail-closed parse contract without importing sqlglot directly. Catch the
-base: sqlglot raises a sibling :class:`~sqlglot.errors.TokenError` -- not a
-``ParseError`` -- for an unterminated string literal, block comment or bracket.
+Every public function that parses raises :class:`SqlParseError` for SQL that
+sqlglot cannot tokenize or parse, so callers implement the fail-closed parse
+contract without importing sqlglot. It covers sqlglot's
+:class:`~sqlglot.errors.ParseError` and its sibling
+:class:`~sqlglot.errors.TokenError` (raised for an unterminated string literal,
+block comment or bracket) alike.
 
 Note:
     Rendered SQL is produced by sqlglot's generator, not echoed verbatim
@@ -29,20 +30,21 @@ Note:
 
 from __future__ import annotations
 
+import functools
 import math
 import re
+from collections.abc import Callable
 from datetime import date, datetime
 from decimal import Decimal
-from typing import Any, cast
+from typing import Any, ParamSpec, TypeVar, cast
 
 import sqlglot
 from sqlglot import exp
-from sqlglot.errors import ParseError, SqlglotError
+from sqlglot.errors import SqlglotError
 
 __all__ = [
     "LEADING_CTE_REJECTION",
-    "ParseError",
-    "SqlglotError",
+    "SqlParseError",
     "arbitrary_sql_violation",
     "basic_preflight",
     "build_count_query",
@@ -56,6 +58,7 @@ __all__ = [
     "single_line",
     "substitute_named_with_literals",
     "translate_named_to_qmark",
+    "translate_parse_errors",
 ]
 
 _ANSI_ESCAPE_RE = re.compile(r"\x1b\[[0-9;]*[A-Za-z]")
@@ -76,6 +79,51 @@ def single_line(text: str) -> str:
         The text as a single line, free of terminal control codes.
     """
     return " ".join(_ANSI_ESCAPE_RE.sub("", text).split())
+
+
+class SqlParseError(Exception):
+    """SQL that sqlglot could not tokenize or parse; the SQL layer's only parse error.
+
+    ``str(exc)`` is the original sqlglot message, so rendered text is unchanged.
+
+    Attributes:
+        original_class: The sqlglot exception class name, e.g. ``"ParseError"``
+            or ``"TokenError"``.
+    """
+
+    def __init__(self, message: str, *, original_class: str) -> None:
+        super().__init__(message)
+        self.original_class = original_class
+
+    @property
+    def detail(self) -> str:
+        """The message as a single line, free of terminal control codes."""
+        return single_line(str(self))
+
+
+_P = ParamSpec("_P")
+_R = TypeVar("_R")
+
+
+def translate_parse_errors(fn: Callable[_P, _R]) -> Callable[_P, _R]:
+    """Re-raise any ``SqlglotError`` from ``fn`` as :class:`SqlParseError`.
+
+    A :class:`SqlParseError` from a nested decorated call is not a
+    ``SqlglotError``, so it passes through unchanged; so does every other
+    exception.
+
+    Returns:
+        The wrapped function.
+    """
+
+    @functools.wraps(fn)
+    def wrapper(*args: _P.args, **kwargs: _P.kwargs) -> _R:
+        try:
+            return fn(*args, **kwargs)
+        except SqlglotError as exc:
+            raise SqlParseError(str(exc), original_class=type(exc).__name__) from exc
+
+    return wrapper
 
 
 # Session-control statements rejected by callers that disallow session state.
@@ -178,6 +226,7 @@ def _named_placeholders(expr: exp.Expression) -> list[exp.Placeholder]:
     return [node for node in expr.find_all(exp.Placeholder) if node.text("this")]
 
 
+@translate_parse_errors
 def extract_param_names(sql: str, dialect: str | None = None) -> set[str]:
     """Return the set of ``:name`` placeholder names in ``sql``.
 
@@ -200,6 +249,7 @@ def extract_param_names(sql: str, dialect: str | None = None) -> set[str]:
     }
 
 
+@translate_parse_errors
 def translate_named_to_qmark(
     sql: str, dialect: str | None = None
 ) -> tuple[str, list[str]]:
@@ -274,6 +324,7 @@ def _sql_literal(value: Any) -> str:
     raise TypeError(msg)
 
 
+@translate_parse_errors
 def substitute_named_with_literals(
     sql: str, params: dict[str, Any], dialect: str | None = None
 ) -> str:
@@ -311,6 +362,7 @@ def substitute_named_with_literals(
     return "; ".join(rendered)
 
 
+@translate_parse_errors
 def count_statements(sql: str, dialect: str) -> int:
     """Return the number of non-empty parsed statements in ``sql``.
 
@@ -325,6 +377,7 @@ def count_statements(sql: str, dialect: str) -> int:
     return len(_statements(sql, dialect))
 
 
+@translate_parse_errors
 def first_statement_kind(sql: str, dialect: str) -> str | None:
     """Return the session-control kind of the first statement, or ``None``.
 
@@ -371,12 +424,13 @@ def basic_preflight(
     (``USE``/``SET``/``DECLARE``) check -- callers that need that layer it on
     top (see :func:`mcp_tools_sql.validation_tools._preflight`).
 
-    The parse contract catches ``SqlglotError``, not just ``ParseError``: an
-    unterminated string literal, block comment or bracket raises a sibling
-    ``TokenError``, which would otherwise escape as an exception out of the
-    tool instead of the verdict every other malformed input produces. The
-    exception class is read off the raised exception so the verdict still
-    names ``ParseError`` when that is what happened.
+    The parse contract catches :class:`SqlParseError`, which covers sqlglot's
+    sibling ``TokenError`` (an unterminated string literal, block comment or
+    bracket) as well as ``ParseError``; otherwise the former would escape as an
+    exception out of the tool instead of the verdict every other malformed
+    input produces. The verdict names the original sqlglot class
+    (``original_class``), so it still says ``ParseError`` when that is what
+    happened.
 
     The zero-statement check closes the other end of that contract: SQL that
     is non-empty yet tokenizes to no statement at all (``-- hi``, ``/* hi */``,
@@ -397,9 +451,10 @@ def basic_preflight(
         return "Invalid SQL. ValidationError: empty SQL"
     try:
         statement_count = count_statements(sql, dialect)
-    except SqlglotError as exc:
-        detail = single_line(str(exc))
-        return f"Invalid SQL. {type(exc).__name__} (SQL parsed as {dialect}): {detail}"
+    except SqlParseError as exc:
+        return (
+            f"Invalid SQL. {exc.original_class} (SQL parsed as {dialect}): {exc.detail}"
+        )
     if statement_count == 0:
         return (
             "Invalid SQL. ValidationError: no statement found — "
@@ -413,6 +468,7 @@ def basic_preflight(
     return None
 
 
+@translate_parse_errors
 def read_only_violation(sql: str, dialect: str) -> str | None:
     """Return a rejection message if ``sql`` is not provably read-only.
 
@@ -450,6 +506,7 @@ def read_only_violation(sql: str, dialect: str) -> str | None:
     return None
 
 
+@translate_parse_errors
 def keyword_absorption_violation(sql: str, dialect: str) -> str | None:
     r"""Return a rejection message when a statement keyword was parsed as an identifier.
 
@@ -468,7 +525,7 @@ def keyword_absorption_violation(sql: str, dialect: str) -> str | None:
     identifier whose whole name is a statement keyword is therefore treated as
     such an absorption, because no genuine query needs one.
 
-    Unparseable SQL propagates sqlglot's ``ParseError`` rather than returning a
+    Unparseable SQL propagates :class:`SqlParseError` rather than returning a
     verdict, exactly as :func:`read_only_violation` does: the shared verdict
     wrapper owns the fail-closed contract.
 
@@ -495,6 +552,7 @@ def keyword_absorption_violation(sql: str, dialect: str) -> str | None:
     return None
 
 
+@translate_parse_errors
 def passthrough_source_violation(sql: str, dialect: str) -> str | None:
     """Return a rejection message when a table source hands SQL to another server.
 
@@ -562,6 +620,7 @@ def arbitrary_sql_violation(sql: str, dialect: str) -> str | None:
     return verdict
 
 
+@translate_parse_errors
 def has_leading_cte(sql: str, dialect: str) -> bool:
     """Return ``True`` when ``sql``'s root statement carries a CTE (``WITH``).
 
@@ -585,6 +644,7 @@ def has_leading_cte(sql: str, dialect: str) -> bool:
     return isinstance(with_arg, exp.With)
 
 
+@translate_parse_errors
 def build_count_query(sql: str, dialect: str) -> str:
     """Wrap ``sql`` in a ``SELECT COUNT(*)`` and render it for ``dialect``.
 

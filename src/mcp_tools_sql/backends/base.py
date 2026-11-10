@@ -4,7 +4,6 @@ from __future__ import annotations
 
 from abc import ABC, abstractmethod
 from collections.abc import Generator
-from contextlib import AbstractContextManager
 from dataclasses import dataclass
 from types import TracebackType
 from typing import Any, Self
@@ -21,6 +20,43 @@ class QueryTimeoutError(Exception):
     def __init__(self, seconds: int) -> None:
         self.seconds = seconds
         super().__init__(f"Query aborted after {seconds} s (statement timeout).")
+
+
+class BackendError(Exception):
+    """A database driver error translated at the backend boundary.
+
+    Built from the driver exception's ``args``, so ``str()`` is identical.
+
+    Attributes:
+        original_class: The driver exception class name, e.g.
+            ``"OperationalError"``.
+    """
+
+    def __init__(self, *args: object, original_class: str) -> None:
+        super().__init__(*args)
+        self.original_class = original_class
+
+
+class BackendConnectionError(BackendError):
+    """Driver OperationalError / InterfaceError (connection-shaped)."""
+
+
+def wrap_driver_error(
+    exc: BaseException, connection_types: tuple[type[BaseException], ...]
+) -> BackendError:
+    """Build the neutral exception for a driver exception.
+
+    Args:
+        exc: The exception raised by the driver.
+        connection_types: Driver exception types that are connection-shaped.
+
+    Returns:
+        A :class:`BackendConnectionError` when *exc* is one of
+        *connection_types*, otherwise a plain :class:`BackendError`; either
+        keeps *exc*'s ``args`` and class name.
+    """
+    cls = BackendConnectionError if isinstance(exc, connection_types) else BackendError
+    return cls(*exc.args, original_class=type(exc).__name__)
 
 
 @dataclass
@@ -197,22 +233,19 @@ class DatabaseBackend(ABC):
         """
 
     @abstractmethod
-    def explain(self, sql: str, params: dict[str, Any] | None = None) -> str:
+    def explain(
+        self, sql: str, params: dict[str, Any] | None = None, *, isolated: bool = False
+    ) -> str:
         """Return the query execution plan as text.
 
+        ``isolated``: run on a fresh single-use connection where the backend
+        has one (MSSQL), so session state set by the plan request cannot leak
+        into the persistent connection; backends without one (SQLite) ignore
+        it. Isolated calls skip the closed check where the backend opens a
+        fresh connection.
+
         Implies connected: backends MUST connect lazily on first call. After
-        ``close()``, further calls raise ``RuntimeError``.
-        """
-
-    @abstractmethod
-    def get_isolated_connection(self) -> AbstractContextManager[Any]:
-        """Yield a single-use connection.
-
-        SQLite yields the persistent connection (no-op isolation: EXPLAIN QUERY
-        PLAN does not execute the statement). MSSQL yields a fresh pyodbc
-        connection built from the same ConnectionConfig, closed on context exit.
-        Callers MUST NOT close the yielded connection; the backend owns its
-        lifecycle.
+        ``close()``, further non-isolated calls raise ``RuntimeError``.
         """
 
     def __enter__(self) -> Self:

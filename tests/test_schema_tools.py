@@ -28,6 +28,7 @@ from mcp_tools_sql.schema_tools import (
 )
 from mcp_tools_sql.server import FastMCPSink
 from mcp_tools_sql.tool_builder import build_tool_fn
+from tests.sqlite_fixtures import create_db
 from tests.target_helpers import single_target
 
 
@@ -272,11 +273,7 @@ class TestSchemaToolsEdgeCases:
 
     async def test_empty_database(self, tmp_path: Path) -> None:
         """read_tables on empty database returns 'No results found.'."""
-        db_path = tmp_path / "empty.db"
-        import sqlite3
-
-        conn = sqlite3.connect(str(db_path))
-        conn.close()
+        db_path = create_db(tmp_path / "empty.db")
 
         mcp = _make_mcp_with_tools(str(db_path))
         async with create_connected_server_and_client_session(

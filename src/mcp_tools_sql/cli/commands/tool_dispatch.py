@@ -3,26 +3,19 @@
 from __future__ import annotations
 
 import inspect
-import sqlite3
 from typing import TYPE_CHECKING, Any
 
 from pydantic import ValidationError
 
+from mcp_tools_sql.backends.base import BackendConnectionError
+
 if TYPE_CHECKING:
     from mcp_tools_sql.utils.tool_spec import ToolSpec
 
-try:
-    import pyodbc  # pylint: disable=import-error
-
-    _CONNECTION_EXC: tuple[type[BaseException], ...] = (
-        RuntimeError,
-        sqlite3.OperationalError,
-        sqlite3.InterfaceError,
-        pyodbc.OperationalError,
-        pyodbc.InterfaceError,
-    )
-except ImportError:
-    _CONNECTION_EXC = (RuntimeError, sqlite3.OperationalError, sqlite3.InterfaceError)
+_CONNECTION_EXC: tuple[type[BaseException], ...] = (
+    RuntimeError,
+    BackendConnectionError,
+)
 
 _REJECTED_EXC: tuple[type[BaseException], ...] = (KeyError, TypeError, ValueError)
 
@@ -68,4 +61,5 @@ async def invoke_tool(spec: ToolSpec, kwargs: dict[str, Any]) -> tuple[int, str]
     except ValidationError as exc:
         return EXIT_REJECTED, str(exc)
     except Exception as exc:  # pylint: disable=broad-except
-        return classify_exception(exc), f"{type(exc).__name__}: {exc}"
+        name = getattr(exc, "original_class", type(exc).__name__)
+        return classify_exception(exc), f"{name}: {exc}"

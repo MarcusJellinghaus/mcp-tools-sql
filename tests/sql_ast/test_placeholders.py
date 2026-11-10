@@ -1,4 +1,4 @@
-"""Tests for the sql_placeholders module (sqlglot-based).
+"""Tests for the sql_ast.placeholders module (sqlglot-based).
 
 These tests both exercise the public helpers and *gate the make-or-break
 spike*: that sqlglot parses ``:name`` into a concrete
@@ -17,8 +17,9 @@ import pytest
 import sqlglot
 from sqlglot import exp
 
-from mcp_tools_sql.utils.sql_placeholders import (
+from mcp_tools_sql.sql_ast.placeholders import (
     LEADING_CTE_REJECTION,
+    SqlParseError,
     arbitrary_sql_violation,
     build_count_query,
     extract_param_names,
@@ -365,8 +366,9 @@ class TestReadOnlyViolation:
         assert "SELECT/WITH/VALUES" in message
 
     def test_unparseable_sql_propagates_parse_error(self) -> None:
-        with pytest.raises(sqlglot.errors.ParseError):
+        with pytest.raises(SqlParseError) as excinfo:
             read_only_violation("SELECT FROM WHERE )(", "sqlite")
+        assert excinfo.value.original_class == "ParseError"
 
 
 # Separator-less batches whose write keyword sqlglot absorbs as a column
@@ -459,8 +461,9 @@ class TestKeywordAbsorptionViolation:
             assert keyword_absorption_violation(sql, dialect) is None
 
     def test_unparseable_sql_propagates_parse_error(self) -> None:
-        with pytest.raises(sqlglot.errors.ParseError):
+        with pytest.raises(SqlParseError) as excinfo:
             keyword_absorption_violation("SELECT FROM WHERE )(", "sqlite")
+        assert excinfo.value.original_class == "ParseError"
 
 
 _PASSTHROUGH_SQL = [
@@ -497,8 +500,9 @@ class TestPassthroughSourceViolation:
         assert passthrough_source_violation("SELECT openquery FROM t", dialect) is None
 
     def test_unparseable_sql_propagates_parse_error(self) -> None:
-        with pytest.raises(sqlglot.errors.ParseError):
+        with pytest.raises(SqlParseError) as excinfo:
             passthrough_source_violation("SELECT FROM WHERE )(", "sqlite")
+        assert excinfo.value.original_class == "ParseError"
 
 
 class TestArbitrarySqlViolation:
@@ -526,8 +530,9 @@ class TestArbitrarySqlViolation:
         assert arbitrary_sql_violation("SELECT 1\nDELETE FROM t", dialect) is None
 
     def test_unparseable_sql_propagates_parse_error(self) -> None:
-        with pytest.raises(sqlglot.errors.ParseError):
+        with pytest.raises(SqlParseError) as excinfo:
             arbitrary_sql_violation("SELECT FROM WHERE )(", "sqlite")
+        assert excinfo.value.original_class == "ParseError"
 
 
 class TestBuildCountQuery:

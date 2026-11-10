@@ -12,6 +12,7 @@ from unittest.mock import MagicMock
 
 import pytest
 
+from mcp_tools_sql.backends.base import BackendConnectionError
 from mcp_tools_sql.backends.mssql import MSSQLBackend, _odbc_escape
 from tests.backends.conftest import LEAKY_PASSWORDS, _cfg, assert_no_leak
 from tests.conftest import MSSQLTestEnv
@@ -204,13 +205,13 @@ class TestQueries:
 
 
 class TestIsolatedConnection:
-    """Tests for ``MSSQLBackend.get_isolated_connection``."""
+    """Tests for ``MSSQLBackend._isolated_connection``."""
 
     def test_yields_fresh_connection_and_closes(self, fake_pyodbc: Any) -> None:
         fresh_conn = MagicMock(name="fresh_connection")
         fake_pyodbc.connect.return_value = fresh_conn
         b = MSSQLBackend(_cfg())
-        with b.get_isolated_connection() as conn:
+        with b._isolated_connection() as conn:
             assert conn is fresh_conn
             fresh_conn.close.assert_not_called()
         fresh_conn.close.assert_called_once()
@@ -220,13 +221,13 @@ class TestIsolatedConnection:
         fake_pyodbc.connect.return_value = fresh_conn
         b = MSSQLBackend(_cfg())
         with pytest.raises(RuntimeError, match="boom"):
-            with b.get_isolated_connection():
+            with b._isolated_connection():
                 raise RuntimeError("boom")
         fresh_conn.close.assert_called_once()
 
     def test_autocommit_passed_for_isolated_connection(self, fake_pyodbc: Any) -> None:
         b = MSSQLBackend(_cfg())
-        with b.get_isolated_connection():
+        with b._isolated_connection():
             pass
         kwargs = fake_pyodbc.connect.call_args.kwargs
         assert kwargs.get("autocommit") is True
@@ -240,8 +241,8 @@ class TestIsolatedConnection:
             "08001", f"Login failed; PWD={_odbc_escape(password)}"
         )
         b = MSSQLBackend(_cfg(password=password))
-        with pytest.raises(fake_pyodbc.Error) as exc:
-            with b.get_isolated_connection():
+        with pytest.raises(BackendConnectionError) as exc:
+            with b._isolated_connection():
                 pass
         assert_no_leak(str(exc.value), password)
         assert "***" in str(exc.value)
@@ -278,15 +279,16 @@ class TestErrorSanitization:
         )
         fake_pyodbc.connect.side_effect = original
         b = MSSQLBackend(_cfg(password=password))
-        with pytest.raises(fake_pyodbc.Error) as exc:
+        with pytest.raises(BackendConnectionError) as exc:
             b.connect()
         # Secret removed, marker present.
         assert_no_leak(str(exc.value), password)
         assert "***" in str(exc.value)
-        # Same instance re-raised: preserves type and sqlstate tuple shape.
-        assert exc.value is original
-        assert isinstance(exc.value, fake_pyodbc.OperationalError)
+        # Translated from the redacted original: class name and sqlstate kept.
+        assert exc.value.__cause__ is original
+        assert exc.value.original_class == "OperationalError"
         assert exc.value.args[0] == "08001"
+        assert_no_leak(str(original), password)
 
 
 class TestConnectDebugLogging:
@@ -321,7 +323,7 @@ class TestConnectDebugLogging:
         )
         b = MSSQLBackend(_cfg(password=password))
         with caplog.at_level("DEBUG", logger="mcp_tools_sql.backends.mssql"):
-            with pytest.raises(fake_pyodbc.Error):
+            with pytest.raises(BackendConnectionError):
                 b.connect()
         failure_lines = [
             r.getMessage()
@@ -448,7 +450,7 @@ class TestMSSQLIntegration:
 
     def test_isolated_connection_round_trip(self, mssql_db: MSSQLTestEnv) -> None:
         with MSSQLBackend(mssql_db.config) as b:
-            with b.get_isolated_connection() as conn:
+            with b._isolated_connection() as conn:
                 cursor = conn.cursor()
                 try:
                     cursor.execute("SELECT 1")
@@ -461,7 +463,7 @@ class TestMSSQLIntegration:
         self, mssql_db: MSSQLTestEnv
     ) -> None:
         with MSSQLBackend(mssql_db.config) as b:
-            with b.get_isolated_connection():
+            with b._isolated_connection():
                 pass
             rows = b.execute_query("SELECT 1 AS x")
         assert rows == [{"x": 1}]

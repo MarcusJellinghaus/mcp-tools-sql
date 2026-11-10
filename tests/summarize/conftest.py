@@ -12,11 +12,12 @@ table (> 15 columns → triage).
 
 from __future__ import annotations
 
-import sqlite3
 from collections.abc import Generator
 from pathlib import Path
 
 import pytest
+
+from tests.sqlite_fixtures import create_db, query
 
 
 @pytest.fixture
@@ -26,12 +27,12 @@ def profiling_db(tmp_path: Path) -> Generator[Path, None, None]:
     Yields:
         The path to the seeded SQLite database file.
     """
-    db_path = tmp_path / "profiling.db"
-    conn = sqlite3.connect(str(db_path))
-    conn.execute(
+    db_path = create_db(
+        tmp_path / "profiling.db",
         "CREATE TABLE profile_me ("
         "qty INTEGER, category TEXT, ref TEXT, created DATE, "
-        "is_active BOOLEAN, note TEXT)"
+        "is_active BOOLEAN, note TEXT);"
+        "CREATE TABLE empty_t (a INTEGER, b TEXT);",
     )
     rows = [
         (10, "x", "R1", "2020-01-01", 1, None),
@@ -41,23 +42,22 @@ def profiling_db(tmp_path: Path) -> Generator[Path, None, None]:
         (7, None, "R5", "2023-07-04", 0, None),
         (3, "   ", "R6", "2024-02-29", 1, None),
     ]
-    conn.executemany(
-        "INSERT INTO profile_me "
-        "(qty, category, ref, created, is_active, note) "
-        "VALUES (?, ?, ?, ?, ?, ?)",
-        rows,
-    )
-
-    conn.execute("CREATE TABLE empty_t (a INTEGER, b TEXT)")
+    for row in rows:
+        query(
+            db_path,
+            "INSERT INTO profile_me "
+            "(qty, category, ref, created, is_active, note) "
+            "VALUES (?, ?, ?, ?, ?, ?)",
+            row,
+        )
 
     wide_cols = ", ".join(f"w{i} INTEGER" for i in range(20))
-    conn.execute(f"CREATE TABLE wide_t ({wide_cols})")
+    query(db_path, f"CREATE TABLE wide_t ({wide_cols})")
     placeholders = ", ".join("?" for _ in range(20))
-    conn.execute(
+    query(
+        db_path,
         f"INSERT INTO wide_t VALUES ({placeholders})",
         tuple(range(20)),
     )
 
-    conn.commit()
-    conn.close()
     yield db_path

@@ -10,7 +10,6 @@ server. The ``sql=`` source path has its own module,
 
 from __future__ import annotations
 
-import sqlite3
 from pathlib import Path
 from typing import Any
 from unittest.mock import MagicMock
@@ -19,8 +18,10 @@ import pytest
 from mcp.server.fastmcp import FastMCP
 from mcp.shared.memory import create_connected_server_and_client_session
 
+from mcp_tools_sql.backends.base import BackendConnectionError
 from mcp_tools_sql.config.models import ResolvedTargets
 from mcp_tools_sql.server import FastMCPSink
+from mcp_tools_sql.sql_ast.summarize_queries import ColumnMeta
 from mcp_tools_sql.summarize import SummarizeTools
 from mcp_tools_sql.summarize.render import (
     DISTINCT_GATE_ROWS,
@@ -28,7 +29,6 @@ from mcp_tools_sql.summarize.render import (
     distinct_gate_note,
 )
 from mcp_tools_sql.summarize.source import TYPES_PROBED_NOTE
-from mcp_tools_sql.summarize.sql import ColumnMeta
 from mcp_tools_sql.summarize.tools import _DESCRIPTION, _counts_inconsistent
 from tests.summarize.tool_helpers import call_summarize as _call_summarize
 from tests.summarize.tool_helpers import client_for as _client_for
@@ -518,7 +518,12 @@ async def test_mssql_dialect_metadata_and_scalar_sql() -> None:
 @pytest.mark.parametrize(
     ("exc", "prefix"),
     [
-        (sqlite3.OperationalError("database disk image is malformed"), "Invalid SQL."),
+        (
+            BackendConnectionError(
+                "database disk image is malformed", original_class="OperationalError"
+            ),
+            "Invalid SQL.",
+        ),
         (RuntimeError("Not connected to database"), "Database connection error."),
     ],
 )
@@ -536,6 +541,18 @@ async def test_source_build_failure_returns_message(
     async with _client_for(backend) as client:
         out = await _call_summarize(client, "main", "t")
     assert out.startswith(prefix)
+
+
+@pytest.mark.asyncio
+async def test_backend_error_renders_original_class() -> None:
+    """A neutral backend error renders as ``Invalid SQL.`` with the driver class."""
+    backend = MagicMock()
+    backend.execute_readonly_query.side_effect = BackendConnectionError(
+        "no such table: x", original_class="OperationalError"
+    )
+    async with _client_for(backend) as client:
+        out = await _call_summarize(client, "main", "t")
+    assert out == "Invalid SQL. OperationalError: no such table: x"
 
 
 # ---------------------------------------------------------------------------

@@ -11,10 +11,9 @@ from __future__ import annotations
 
 import pytest
 import sqlglot
-from sqlglot.errors import TokenError
+from sqlglot.errors import ParseError, TokenError
 
-from mcp_tools_sql.utils.sql_placeholders import (
-    ParseError,
+from mcp_tools_sql.sql_ast.placeholders import (
     basic_preflight,
     count_statements,
     single_line,

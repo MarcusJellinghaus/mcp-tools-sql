@@ -17,15 +17,24 @@ temporal/boolean divergence are each pinned by their own regression test.
 
 from __future__ import annotations
 
-import sqlite3
 from datetime import date, datetime
 from decimal import Decimal
 from typing import Any
 from unittest.mock import MagicMock
 
 import pytest
-from sqlglot import exp
 
+from mcp_tools_sql.backends.base import BackendConnectionError
+from mcp_tools_sql.sql_ast.placeholders import (
+    LEADING_CTE_REJECTION,
+    translate_named_to_qmark,
+)
+from mcp_tools_sql.sql_ast.summarize_queries import (
+    SourceRef,
+    _is_integer_type,
+    build_scalar_sql,
+    build_value_list_sql,
+)
 from mcp_tools_sql.summarize.source import (
     DMF_FALLBACK_NOTE,
     DMF_SQL,
@@ -43,13 +52,9 @@ from mcp_tools_sql.summarize.source import (
     probe_columns,
     validate_source,
 )
-from mcp_tools_sql.utils.sql_placeholders import (
-    LEADING_CTE_REJECTION,
-    translate_named_to_qmark,
-)
 
 
-def _ref(sql: str, dialect: str, params: dict[str, Any] | None = None) -> exp.Subquery:
+def _ref(sql: str, dialect: str, params: dict[str, Any] | None = None) -> SourceRef:
     """Validate ``sql`` and return its reference, asserting it was accepted.
 
     Returns:
@@ -89,7 +94,8 @@ def test_plain_select_becomes_aliased_subquery(dialect: str, rendered: str) -> N
 
     assert error is None
     assert notes == []
-    assert isinstance(ref, exp.Subquery)
+    assert ref is not None
+    assert ref.is_query
     assert ref.sql(dialect=dialect) == rendered
 
 
@@ -286,8 +292,6 @@ def test_probed_string_is_nvarchar_on_tsql_not_lob() -> None:
     every string column of its distinct count, length stats, and value list on
     exactly the path where the probe is the only type resolver.
     """
-    from mcp_tools_sql.summarize.sql import build_scalar_sql, build_value_list_sql
-
     ref = _ref("SELECT * FROM t", "tsql")
     metas, error = probe_columns(_backend(["s"], [("hello",)]), ref, None, "tsql")
 
@@ -570,8 +574,6 @@ def test_describe_carries_system_type_name_verbatim(
 
 def test_described_bigint_still_drives_the_sum_guard() -> None:
     """``bigint`` must stay integer-like for the T-SQL ``CAST(... AS BIGINT)``."""
-    from mcp_tools_sql.summarize.sql import _is_integer_type
-
     assert _is_integer_type("bigint") is True
     assert _is_integer_type("decimal(10,2)") is False
 
@@ -630,11 +632,12 @@ def test_tsql_source_prefers_the_dmf_and_adds_no_notes() -> None:
 @pytest.mark.parametrize(
     "describe",
     [
-        # A pyodbc-style driver rejection stands in as a ``sqlite3`` error so
-        # the test runs without the optional driver installed; the fallback is
-        # gated on the shared ``INVALID_SQL_EXC`` family, not on pyodbc.
+        # A driver rejection as the backend surfaces it: the fallback is gated
+        # on the neutral ``BackendError`` family, not on any driver type.
         pytest.param(
-            sqlite3.OperationalError("The user does not have permission"),
+            BackendConnectionError(
+                "The user does not have permission", original_class="OperationalError"
+            ),
             id="driver-error",
         ),
         pytest.param([], id="empty-result"),
@@ -673,7 +676,9 @@ def test_sqlite_source_never_runs_the_dmf() -> None:
 
 def test_source_notes_precede_the_fallback_note() -> None:
     """An ``ORDER BY`` strip still leads the footer when the DMF fell back."""
-    backend = _dmf_backend(sqlite3.OperationalError("denied"))
+    backend = _dmf_backend(
+        BackendConnectionError("denied", original_class="OperationalError")
+    )
 
     built = build_query_source(backend, "SELECT s FROM t ORDER BY s DESC", None, "tsql")
 
@@ -728,7 +733,7 @@ def test_build_table_source_from_catalog_rows(
     assert [m.ordinal for m in built.metas] == [0, 1]
     assert built.notes == []
     assert built.types_probed is False
-    assert isinstance(built.ref, exp.Table)
+    assert not built.ref.is_query
 
     meta_sql, meta_params = backend.execute_readonly_query.call_args[0]
     assert meta_params == {"schema": schema, "table": "orders"}

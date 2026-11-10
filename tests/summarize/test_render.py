@@ -8,6 +8,7 @@ and 60-character value truncation with exact counts.
 
 from __future__ import annotations
 
+from mcp_tools_sql.sql_ast.summarize_queries import Category, ColumnMeta
 from mcp_tools_sql.summarize.render import (
     NO_COLUMNS_TEXT,
     ColumnProfile,
@@ -25,7 +26,6 @@ from mcp_tools_sql.summarize.render import (
     table_not_found_message,
     unknown_columns_message,
 )
-from mcp_tools_sql.summarize.sql import Category, ColumnMeta
 
 
 def _meta(

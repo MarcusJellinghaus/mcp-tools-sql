@@ -4,7 +4,6 @@ from __future__ import annotations
 
 import argparse
 import inspect
-import sqlite3
 from pathlib import Path
 from typing import Any
 
@@ -20,6 +19,7 @@ from mcp_tools_sql.main import (
     main,
 )
 from mcp_tools_sql.utils.log_utils import OUTPUT, setup_logging
+from tests.sqlite_fixtures import create_db
 
 
 def test_dispatch_init_calls_init_run(monkeypatch: pytest.MonkeyPatch) -> None:
@@ -119,8 +119,7 @@ def _build_failing_args(tmp_path: Path, scenario: str) -> list[str]:
             "server",
         ]
     if scenario == "unknown_backend":
-        db = tmp_path / "test.db"
-        sqlite3.connect(str(db)).close()
+        db = create_db(tmp_path / "test.db")
         qcfg = tmp_path / "mcp-tools-sql.toml"
         qcfg.write_text('connection = "default"\n')
         dbcfg = tmp_path / "db.toml"

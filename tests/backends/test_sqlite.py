@@ -12,6 +12,7 @@ from typing import Any
 
 import pytest
 
+from mcp_tools_sql.backends.base import BackendConnectionError, BackendError
 from mcp_tools_sql.backends.sqlite import SQLiteBackend
 from mcp_tools_sql.config.models import ConnectionConfig
 
@@ -121,6 +122,13 @@ class TestQueryExecution:
             assert isinstance(plan, str)
             assert len(plan) > 0
 
+    def test_explain_isolated_is_ignored(self, sqlite_db: Path) -> None:
+        sql = "SELECT * FROM customers WHERE id = :id"
+        with _make_backend(str(sqlite_db)) as backend:
+            assert backend.explain(sql, {"id": 1}, isolated=True) == backend.explain(
+                sql, {"id": 1}
+            )
+
 
 # ---------------------------------------------------------------------------
 # Read-only query execution
@@ -167,10 +175,12 @@ class TestReadOnlyQuery:
     def test_write_is_rejected(self, sqlite_db: Path) -> None:
         """PRAGMA query_only = ON makes writes fail on the fresh connection."""
         with _make_backend(str(sqlite_db)) as backend:
-            with pytest.raises(sqlite3.OperationalError):
+            with pytest.raises(BackendConnectionError) as excinfo:
                 backend.execute_readonly_query(
                     "INSERT INTO customers VALUES (4, 'Bank D', 'Italy')"
                 )
+            assert excinfo.value.original_class == "OperationalError"
+            assert isinstance(excinfo.value.__cause__, sqlite3.OperationalError)
             # The blocked write never landed.
             rows = backend.execute_query(
                 "SELECT COUNT(*) AS n FROM customers WHERE id = 4"
@@ -225,10 +235,11 @@ class TestReadOnlyQueryWithColumns:
     def test_write_is_rejected(self, sqlite_db: Path) -> None:
         """PRAGMA query_only = ON makes writes fail on the fresh connection."""
         with _make_backend(str(sqlite_db)) as backend:
-            with pytest.raises(sqlite3.OperationalError):
+            with pytest.raises(BackendConnectionError) as excinfo:
                 backend.execute_readonly_query_with_columns(
                     "INSERT INTO customers VALUES (4, 'Bank D', 'Italy')"
                 )
+            assert excinfo.value.original_class == "OperationalError"
             rows = backend.execute_query(
                 "SELECT COUNT(*) AS n FROM customers WHERE id = 4"
             )
@@ -328,8 +339,10 @@ class TestErrorHandling:
     def test_connect_invalid_path(self, tmp_path: Path) -> None:
         invalid_path = str(tmp_path / "nonexistent_dir" / "sub" / "test.db")
         backend = _make_backend(invalid_path)
-        with pytest.raises(sqlite3.DatabaseError):
+        with pytest.raises(BackendConnectionError) as excinfo:
             backend.connect()
+        assert excinfo.value.original_class == "OperationalError"
+        assert isinstance(excinfo.value.__cause__, sqlite3.OperationalError)
 
     @pytest.mark.skipif(sys.platform == "win32", reason="chmod not reliable on Windows")
     def test_connect_readonly_file(self, tmp_path: Path) -> None:
@@ -339,7 +352,7 @@ class TestErrorHandling:
         try:
             backend = _make_backend(str(db_path))
             backend.connect()
-            with pytest.raises(sqlite3.DatabaseError):
+            with pytest.raises(BackendError):
                 backend.execute_update("CREATE TABLE t (id INTEGER PRIMARY KEY)")
         finally:
             os.chmod(db_path, stat.S_IRUSR | stat.S_IWUSR)
@@ -349,41 +362,38 @@ class TestErrorHandling:
         corrupt_path.write_bytes(b"this is not a valid sqlite database file!!!")
         backend = _make_backend(str(corrupt_path))
         backend.connect()
-        with pytest.raises(sqlite3.DatabaseError):
+        with pytest.raises(BackendError) as excinfo:
             backend.execute_query("SELECT name FROM sqlite_master WHERE type='table'")
+        assert excinfo.value.original_class == "DatabaseError"
+        assert isinstance(excinfo.value.__cause__, sqlite3.DatabaseError)
 
+    def test_missing_table_translated(self, sqlite_db: Path) -> None:
+        with _make_backend(str(sqlite_db)) as backend:
+            with pytest.raises(BackendConnectionError) as excinfo:
+                backend.execute_query("SELECT * FROM missing")
+        assert excinfo.value.original_class == "OperationalError"
+        assert "no such table" in str(excinfo.value)
+        assert str(excinfo.value) == str(excinfo.value.__cause__)
+        assert isinstance(excinfo.value.__cause__, sqlite3.OperationalError)
 
-# ---------------------------------------------------------------------------
-# Isolated connection primitive
-# ---------------------------------------------------------------------------
+    def test_explain_missing_binding_is_plain_backend_error(
+        self, sqlite_db: Path
+    ) -> None:
+        with _make_backend(str(sqlite_db)) as backend:
+            with pytest.raises(BackendError) as excinfo:
+                backend.explain("SELECT :x", None)
+        assert not isinstance(excinfo.value, BackendConnectionError)
+        assert excinfo.value.original_class == "ProgrammingError"
+        assert isinstance(excinfo.value.__cause__, sqlite3.ProgrammingError)
 
-
-@pytest.mark.sqlite_integration
-class TestIsolatedConnection:
-    """Tests for ``SQLiteBackend.get_isolated_connection``."""
-
-    def test_yields_persistent_connection(self, sqlite_db: Path) -> None:
-        backend = _make_backend(str(sqlite_db))
-        backend.connect()
-        with backend.get_isolated_connection() as conn:
-            assert conn is backend._connection
-        backend.close()
-
-    def test_persistent_connection_usable_after_exit(self, sqlite_db: Path) -> None:
-        backend = _make_backend(str(sqlite_db))
-        with backend.get_isolated_connection():
-            pass
-        rows = backend.execute_query("SELECT 1 AS one")
-        assert rows == [{"one": 1}]
-        backend.close()
-
-    def test_lazy_connect_on_enter(self, sqlite_db: Path) -> None:
-        backend = _make_backend(str(sqlite_db))
-        backend.get_isolated_connection()
-        assert backend._connection is None
-        with backend.get_isolated_connection() as conn:
-            assert isinstance(conn, sqlite3.Connection)
-        backend.close()
+    def test_execute_update_error_translated(self, sqlite_db: Path) -> None:
+        with _make_backend(str(sqlite_db)) as backend:
+            with pytest.raises(BackendError) as excinfo:
+                backend.execute_update(
+                    "INSERT INTO customers VALUES (:id, :name, :country)",
+                    {"id": 1, "name": "Dup", "country": "X"},
+                )
+        assert excinfo.value.original_class == "IntegrityError"
 
 
 # ---------------------------------------------------------------------------

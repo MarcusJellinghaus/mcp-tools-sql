@@ -122,8 +122,9 @@ MCP server providing safe, configurable SQL database access for LLM-assisted wor
 │  ├── mcp_tools_sql.backends (sqlite, mssql)         │
 │  └── mcp_tools_sql.formatting                       │
 ├─────────────────────────────────────────────────────┤
-│  Config Layer                                       │
-│  └── mcp_tools_sql.config (models, loader)          │
+│  Config / SQL Layer                                 │
+│  ├── mcp_tools_sql.config (models, loader)          │
+│  └── mcp_tools_sql.sql_ast (sqlglot owner)          │
 ├─────────────────────────────────────────────────────┤
 │  Utilities Layer                                    │
 │  └── mcp_tools_sql.utils                            │
@@ -223,12 +224,16 @@ and groups.
 | `query_tools.py` | Dynamic registration of configured SELECT tools. Each query's resolved SQL must pass a read-only AST gate at registration; a violating query is skipped with a logged warning and the rest register normally |
 | `update_tools.py` | Dynamic registration of configured UPDATE tools |
 | `validation_tools.py` | SQL validation via EXPLAIN |
-| `summarize/` | `summarize_columns` column profiling. `source.py` resolves the profiling **source** into one `Source` value object — either a persisted table (`schema`+`table`, types from the catalog) or an arbitrary read-only SELECT (`sql`, wrapped as a `(...) AS src` derived table; types come from `sys.dm_exec_describe_first_result_set` on T-SQL, falling back — with a footer note — to the few-row value probe that SQLite always uses). `sql.py` builds the count / scalar-aggregate / value-list SQL, `render.py` the deep and triage text views, `tools.py` registers the tool and orchestrates the pipeline. Downstream of `Source` nothing branches on which path produced it. |
+| `summarize/` | `summarize_columns` column profiling. `source.py` resolves the profiling **source** into one `Source` value object — either a persisted table (`schema`+`table`, types from the catalog) or an arbitrary read-only SELECT (`sql`, wrapped as a `(...) AS src` derived table; types come from `sys.dm_exec_describe_first_result_set` on T-SQL, falling back — with a footer note — to the few-row value probe that SQLite always uses). `render.py` builds the deep and triage text views, `tools.py` registers the tool and orchestrates the pipeline. Downstream of `Source` nothing branches on which path produced it. The package imports no sqlglot: SQL work goes through `sql_ast`. |
 | `config/models.py` | Pydantic models for all config |
 | `config/loader.py` | TOML loading, validation, connection resolution |
-| `backends/base.py` | `DatabaseBackend` ABC + factory. Read-only execution comes in two shapes: `execute_readonly_query` (dict rows, the default) and `execute_readonly_query_with_columns` (ordered column names + raw row tuples, under the same read-only guarantee). The second exists because dict rows discard `cursor.description` and silently collapse duplicate column names — which the `summarize_columns` value probe must be able to detect and reject. `iter_readonly_batches` yields read-only rows in `fetchmany` batches for the query/schema tool path. `QueryTimeoutError` is the one statement-timeout exception; `translate_timeout` maps driver errors (SQLite interrupt, SQLSTATE `HYT00`) to it. |
+| `sql_ast/placeholders.py` | The only sqlglot-backed SQL analysis for the tools: `:name` placeholder extraction and translation, statement counting/kind, leading-CTE check, `basic_preflight`. Every parsing function raises `SqlParseError` instead of sqlglot errors |
+| `sql_ast/summarize_queries.py` | `summarize_columns` SQL: type categoriser, `where` gate, count / scalar-aggregate / value-list SQL built as sqlglot ASTs; opaque `SourceRef` / `Predicate` handles |
+| `sql_ast/source_queries.py` | Parsing and rendering behind the `summarize_columns` `sql=` source path; callers see only a `SourceRef` and SQL strings |
+| `backends/base.py` | `DatabaseBackend` ABC + factory. Read-only execution comes in two shapes: `execute_readonly_query` (dict rows, the default) and `execute_readonly_query_with_columns` (ordered column names + raw row tuples, under the same read-only guarantee). The second exists because dict rows discard `cursor.description` and silently collapse duplicate column names — which the `summarize_columns` value probe must be able to detect and reject. `iter_readonly_batches` yields read-only rows in `fetchmany` batches for the query/schema tool path. `QueryTimeoutError` is the one statement-timeout exception; `translate_timeout` maps driver errors (SQLite interrupt, SQLSTATE `HYT00`) to it. Every other driver error leaves the backend as the neutral `BackendError` (`BackendConnectionError` for connection-shaped errors), same `str()`, driver exception chained — callers never catch driver types. `explain(sql, params, isolated=False)`: `isolated=True` runs on a fresh single-use connection where the backend has one (MSSQL SHOWPLAN). |
 | `backends/sqlite.py` | SQLite implementation |
-| `backends/mssql.py` | SQL Server implementation (pyodbc) |
+| `backends/mssql.py` | SQL Server implementation (pyodbc, imported lazily); `pyodbc_version` / `odbc_drivers` dependency probes |
+| `backends/postgresql.py` | `psycopg_version` dependency probe (no backend yet) |
 | `result_limits.py` | `collect`: the single collection path for query/schema tools (one source per database). Applies the `*_filter` glob per batch, admits display rows under `max_rows` and the output-char budget, cuts long cells, counts matched rows up to `max_count_rows` / the counting time limit, and catches statement timeouts inside the batch loop |
 | `formatting.py` | Result → LLM-friendly text (tabular, truncated). `render_limited` builds the `[Output truncated: ...]` message, fan-out footer, cell-cut line and per-database error lines |
 | `tool_logging.py` | Per-tool-call logging context manager (INFO counts, DEBUG params, ERROR duration) |
@@ -311,7 +316,10 @@ server — not by editing `databases`.
 
 ### Architecture Enforcement
 - `tach.toml` — module boundary enforcement
-- `.importlinter` — import contract validation
+- `.importlinter` — import contract validation, including library isolation:
+  `sqlglot` only in `sql_ast`; `pyodbc`, `psycopg` and `sqlite3` only in
+  `backends` (tests: owner-mirroring `tests/sql_ast`, `tests/backends`, plus
+  `tests/sqlite_fixtures.py` for `sqlite3`)
 
 ### Security
 - Credentials in user config (`~/`), never in project repo

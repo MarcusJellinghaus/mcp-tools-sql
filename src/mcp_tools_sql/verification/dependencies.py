@@ -2,8 +2,8 @@
 
 from __future__ import annotations
 
-from typing import Any
-
+from mcp_tools_sql.backends.mssql import odbc_drivers, pyodbc_version
+from mcp_tools_sql.backends.postgresql import psycopg_version
 from mcp_tools_sql.verification._helpers import CheckResult, make_entry
 
 
@@ -61,13 +61,9 @@ def _verify_dependencies_mssql(configured_driver: str) -> dict[str, CheckResult]
         Verifier rows for the mssql backend.
     """
     result: dict[str, CheckResult] = {}
-    pyodbc_module: Any = None
     try:
-        import pyodbc  # pylint: disable=import-outside-toplevel
-
-        pyodbc_module = pyodbc
-        version = getattr(pyodbc, "version", "")
-        result["pyodbc"] = make_entry(ok=True, value=version)
+        result["pyodbc"] = make_entry(ok=True, value=pyodbc_version())
+        available = True
     except ImportError as exc:
         result["pyodbc"] = make_entry(
             ok=False,
@@ -75,20 +71,21 @@ def _verify_dependencies_mssql(configured_driver: str) -> dict[str, CheckResult]
             error=str(exc),
             install_hint="pip install mcp-tools-sql[mssql]",
         )
+        available = False
 
-    if pyodbc_module is None:
+    if available:
+        result["odbc_driver"] = _check_odbc_driver(configured_driver)
+    else:
         result["odbc_driver"] = make_entry(
             ok=False,
             value="(skipped)",
             error="pyodbc not available",
         )
-    else:
-        result["odbc_driver"] = _check_odbc_driver(pyodbc_module, configured_driver)
 
     return result
 
 
-def _check_odbc_driver(pyodbc_module: Any, configured_driver: str) -> CheckResult:
+def _check_odbc_driver(configured_driver: str) -> CheckResult:
     """Build the ``odbc_driver`` row, comparing config against installed drivers.
 
     When ``configured_driver`` is non-empty, the row fails if that exact name
@@ -103,7 +100,7 @@ def _check_odbc_driver(pyodbc_module: Any, configured_driver: str) -> CheckResul
         "download-odbc-driver-for-sql-server)"
     )
     try:
-        drivers = list(pyodbc_module.drivers())
+        drivers = odbc_drivers()
     except Exception as exc:  # pylint: disable=broad-except
         return make_entry(ok=False, value="(error)", error=str(exc))
 
@@ -137,10 +134,7 @@ def _verify_dependencies_postgresql() -> dict[str, CheckResult]:
     """
     result: dict[str, CheckResult] = {}
     try:
-        import psycopg  # pylint: disable=import-outside-toplevel
-
-        version = getattr(psycopg, "__version__", "")
-        result["psycopg"] = make_entry(ok=True, value=version)
+        result["psycopg"] = make_entry(ok=True, value=psycopg_version())
     except ImportError as exc:
         result["psycopg"] = make_entry(
             ok=False,
