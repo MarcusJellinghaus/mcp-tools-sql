@@ -73,9 +73,9 @@ This tracks **Feature Implementation** consisting of multiple **Tasks**.
 ### Step 8: Docs
 [Detail](./steps/step_8.md)
 
-- [ ] Implementation (docs updates)
-- [ ] Quality checks — fix all issues
-- [ ] Commit message prepared
+- [x] Implementation (docs updates)
+- [x] Quality checks — fix all issues
+- [x] Commit message prepared
 
 ## Pull Request
 

@@ -92,7 +92,9 @@ as in mcp_coder). Import-linter isolation contracts:
   `execute_subprocess` from `mcp_tools_sql.utils.subprocess_runner`.
 - `sqlglot_isolation`: `sqlglot` → `mcp_tools_sql.sql_ast` (and `tests/sql_ast`).
 - `pyodbc_isolation`: `pyodbc` → `mcp_tools_sql.backends`.
-- `psycopg_isolation`: `psycopg` → `mcp_tools_sql.backends`.
+- `psycopg_isolation`: no allowed importer — nothing may import `psycopg` until the
+  PostgreSQL backend (#29) re-adds `backends/postgresql.py` with an
+  `mcp_tools_sql.backends` ignore.
 - `sqlite3_isolation`: `sqlite3` → `mcp_tools_sql.backends` (and `tests/backends`,
   `tests/sqlite_fixtures.py`).
 - `no_test_imports_in_source` forbids `src` importing from `tests`.
@@ -111,7 +113,9 @@ entries, split the file.
 ## Dependencies
 
 deptry (`[tool.deptry]`) checks that declared dependencies match the imports in `src`;
-PR-only CI job `deptry`. Dependabot updates `pip` and `github-actions` weekly
+PR-only CI job `deptry`. `psycopg` has a `DEP002` (unused dependency) ignore: it is
+declared in the `postgresql` / `all-backends` extras but not imported until the
+PostgreSQL backend (#29). Dependabot updates `pip` and `github-actions` weekly
 ([`dependabot.yml`](../.github/dependabot.yml)).
 
 ## Coverage

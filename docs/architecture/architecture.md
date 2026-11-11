@@ -196,7 +196,20 @@ and groups.
   both config files and delegates to `assemble_toolset`, which builds from
   already-loaded objects (config, targets, `BackendRegistry`,
   `allow_updates`) and owns the registry from then on — it closes it if
-  the build fails.
+  the build fails. Before building it raises `ValueError` for a broken
+  setup — an explicit database config path that does not exist, an
+  unsupported backend, missing `pyodbc`, a configured ODBC driver that is
+  not installed — so the error surfaces at build time, not at the model's
+  first tool call. No connection is opened for these checks
+  (`backends/connection_check.py`).
+- `verify(query_config, database_config=None, *, connect=False) ->
+  list[VerifyItem]` is the library-facing verify: the verification
+  sections plus a `toolset.build` row that runs the real `build_toolset`,
+  mapped to the shared `VerifyItem` contract (`mcp_tools_sql.utils.toolkit`,
+  imported lazily so `build_toolset` does not pay for it). It never raises
+  for problems it detects; if it passes with `connect=False`,
+  `build_toolset` on the same paths succeeds. See
+  [python-api.md](../python-api.md#verify).
 - `SqlToolset` exposes `.specs`, `.targets`, `.query_config` and
   `.close()` (closes the registry); it is also a context manager.
 - Rebuild = call `build_toolset` again, swap the new toolset in and close
@@ -219,9 +232,9 @@ and groups.
 |--------|---------------|
 | `main.py` | CLI: argparse, per-command logging setup (level + file resolution), subcommands (server/init/verify) |
 | `server.py` | Registers the toolset's specs into FastMCP, starts STDIO transport |
-| `toolset.py` | `build_toolset` / `assemble_toolset`: every tool as a `ToolSpec` in one `SqlToolset`; builds the `verify` and `read_databases` tools |
+| `toolset.py` | `build_toolset` / `assemble_toolset`: every tool as a `ToolSpec` in one `SqlToolset`; builds the `verify` and `read_databases` tools. Public `verify()`: the library verify, returning `VerifyItem` rows |
 | `schema_tools.py` | Built-in introspection: schemas, tables, columns, relations |
-| `query_tools.py` | Dynamic registration of configured SELECT tools. Each query's resolved SQL must pass a read-only AST gate at registration; a violating query is skipped with a logged warning and the rest register normally |
+| `query_tools.py` | Dynamic registration of configured SELECT tools. Each query's resolved SQL must pass a read-only AST gate at registration; a violating query is skipped with a logged warning and the rest register normally; `verify` reports it as an error |
 | `update_tools.py` | Dynamic registration of configured UPDATE tools |
 | `validation_tools.py` | SQL validation via EXPLAIN |
 | `summarize/` | `summarize_columns` column profiling. `source.py` resolves the profiling **source** into one `Source` value object — either a persisted table (`schema`+`table`, types from the catalog) or an arbitrary read-only SELECT (`sql`, wrapped as a `(...) AS src` derived table; types come from `sys.dm_exec_describe_first_result_set` on T-SQL, falling back — with a footer note — to the few-row value probe that SQLite always uses). `render.py` builds the deep and triage text views, `tools.py` registers the tool and orchestrates the pipeline. Downstream of `Source` nothing branches on which path produced it. The package imports no sqlglot: SQL work goes through `sql_ast`. |
@@ -230,14 +243,14 @@ and groups.
 | `sql_ast/placeholders.py` | The only sqlglot-backed SQL analysis for the tools: `:name` placeholder extraction and translation, statement counting/kind, leading-CTE check, `basic_preflight`. Every parsing function raises `SqlParseError` instead of sqlglot errors |
 | `sql_ast/summarize_queries.py` | `summarize_columns` SQL: type categoriser, `where` gate, count / scalar-aggregate / value-list SQL built as sqlglot ASTs; opaque `SourceRef` / `Predicate` handles |
 | `sql_ast/source_queries.py` | Parsing and rendering behind the `summarize_columns` `sql=` source path; callers see only a `SourceRef` and SQL strings |
-| `backends/base.py` | `DatabaseBackend` ABC + factory. Read-only execution comes in two shapes: `execute_readonly_query` (dict rows, the default) and `execute_readonly_query_with_columns` (ordered column names + raw row tuples, under the same read-only guarantee). The second exists because dict rows discard `cursor.description` and silently collapse duplicate column names — which the `summarize_columns` value probe must be able to detect and reject. `iter_readonly_batches` yields read-only rows in `fetchmany` batches for the query/schema tool path. `QueryTimeoutError` is the one statement-timeout exception; `translate_timeout` maps driver errors (SQLite interrupt, SQLSTATE `HYT00`) to it. Every other driver error leaves the backend as the neutral `BackendError` (`BackendConnectionError` for connection-shaped errors), same `str()`, driver exception chained — callers never catch driver types. `explain(sql, params, isolated=False)`: `isolated=True` runs on a fresh single-use connection where the backend has one (MSSQL SHOWPLAN). |
+| `backends/base.py` | `DatabaseBackend` ABC + factory. `SUPPORTED_BACKENDS` is the one set of backend names; `normalize_backend` maps the `pyodbc` alias to `mssql`. Read-only execution comes in two shapes: `execute_readonly_query` (dict rows, the default) and `execute_readonly_query_with_columns` (ordered column names + raw row tuples, under the same read-only guarantee). The second exists because dict rows discard `cursor.description` and silently collapse duplicate column names — which the `summarize_columns` value probe must be able to detect and reject. `iter_readonly_batches` yields read-only rows in `fetchmany` batches for the query/schema tool path. `QueryTimeoutError` is the one statement-timeout exception; `translate_timeout` maps driver errors (SQLite interrupt, SQLSTATE `HYT00`) to it. Every other driver error leaves the backend as the neutral `BackendError` (`BackendConnectionError` for connection-shaped errors), same `str()`, driver exception chained — callers never catch driver types. `explain(sql, params, isolated=False)`: `isolated=True` runs on a fresh single-use connection where the backend has one (MSSQL SHOWPLAN). |
 | `backends/sqlite.py` | SQLite implementation |
 | `backends/mssql.py` | SQL Server implementation (pyodbc, imported lazily); `pyodbc_version` / `odbc_drivers` dependency probes |
-| `backends/postgresql.py` | `psycopg_version` dependency probe (no backend yet) |
+| `backends/connection_check.py` | Per-connection dependency check (backend name, `pyodbc`, ODBC driver) as neutral rows; used by the DEPENDENCIES verify section and by `build_toolset`. Opens no connection |
 | `result_limits.py` | `collect`: the single collection path for query/schema tools (one source per database). Applies the `*_filter` glob per batch, admits display rows under `max_rows` and the output-char budget, cuts long cells, counts matched rows up to `max_count_rows` / the counting time limit, and catches statement timeouts inside the batch loop |
 | `formatting.py` | Result → LLM-friendly text (tabular, truncated). `render_limited` builds the `[Output truncated: ...]` message, fan-out footer, cell-cut line and per-database error lines |
 | `tool_logging.py` | Per-tool-call logging context manager (INFO counts, DEBUG params, ERROR duration) |
-| `verification/` | Verifier engine: environment, config, dependencies, builtin, connection, queries, updates. Orchestrated by `verify_all`. Consumed by the `verify` CLI subcommand and the toolset's `verify` tool. |
+| `verification/` | Verifier engine: environment, config, dependencies, builtin, connection, queries, updates. Orchestrated by `verify_all` (CLI and `verify` tool) and `collect_sections` (`toolset.verify`; adds the TOOLSET `build` row, config-only without `connect`). |
 
 ---
 
@@ -317,9 +330,10 @@ server — not by editing `databases`.
 ### Architecture Enforcement
 - `tach.toml` — module boundary enforcement
 - `.importlinter` — import contract validation, including library isolation:
-  `sqlglot` only in `sql_ast`; `pyodbc`, `psycopg` and `sqlite3` only in
-  `backends` (tests: owner-mirroring `tests/sql_ast`, `tests/backends`, plus
-  `tests/sqlite_fixtures.py` for `sqlite3`)
+  `sqlglot` only in `sql_ast`; `pyodbc` and `sqlite3` only in `backends`
+  (tests: owner-mirroring `tests/sql_ast`, `tests/backends`, plus
+  `tests/sqlite_fixtures.py` for `sqlite3`); `psycopg` nowhere until the
+  PostgreSQL backend (#29)
 
 ### Security
 - Credentials in user config (`~/`), never in project repo
