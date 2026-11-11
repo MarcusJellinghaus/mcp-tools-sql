@@ -3,7 +3,9 @@
 from __future__ import annotations
 
 import logging
+from collections.abc import Callable
 from pathlib import Path
+from typing import NamedTuple
 
 from mcp_tools_sql.backends.base import DatabaseBackend
 from mcp_tools_sql.backends.registry import BackendRegistry
@@ -16,6 +18,7 @@ from mcp_tools_sql.verification._helpers import (
     VerifySummary,
     checks_ok,
     make_entry,
+    make_warn_entry,
 )
 from mcp_tools_sql.verification.builtin import verify_builtin
 from mcp_tools_sql.verification.config_files import (
@@ -159,6 +162,113 @@ def _verify_connections(
     return result, default_ok, reachable
 
 
+class _Head(NamedTuple):
+    """The sections every verify run starts with, plus what later ones need."""
+
+    sections: list[VerifySection]
+    loaded: LoadedConfigs
+    targets: ResolvedTargets | None
+
+
+def _head_sections(
+    config_path: Path | None,
+    db_config_path: Path | None,
+    project_dir: Path,
+) -> _Head:
+    """Run ENVIRONMENT, CONFIG, DEPENDENCIES and BUILTIN, in that order.
+
+    Returns:
+        A :class:`_Head` with the four sections, the loaded configs and the
+        resolved targets (``None`` when they cannot be resolved).
+    """
+    sections: list[VerifySection] = []
+    sections.append(_section("ENVIRONMENT", verify_environment()))
+    loaded = verify_config_files(config_path, db_config_path, project_dir)
+    sections.append(_section("CONFIG", loaded.checks))
+    targets = _resolve_loaded_targets(loaded)
+    sections.append(_section("DEPENDENCIES", verify_dependencies(loaded.db_config)))
+    sections.append(_section("BUILTIN", verify_builtin()))
+    return _Head(sections, loaded, targets)
+
+
+def _build_row(
+    head_sections: list[VerifySection],
+    build_probe: Callable[[], None],
+) -> CheckResult:
+    """Run *build_probe* unless an earlier section has an ERR row.
+
+    Warnings do not skip the probe: a section's ``ok`` already treats them as
+    passing.
+
+    Returns:
+        The ``build`` row: ``ok``, ``failed`` with the exception message, or a
+        warning ``skipped (earlier errors)``.
+    """
+    if not all(section["ok"] for section in head_sections):
+        return make_warn_entry("skipped (earlier errors)")
+    try:
+        build_probe()
+    except Exception as exc:  # pylint: disable=broad-except
+        return make_entry(ok=False, value="failed", error=str(exc))
+    return make_entry(ok=True, value="ok")
+
+
+def collect_sections(
+    config_path: Path,
+    db_config_path: Path | None,
+    *,
+    connect: bool,
+    build_probe: Callable[[], None],
+) -> list[VerifySection]:
+    """Run the library verify sections and return them in order.
+
+    Order: ENVIRONMENT → CONFIG → DEPENDENCIES → BUILTIN → TOOLSET →
+    CONNECTION → QUERIES → UPDATES. TOOLSET holds one ``build`` row from
+    *build_probe* (the real toolset build, injected by the caller). With
+    ``connect=False`` nothing touches a database: CONNECTION and QUERIES
+    carry config rows only and UPDATES is omitted. QUERIES and UPDATES gate
+    per target on reachability, never on the default connection alone. No
+    INSTALL INSTRUCTIONS section is produced.
+
+    Returns:
+        The sections; CONNECTION onwards only when targets resolved.
+    """
+    head = _head_sections(config_path, db_config_path, Path.cwd())
+    sections = [
+        *head.sections,
+        _section("TOOLSET", {"build": _build_row(head.sections, build_probe)}),
+    ]
+    query_config = head.loaded.query_config
+    if head.targets is None or query_config is None:
+        return sections
+
+    registry = BackendRegistry() if connect else None
+    try:
+        connection_checks, _default_ok, reachable = _verify_connections(
+            head.targets, registry
+        )
+        sections.append(_section("CONNECTION", connection_checks))
+        sections.append(
+            _section(
+                "QUERIES",
+                verify_queries(query_config.queries, head.targets, registry, reachable),
+            )
+        )
+        if registry is not None:
+            sections.append(
+                _section(
+                    "UPDATES",
+                    verify_updates(
+                        query_config.updates, head.targets, registry, reachable
+                    ),
+                )
+            )
+    finally:
+        if registry is not None:
+            registry.close_all()
+    return sections
+
+
 def verify_all(
     config_path: Path | None,
     db_config_path: Path | None,
@@ -180,14 +290,10 @@ def verify_all(
         counts when the default connection failed, else ``None``.
         ``summary`` condenses reachability, entry counts and ``allow_updates``.
     """
-    project_dir = project_dir or Path.cwd()
-    sections: list[VerifySection] = []
-    sections.append(_section("ENVIRONMENT", verify_environment()))
-    loaded = verify_config_files(config_path, db_config_path, project_dir)
-    sections.append(_section("CONFIG", loaded.checks))
-    resolved_targets = _resolve_loaded_targets(loaded)
-    sections.append(_section("DEPENDENCIES", verify_dependencies(loaded.db_config)))
-    sections.append(_section("BUILTIN", verify_builtin()))
+    head = _head_sections(config_path, db_config_path, project_dir or Path.cwd())
+    sections = list(head.sections)
+    loaded = head.loaded
+    resolved_targets = head.targets
 
     skipped_queries: int | None = None
     skipped_updates: int | None = None
