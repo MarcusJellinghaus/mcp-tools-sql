@@ -2,14 +2,12 @@
 
 from __future__ import annotations
 
-import importlib
 import sys
 import types
 
 import pytest
 
 from mcp_tools_sql.backends.mssql import odbc_drivers, pyodbc_version
-from mcp_tools_sql.backends.postgresql import psycopg_version
 
 
 def _fake_pyodbc(monkeypatch: pytest.MonkeyPatch) -> types.ModuleType:
@@ -64,36 +62,3 @@ def test_odbc_drivers_propagates_driver_error_unchanged(
     with pytest.raises(RuntimeError) as excinfo:
         odbc_drivers()
     assert excinfo.value is boom
-
-
-def test_psycopg_version_reads_dunder_version(
-    monkeypatch: pytest.MonkeyPatch,
-) -> None:
-    """psycopg_version returns the driver's __version__ string."""
-    fake = types.ModuleType("psycopg")
-    fake.__version__ = "3.2.1"  # type: ignore[attr-defined]
-    monkeypatch.setitem(sys.modules, "psycopg", fake)
-
-    assert psycopg_version() == "3.2.1"
-
-
-def test_psycopg_version_raises_import_error_when_missing(
-    monkeypatch: pytest.MonkeyPatch,
-) -> None:
-    """A missing psycopg surfaces as ImportError."""
-    monkeypatch.setitem(sys.modules, "psycopg", None)
-
-    with pytest.raises(ImportError):
-        psycopg_version()
-
-
-def test_postgresql_module_imports_without_psycopg(
-    monkeypatch: pytest.MonkeyPatch,
-) -> None:
-    """backends.postgresql imports cleanly when psycopg is not installed."""
-    monkeypatch.setitem(sys.modules, "psycopg", None)
-    monkeypatch.delitem(sys.modules, "mcp_tools_sql.backends.postgresql")
-
-    module = importlib.import_module("mcp_tools_sql.backends.postgresql")
-
-    assert callable(module.psycopg_version)

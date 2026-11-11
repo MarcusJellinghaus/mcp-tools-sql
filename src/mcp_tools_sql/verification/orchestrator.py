@@ -3,7 +3,9 @@
 from __future__ import annotations
 
 import logging
+from collections.abc import Callable
 from pathlib import Path
+from typing import NamedTuple
 
 from mcp_tools_sql.backends.base import DatabaseBackend
 from mcp_tools_sql.backends.registry import BackendRegistry
@@ -16,6 +18,7 @@ from mcp_tools_sql.verification._helpers import (
     VerifySummary,
     checks_ok,
     make_entry,
+    make_warn_entry,
 )
 from mcp_tools_sql.verification.builtin import verify_builtin
 from mcp_tools_sql.verification.config_files import (
@@ -115,7 +118,7 @@ def render_skip_m2_summary(query_count: int, update_count: int) -> str:
 
 def _verify_connections(
     targets: ResolvedTargets,
-    registry: BackendRegistry,
+    registry: BackendRegistry | None,
 ) -> tuple[dict[str, CheckResult], bool, dict[tuple[str, str], bool]]:
     """Probe every ``(connection, database)`` pair via the registry.
 
@@ -123,7 +126,8 @@ def _verify_connections(
     row key with the pair label (``<connection>/<database>``) so a single
     section carries one row-group per pair. The registry owns backend
     lifecycle; on backend-creation failure the pair's ``select_1`` row records
-    the error and probing continues.
+    the error and probing continues. With ``registry=None`` (config-only
+    mode) no backend is created and only the config rows are checked.
 
     Returns:
         Tuple ``(connection_checks, default_ok, reachable)`` where
@@ -138,14 +142,17 @@ def _verify_connections(
     reachable: dict[tuple[str, str], bool] = {}
     for target in targets.targets:
         label = f"{target.connection}/{target.database}"
-        try:
-            backend: DatabaseBackend | None = registry.backend_for(target)
-            probe_error = ""
-        except Exception as exc:  # pylint: disable=broad-except
-            logger.debug("Could not create backend for %s: %s", label, exc)
-            backend = None
-            probe_error = str(exc)
-        pair_result = verify_connection(target, backend, probe_error=probe_error)
+        if registry is None:
+            pair_result = verify_connection(target, None, connect=False)
+        else:
+            try:
+                backend: DatabaseBackend | None = registry.backend_for(target)
+                probe_error = ""
+            except Exception as exc:  # pylint: disable=broad-except
+                logger.debug("Could not create backend for %s: %s", label, exc)
+                backend = None
+                probe_error = str(exc)
+            pair_result = verify_connection(target, backend, probe_error=probe_error)
         pair_ok = checks_ok(pair_result)
         reachable[(target.connection, target.database)] = pair_ok
         if target.is_default:
@@ -153,6 +160,113 @@ def _verify_connections(
         for key, entry in pair_result.items():
             result[f"{label}.{key}"] = entry
     return result, default_ok, reachable
+
+
+class _Head(NamedTuple):
+    """The sections every verify run starts with, plus what later ones need."""
+
+    sections: list[VerifySection]
+    loaded: LoadedConfigs
+    targets: ResolvedTargets | None
+
+
+def _head_sections(
+    config_path: Path | None,
+    db_config_path: Path | None,
+    project_dir: Path,
+) -> _Head:
+    """Run ENVIRONMENT, CONFIG, DEPENDENCIES and BUILTIN, in that order.
+
+    Returns:
+        A :class:`_Head` with the four sections, the loaded configs and the
+        resolved targets (``None`` when they cannot be resolved).
+    """
+    sections: list[VerifySection] = []
+    sections.append(_section("ENVIRONMENT", verify_environment()))
+    loaded = verify_config_files(config_path, db_config_path, project_dir)
+    sections.append(_section("CONFIG", loaded.checks))
+    targets = _resolve_loaded_targets(loaded)
+    sections.append(_section("DEPENDENCIES", verify_dependencies(loaded.db_config)))
+    sections.append(_section("BUILTIN", verify_builtin()))
+    return _Head(sections, loaded, targets)
+
+
+def _build_row(
+    head_sections: list[VerifySection],
+    build_probe: Callable[[], None],
+) -> CheckResult:
+    """Run *build_probe* unless an earlier section has an ERR row.
+
+    Warnings do not skip the probe: a section's ``ok`` already treats them as
+    passing.
+
+    Returns:
+        The ``build`` row: ``ok``, ``failed`` with the exception message, or a
+        warning ``skipped (earlier errors)``.
+    """
+    if not all(section["ok"] for section in head_sections):
+        return make_warn_entry("skipped (earlier errors)")
+    try:
+        build_probe()
+    except Exception as exc:  # pylint: disable=broad-except
+        return make_entry(ok=False, value="failed", error=str(exc))
+    return make_entry(ok=True, value="ok")
+
+
+def collect_sections(
+    config_path: Path,
+    db_config_path: Path | None,
+    *,
+    connect: bool,
+    build_probe: Callable[[], None],
+) -> list[VerifySection]:
+    """Run the library verify sections and return them in order.
+
+    Order: ENVIRONMENT → CONFIG → DEPENDENCIES → BUILTIN → TOOLSET →
+    CONNECTION → QUERIES → UPDATES. TOOLSET holds one ``build`` row from
+    *build_probe* (the real toolset build, injected by the caller). With
+    ``connect=False`` nothing touches a database: CONNECTION and QUERIES
+    carry config rows only and UPDATES is omitted. QUERIES and UPDATES gate
+    per target on reachability, never on the default connection alone. No
+    INSTALL INSTRUCTIONS section is produced.
+
+    Returns:
+        The sections; CONNECTION onwards only when targets resolved.
+    """
+    head = _head_sections(config_path, db_config_path, Path.cwd())
+    sections = [
+        *head.sections,
+        _section("TOOLSET", {"build": _build_row(head.sections, build_probe)}),
+    ]
+    query_config = head.loaded.query_config
+    if head.targets is None or query_config is None:
+        return sections
+
+    registry = BackendRegistry() if connect else None
+    try:
+        connection_checks, _default_ok, reachable = _verify_connections(
+            head.targets, registry
+        )
+        sections.append(_section("CONNECTION", connection_checks))
+        sections.append(
+            _section(
+                "QUERIES",
+                verify_queries(query_config.queries, head.targets, registry, reachable),
+            )
+        )
+        if registry is not None:
+            sections.append(
+                _section(
+                    "UPDATES",
+                    verify_updates(
+                        query_config.updates, head.targets, registry, reachable
+                    ),
+                )
+            )
+    finally:
+        if registry is not None:
+            registry.close_all()
+    return sections
 
 
 def verify_all(
@@ -176,23 +290,10 @@ def verify_all(
         counts when the default connection failed, else ``None``.
         ``summary`` condenses reachability, entry counts and ``allow_updates``.
     """
-    project_dir = project_dir or Path.cwd()
-    sections: list[VerifySection] = []
-    sections.append(_section("ENVIRONMENT", verify_environment()))
-    loaded = verify_config_files(config_path, db_config_path, project_dir)
-    sections.append(_section("CONFIG", loaded.checks))
-    resolved_targets = _resolve_loaded_targets(loaded)
-    default_target = resolved_targets.default if resolved_targets is not None else None
-    backend = default_target.backend_name if default_target is not None else "unknown"
-    configured_driver = (
-        default_target.config.driver
-        if default_target is not None and backend == "mssql"
-        else ""
-    )
-    sections.append(
-        _section("DEPENDENCIES", verify_dependencies(backend, configured_driver))
-    )
-    sections.append(_section("BUILTIN", verify_builtin()))
+    head = _head_sections(config_path, db_config_path, project_dir or Path.cwd())
+    sections = list(head.sections)
+    loaded = head.loaded
+    resolved_targets = head.targets
 
     skipped_queries: int | None = None
     skipped_updates: int | None = None

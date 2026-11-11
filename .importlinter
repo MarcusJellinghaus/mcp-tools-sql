@@ -108,7 +108,8 @@ forbidden_modules =
 ignore_imports =
     mcp_tools_sql.backends.** -> pyodbc
 
-# psycopg is imported lazily inside backends/postgresql.py (optional extra).
+# Nothing imports psycopg until the PostgreSQL backend (#29) re-adds
+# backends/postgresql.py together with an `mcp_tools_sql.backends.** -> psycopg` ignore.
 [importlinter:contract:psycopg_isolation]
 name = psycopg Library Isolation
 type = forbidden
@@ -117,8 +118,6 @@ source_modules =
     tests
 forbidden_modules =
     psycopg
-ignore_imports =
-    mcp_tools_sql.backends.** -> psycopg
 
 # sqlite3 additionally allowed in the owner's mirrored tests (tests/backends) and in the
 # single shared fixture helper tests/sqlite_fixtures.py (user decision on #93).

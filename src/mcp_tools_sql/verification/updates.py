@@ -2,7 +2,7 @@
 
 from __future__ import annotations
 
-from mcp_tools_sql.backends.base import DatabaseBackend
+from mcp_tools_sql.backends.base import DatabaseBackend, normalize_backend
 from mcp_tools_sql.backends.registry import BackendRegistry
 from mcp_tools_sql.config.models import ResolvedTargets, UpdateConfig
 from mcp_tools_sql.identifiers import IDENTIFIER_PATTERN, identifier_error
@@ -28,7 +28,8 @@ def _list_table_columns(
     connection's default schema — verify never silently substitutes ``dbo`` or
     ``public``.
     """
-    if backend_name == "sqlite":
+    kind = normalize_backend(backend_name)
+    if kind == "sqlite":
         rows = backend.execute_query(
             "SELECT name FROM pragma_table_info(:table)",
             {"table": table},
@@ -36,7 +37,7 @@ def _list_table_columns(
         cols = [r["name"] for r in rows]
         return cols if cols else None
 
-    if backend_name in ("mssql", "postgresql"):
+    if kind in ("mssql", "postgresql"):
         rows = backend.execute_query(
             "SELECT COLUMN_NAME FROM INFORMATION_SCHEMA.COLUMNS "
             "WHERE TABLE_SCHEMA = :schema AND TABLE_NAME = :table",

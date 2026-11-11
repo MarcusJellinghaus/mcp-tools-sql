@@ -88,12 +88,26 @@ def translate_timeout(exc: BaseException, seconds: int) -> QueryTimeoutError | N
     return None
 
 
-# keep in sync with the create_backend dispatch chain in backends/registry.py
+# Backend name -> sqlglot dialect; its keys are the supported backends.
 _DIALECTS: dict[str, str] = {
     "sqlite": "sqlite",
     "mssql": "tsql",
     "pyodbc": "tsql",
 }
+SUPPORTED_BACKENDS: frozenset[str] = frozenset(_DIALECTS)
+_ALIASES: dict[str, str] = {"pyodbc": "mssql"}
+
+
+def normalize_backend(name: str) -> str:
+    """Map a backend alias to its canonical name (``pyodbc`` -> ``mssql``).
+
+    Args:
+        name: The configured backend identifier.
+
+    Returns:
+        The canonical backend name; non-alias names are returned unchanged.
+    """
+    return _ALIASES.get(name, name)
 
 
 def to_dialect(backend_name: str) -> str:

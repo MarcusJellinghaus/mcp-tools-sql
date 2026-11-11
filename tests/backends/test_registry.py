@@ -7,7 +7,8 @@ from typing import Any
 import pytest
 
 from mcp_tools_sql.backends.base import DatabaseBackend
-from mcp_tools_sql.backends.registry import BackendRegistry
+from mcp_tools_sql.backends.mssql import MSSQLBackend
+from mcp_tools_sql.backends.registry import BackendRegistry, create_backend
 from mcp_tools_sql.backends.sqlite import SQLiteBackend
 from mcp_tools_sql.config.models import ConnectionConfig, ResolvedTarget
 
@@ -177,3 +178,33 @@ class TestCloseAll:
     def test_close_all_when_empty_is_noop(self) -> None:
         registry = BackendRegistry()
         registry.close_all()  # no backends created; must not raise
+
+
+# ---------------------------------------------------------------------------
+# create_backend validation
+# ---------------------------------------------------------------------------
+
+
+class TestCreateBackend:
+    """create_backend validates against SUPPORTED_BACKENDS, then dispatches."""
+
+    def test_unsupported_backend_lists_supported_names(self) -> None:
+        with pytest.raises(ValueError) as exc_info:
+            create_backend(ConnectionConfig(backend="postgresql", database="d"))
+        message = str(exc_info.value)
+        assert "Unsupported backend: postgresql" in message
+        assert "Supported: mssql, pyodbc, sqlite." in message
+
+    def test_pyodbc_alias_yields_mssql_backend(self) -> None:
+        backend = create_backend(ConnectionConfig(backend="pyodbc", database="d"))
+        assert isinstance(backend, MSSQLBackend)
+
+    def test_supported_name_without_dispatch_branch_raises(
+        self, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        monkeypatch.setattr(
+            "mcp_tools_sql.backends.registry.SUPPORTED_BACKENDS",
+            frozenset({"sqlite", "mssql", "pyodbc", "oracle"}),
+        )
+        with pytest.raises(ValueError, match="No backend implementation for 'oracle'"):
+            create_backend(ConnectionConfig(backend="oracle"))

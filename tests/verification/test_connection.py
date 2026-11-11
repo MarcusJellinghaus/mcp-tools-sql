@@ -383,6 +383,30 @@ def test_verify_connection_mssql_includes_sanitized_conn_string(
     assert "Server=h,1433" in value
 
 
+def test_verify_connection_pyodbc_alias_gets_mssql_rows(
+    ok_backend: MagicMock,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """backend="pyodbc" → driver, dns_lookup and conn_string rows like mssql."""
+    monkeypatch.setattr(
+        "mcp_tools_sql.verification.connection.socket.gethostbyname",
+        MagicMock(return_value="10.1.2.3"),
+    )
+    conn = ConnectionConfig(
+        backend="pyodbc",
+        host="h",
+        database="d",
+        username="u",
+        password="p",
+    )
+    result = verify_connection(_target(conn, database="d"), ok_backend)
+    assert result["backend"]["value"] == "pyodbc"
+    assert "driver" in result
+    assert result["dns_lookup"]["ok"] is True
+    assert result["dns_lookup"]["value"] == "10.1.2.3"
+    assert result["conn_string"]["ok"] is True
+
+
 def test_verify_connection_sqlite_omits_conn_string(tmp_path: Path) -> None:
     """sqlite backend → no conn_string row (mssql-only)."""
     db_path = tmp_path / "real.sqlite"
@@ -593,3 +617,65 @@ def test_non_trusted_skips_check(
     )
     result = verify_connection(_target(conn, database="d"), ok_backend)
     assert "kerberos_ticket" not in result
+
+
+# ---------------------------------------------------------------------------
+# Config-only mode (connect=False)
+# ---------------------------------------------------------------------------
+
+
+def _forbid_probes(monkeypatch: pytest.MonkeyPatch) -> None:
+    """Make DNS and ``klist`` raise so any probe attempt fails the test."""
+    monkeypatch.setattr(
+        "mcp_tools_sql.verification.connection.socket.gethostbyname",
+        MagicMock(side_effect=AssertionError("DNS probe in config-only mode")),
+    )
+    monkeypatch.setattr(
+        "mcp_tools_sql.verification.connection.execute_subprocess",
+        MagicMock(side_effect=AssertionError("klist probe in config-only mode")),
+    )
+
+
+def test_connect_false_mssql_emits_only_config_rows(
+    monkeypatch: pytest.MonkeyPatch,
+    linux_platform: None,  # pylint: disable=unused-argument
+) -> None:
+    """connect=False → no dns_lookup / kerberos_ticket / select_1 rows."""
+    _forbid_probes(monkeypatch)
+    conn = ConnectionConfig(
+        backend="mssql",
+        host="h",
+        port=1433,
+        database="d",
+        trusted_connection=True,
+    )
+    result = verify_connection(_target(conn, database="d"), None, connect=False)
+    assert "dns_lookup" not in result
+    assert "kerberos_ticket" not in result
+    assert "select_1" not in result
+    for key in ("backend", "driver", "host_port", "database", "credentials"):
+        assert key in result
+    assert result["conn_string"]["ok"] is True
+
+
+def test_connect_false_mssql_empty_host_is_err(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """connect=False keeps the config checks: an empty host fails host_port."""
+    _forbid_probes(monkeypatch)
+    conn = ConnectionConfig(
+        backend="mssql", host="", database="d", trusted_connection=True
+    )
+    result = verify_connection(_target(conn, database="d"), None, connect=False)
+    assert result["host_port"]["ok"] is False
+    assert result["host_port"]["severity"] == "error"
+    assert "select_1" not in result
+
+
+def test_connect_false_sqlite_memory_warns_without_select_1() -> None:
+    """connect=False on sqlite ':memory:' → path warning, no select_1 row."""
+    config = ConnectionConfig(backend="sqlite", path=":memory:")
+    result = verify_connection(_target(config), None, connect=False)
+    assert result["path"]["severity"] == "warning"
+    assert result["path"]["ok"] is False
+    assert "select_1" not in result

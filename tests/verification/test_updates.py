@@ -2,6 +2,8 @@
 
 from __future__ import annotations
 
+from unittest.mock import MagicMock
+
 import pytest
 
 from mcp_tools_sql.backends.registry import BackendRegistry
@@ -16,7 +18,7 @@ from mcp_tools_sql.config.models import (
 )
 from mcp_tools_sql.verification import verify_updates
 from mcp_tools_sql.verification._helpers import checks_ok
-from mcp_tools_sql.verification.updates import verify_one_update
+from mcp_tools_sql.verification.updates import _list_table_columns, verify_one_update
 
 from .conftest import StubRegistry
 
@@ -447,3 +449,17 @@ def test_verify_one_update_no_description_row_when_described(
     )
 
     assert "described.description" not in result
+
+
+def test_list_table_columns_pyodbc_alias_uses_information_schema() -> None:
+    """backend "pyodbc" is normalised to mssql → INFORMATION_SCHEMA lookup."""
+    backend = MagicMock(name="pyodbc_backend")
+    backend.execute_query.return_value = [
+        {"COLUMN_NAME": "id"},
+        {"COLUMN_NAME": "name"},
+    ]
+    cols = _list_table_columns(backend, "pyodbc", "dbo", "t")
+    assert cols == ["id", "name"]
+    sql, params = backend.execute_query.call_args.args
+    assert "INFORMATION_SCHEMA.COLUMNS" in sql
+    assert params == {"schema": "dbo", "table": "t"}
