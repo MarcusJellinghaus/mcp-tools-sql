@@ -115,7 +115,7 @@ def render_skip_m2_summary(query_count: int, update_count: int) -> str:
 
 def _verify_connections(
     targets: ResolvedTargets,
-    registry: BackendRegistry,
+    registry: BackendRegistry | None,
 ) -> tuple[dict[str, CheckResult], bool, dict[tuple[str, str], bool]]:
     """Probe every ``(connection, database)`` pair via the registry.
 
@@ -123,7 +123,8 @@ def _verify_connections(
     row key with the pair label (``<connection>/<database>``) so a single
     section carries one row-group per pair. The registry owns backend
     lifecycle; on backend-creation failure the pair's ``select_1`` row records
-    the error and probing continues.
+    the error and probing continues. With ``registry=None`` (config-only
+    mode) no backend is created and only the config rows are checked.
 
     Returns:
         Tuple ``(connection_checks, default_ok, reachable)`` where
@@ -138,14 +139,17 @@ def _verify_connections(
     reachable: dict[tuple[str, str], bool] = {}
     for target in targets.targets:
         label = f"{target.connection}/{target.database}"
-        try:
-            backend: DatabaseBackend | None = registry.backend_for(target)
-            probe_error = ""
-        except Exception as exc:  # pylint: disable=broad-except
-            logger.debug("Could not create backend for %s: %s", label, exc)
-            backend = None
-            probe_error = str(exc)
-        pair_result = verify_connection(target, backend, probe_error=probe_error)
+        if registry is None:
+            pair_result = verify_connection(target, None, connect=False)
+        else:
+            try:
+                backend: DatabaseBackend | None = registry.backend_for(target)
+                probe_error = ""
+            except Exception as exc:  # pylint: disable=broad-except
+                logger.debug("Could not create backend for %s: %s", label, exc)
+                backend = None
+                probe_error = str(exc)
+            pair_result = verify_connection(target, backend, probe_error=probe_error)
         pair_ok = checks_ok(pair_result)
         reachable[(target.connection, target.database)] = pair_ok
         if target.is_default:

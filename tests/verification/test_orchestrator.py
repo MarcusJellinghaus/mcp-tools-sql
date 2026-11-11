@@ -7,15 +7,19 @@ from unittest.mock import MagicMock
 
 import pytest
 
+from mcp_tools_sql.config.models import ConnectionConfig
 from mcp_tools_sql.verification._helpers import (
     VerifyResult,
     VerifySection,
     make_entry,
 )
 from mcp_tools_sql.verification.orchestrator import (
+    _verify_connections,
     collect_install_instructions,
     verify_all,
 )
+
+from .conftest import make_targets
 
 
 def _stub_ok_backend() -> MagicMock:
@@ -289,6 +293,31 @@ def test_verify_all_connection_probes_every_pair(
     assert "prod/hr.select_1" in checks
     assert checks["prod/sales.select_1"]["ok"] is True
     assert checks["prod/hr.select_1"]["ok"] is True
+
+
+def test_verify_connections_without_registry_creates_no_backend(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """registry=None → config rows only; no backend is created or probed."""
+    monkeypatch.setattr(
+        "mcp_tools_sql.backends.registry.create_backend",
+        MagicMock(side_effect=AssertionError("backend created in config-only mode")),
+    )
+    monkeypatch.setattr(
+        "mcp_tools_sql.verification.connection.socket.gethostbyname",
+        MagicMock(side_effect=AssertionError("DNS probe in config-only mode")),
+    )
+    conn = ConnectionConfig(
+        backend="mssql", host="h", database="d", trusted_connection=True
+    )
+    targets = make_targets(backend_name="mssql", connection="prod", config=conn)
+
+    checks, default_ok, reachable = _verify_connections(targets, None)
+
+    assert not any(key.endswith(".select_1") for key in checks)
+    assert "prod/d.host_port" in checks
+    assert default_ok is True
+    assert reachable == {("prod", "d"): True}
 
 
 def test_verify_all_connection_not_ok_when_a_pair_fails(

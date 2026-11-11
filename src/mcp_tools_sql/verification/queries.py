@@ -137,7 +137,7 @@ def _verify_query_checks(
     name: str,
     qcfg: QueryConfig,
     targets: ResolvedTargets,
-    registry: BackendRegistry,
+    registry: BackendRegistry | None,
     reachable: dict[tuple[str, str], bool],
 ) -> dict[str, CheckResult]:
     """Run the SQL, read-only, params and row-limit checks for one query.
@@ -150,21 +150,23 @@ def _verify_query_checks(
     pinned variant is not provably read-only is never EXPLAINed at all: its
     ``<name>.sql`` row is a ``(skipped)`` warn row, and the ``read_only`` row
     carries the reason. An
-    unresolvable pin (bad connection/database) yields error rows.
+    unresolvable pin (bad connection/database) yields error rows. A ``None``
+    *registry* is config-only mode: no ``<name>.sql`` row is emitted at all.
 
     Returns:
-        Dict with keys ``<name>.sql``, one ``<name>.read_only[<backend>]`` row
-        per declared backend variant, ``<name>.params``,
-        ``<name>.max_rows_default`` and ``<name>.max_rows_hard``, in that
-        order. An unresolvable pin yields a single un-suffixed
-        ``<name>.read_only`` row instead, since no variant set can be formed
-        without a target.
+        Dict with keys ``<name>.sql`` (omitted when *registry* is ``None``),
+        one ``<name>.read_only[<backend>]`` row per declared backend variant,
+        ``<name>.params``, ``<name>.max_rows_default`` and
+        ``<name>.max_rows_hard``, in that order. An unresolvable pin yields a
+        single un-suffixed ``<name>.read_only`` row instead, since no variant
+        set can be formed without a target.
     """
     result: dict[str, CheckResult] = {}
     try:
         target = targets.resolve_pinned(qcfg.connection or None, qcfg.database or None)
     except ValueError as exc:
-        result[f"{name}.sql"] = make_entry(ok=False, value="failed", error=str(exc))
+        if registry is not None:
+            result[f"{name}.sql"] = make_entry(ok=False, value="failed", error=str(exc))
         result[f"{name}.read_only"] = make_entry(
             ok=False, value="(skipped)", error=str(exc)
         )
@@ -187,18 +189,20 @@ def _verify_query_checks(
     read_only_rows = _read_only_rows(name, qcfg, target.backend_name)
     pinned_row = read_only_rows[f"{name}.read_only[{target.backend_name}]"]
 
-    if not is_passing(pinned_row):
-        result[f"{name}.sql"] = make_skipped_not_read_only_entry()
-    elif reachable.get((target.connection, target.database), False):
-        backend = registry.backend_for(target)
-        ok, err = _check_sql_explain(sql, qcfg.params, target.backend_name, backend)
-        result[f"{name}.sql"] = make_entry(
-            ok=ok,
-            value="EXPLAIN ok" if ok else "failed",
-            error=err,
-        )
-    else:
-        result[f"{name}.sql"] = make_skipped_entry(target.connection)
+    # No registry means config-only mode: no database, so no ``.sql`` row.
+    if registry is not None:
+        if not is_passing(pinned_row):
+            result[f"{name}.sql"] = make_skipped_not_read_only_entry()
+        elif reachable.get((target.connection, target.database), False):
+            backend = registry.backend_for(target)
+            ok, err = _check_sql_explain(sql, qcfg.params, target.backend_name, backend)
+            result[f"{name}.sql"] = make_entry(
+                ok=ok,
+                value="EXPLAIN ok" if ok else "failed",
+                error=err,
+            )
+        else:
+            result[f"{name}.sql"] = make_skipped_entry(target.connection)
 
     result.update(read_only_rows)
 
@@ -222,7 +226,7 @@ def verify_one_query(
     name: str,
     qcfg: QueryConfig,
     targets: ResolvedTargets,
-    registry: BackendRegistry,
+    registry: BackendRegistry | None,
     reachable: dict[tuple[str, str], bool],
 ) -> dict[str, CheckResult]:
     """Per-entry validation for a single query against its own pinned target.
@@ -246,7 +250,7 @@ def verify_one_query(
 def verify_queries(
     queries: dict[str, QueryConfig],
     targets: ResolvedTargets,
-    registry: BackendRegistry,
+    registry: BackendRegistry | None,
     reachable: dict[tuple[str, str], bool],
 ) -> dict[str, CheckResult]:
     """Per-query validation: SQL EXPLAIN, params well-formed, row limits > 0.
@@ -254,7 +258,8 @@ def verify_queries(
     Each query is EXPLAINed against its own resolved target; queries pinned to
     an unreachable connection report a skip row (naming the connection) instead
     of being blanked, while a reachable query in the same run still gets a real
-    verdict.
+    verdict. With ``registry=None`` (config-only mode) nothing is EXPLAINed and
+    no ``<name>.sql`` rows are emitted.
 
     Returns:
         The rows described by :func:`verify_one_query` for each query.

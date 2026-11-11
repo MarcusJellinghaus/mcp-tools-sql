@@ -136,15 +136,18 @@ def verify_connection(
     backend: DatabaseBackend | None,
     *,
     probe_error: str = "",
+    connect: bool = True,
 ) -> dict[str, CheckResult]:
     """Verify connectivity for a single ``(connection, database)`` target.
 
     Emits the config-derived rows (backend, driver, host/port, the per-pair
-    ``database`` catalog, credentials, DNS, Kerberos, connection string) and a
-    ``select_1`` probe run against *backend* — the registry-owned backend for
-    this target. The registry owns the backend lifecycle, so this function
-    never creates or closes it. When *backend* is ``None`` (its creation
-    failed) the ``select_1`` row fails with *probe_error*.
+    ``database`` catalog, credentials, connection string) and, when *connect*
+    is True, the DNS, Kerberos and ``select_1`` probes. ``select_1`` runs
+    against *backend* — the registry-owned backend for this target. The
+    registry owns the backend lifecycle, so this function never creates or
+    closes it. When *backend* is ``None`` (its creation failed) the
+    ``select_1`` row fails with *probe_error*. With ``connect=False`` nothing
+    leaves the process and *backend* is ignored (config-only mode).
 
     Returns:
         Verifier rows for this pair.
@@ -208,11 +211,21 @@ def verify_connection(
             error="No credentials configured",
         )
 
-    if kind == "mssql" and connection.host and not _has_control_chars(connection.host):
+    if (
+        connect
+        and kind == "mssql"
+        and connection.host
+        and not _has_control_chars(connection.host)
+    ):
         ok, value, error = _resolve_dns(connection.host)
         result["dns_lookup"] = make_entry(ok=ok, value=value, error=error)
 
-    if kind == "mssql" and connection.trusted_connection and sys.platform == "linux":
+    if (
+        connect
+        and kind == "mssql"
+        and connection.trusted_connection
+        and sys.platform == "linux"
+    ):
         ok, value, error = _check_kerberos_ticket()
         result["kerberos_ticket"] = make_entry(ok=ok, value=value, error=error)
 
@@ -221,16 +234,25 @@ def verify_connection(
             ok=True, value=build_sanitized_connection_string(connection)
         )
 
-    if backend is None:
-        result["select_1"] = make_entry(
-            ok=False, value="failed", error=probe_error or "backend unavailable"
-        )
-    else:
-        try:
-            backend.connect()
-            backend.execute_query("SELECT 1")
-            result["select_1"] = make_entry(ok=True, value="ok")
-        except Exception as exc:  # pylint: disable=broad-except
-            result["select_1"] = make_entry(ok=False, value="failed", error=str(exc))
+    if connect:
+        result["select_1"] = _select_1_entry(backend, probe_error)
 
     return result
+
+
+def _select_1_entry(backend: DatabaseBackend | None, probe_error: str) -> CheckResult:
+    """Run ``SELECT 1`` against *backend*, or fail with *probe_error* if ``None``.
+
+    Returns:
+        The ``select_1`` verifier row.
+    """
+    if backend is None:
+        return make_entry(
+            ok=False, value="failed", error=probe_error or "backend unavailable"
+        )
+    try:
+        backend.connect()
+        backend.execute_query("SELECT 1")
+        return make_entry(ok=True, value="ok")
+    except Exception as exc:  # pylint: disable=broad-except
+        return make_entry(ok=False, value="failed", error=str(exc))
