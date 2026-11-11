@@ -31,9 +31,9 @@ This tracks **Feature Implementation** consisting of multiple **Tasks**.
 ### Step 2: Per-connection dependency check; DEPENDENCIES per connection; remove psycopg probe
 [Detail](./steps/step_2.md)
 
-- [ ] Implementation (tests + production code)
-- [ ] Quality checks — fix all issues
-- [ ] Commit message prepared
+- [x] Implementation (tests + production code)
+- [x] Quality checks — fix all issues
+- [x] Commit message prepared
 
 ### Step 3: `load_database_config` — explicit missing path raises
 [Detail](./steps/step_3.md)

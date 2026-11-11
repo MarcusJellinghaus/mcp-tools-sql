@@ -175,6 +175,30 @@ def test_verify_sqlite_full_run_all_ok(
 
     assert "[ERR]" not in captured.out
     assert "no optional dependencies for sqlite" in captured.out
+    assert "default.info" in _extract_section(captured.out, "DEPENDENCIES")
+
+
+def test_verify_dependencies_rows_per_connection(
+    tmp_path: Path,
+    capsys: pytest.CaptureFixture[str],
+) -> None:
+    """Two sqlite connections → one ``<connection>.info`` row each."""
+    query_cfg = tmp_path / "mcp-tools-sql.toml"
+    query_cfg.write_text('connection = "default"\n', encoding="utf-8")
+
+    db_cfg = tmp_path / "db-config.toml"
+    db_cfg.write_text(
+        '[connections.default]\nbackend = "sqlite"\npath = "a.sqlite"\n'
+        '[connections.second]\nbackend = "sqlite"\npath = "b.sqlite"\n',
+        encoding="utf-8",
+    )
+
+    args = _make_args(config=query_cfg, database_config=db_cfg)
+    verify_cmd.run(args)
+    deps = _extract_section(capsys.readouterr().out, "DEPENDENCIES")
+
+    assert "default.info" in deps
+    assert "second.info" in deps
 
 
 def test_verify_detects_missing_connection(
@@ -183,9 +207,10 @@ def test_verify_detects_missing_connection(
 ) -> None:
     """Issue test (ix): query config refers to a name not in db config.
 
-    The mismatch surfaces via backend resolution failing, so DEPENDENCIES
-    renders as the `unknown` backend ERR row. The CONNECTION section is
-    omitted because the connection cannot be resolved at all. Exit code 1.
+    The mismatch is the CONFIG ``connection_valid`` ERR row; DEPENDENCIES
+    still checks every connection the database config defines. The
+    CONNECTION section is omitted because the connection cannot be resolved
+    at all. Exit code 1.
     """
     query_cfg = tmp_path / "mcp-tools-sql.toml"
     query_cfg.write_text('connection = "missing_name"\n', encoding="utf-8")
@@ -200,7 +225,40 @@ def test_verify_detects_missing_connection(
     rc = verify_cmd.run(args)
     captured = capsys.readouterr()
 
-    assert "cannot determine backend without valid config" in captured.out
+    config_block = _extract_section(captured.out, "CONFIG")
+    assert re.search(r"^\[ERR\]\s+connection_valid\b", config_block, re.MULTILINE)
+    assert "default.info" in _extract_section(captured.out, "DEPENDENCIES")
+    assert "cannot determine backend" not in captured.out
+    assert "=== CONNECTION ===" not in captured.out
+    assert rc == 1
+
+
+def test_verify_reports_unsupported_backend_per_connection(
+    tmp_path: Path,
+    capsys: pytest.CaptureFixture[str],
+) -> None:
+    """A non-default connection with an unsupported backend → ``pg.backend`` ERR."""
+    sqlite_db = tmp_path / "real.sqlite"
+    sqlite_db.write_bytes(b"")
+
+    query_cfg = tmp_path / "mcp-tools-sql.toml"
+    query_cfg.write_text('connection = "default"\n', encoding="utf-8")
+
+    db_cfg = tmp_path / "db-config.toml"
+    db_cfg.write_text(
+        f'[connections.default]\nbackend = "sqlite"\npath = "{sqlite_db.as_posix()}"\n'
+        '[connections.pg]\nbackend = "postgresql"\ndatabase = "x"\n',
+        encoding="utf-8",
+    )
+
+    args = _make_args(config=query_cfg, database_config=db_cfg)
+    rc = verify_cmd.run(args)
+    deps = _extract_section(capsys.readouterr().out, "DEPENDENCIES")
+
+    pg_rows = [line for line in deps.splitlines() if " pg.backend " in line]
+    assert len(pg_rows) == 1
+    assert pg_rows[0].startswith("[ERR]")
+    assert "unsupported backend" in pg_rows[0]
     assert rc == 1
 
 

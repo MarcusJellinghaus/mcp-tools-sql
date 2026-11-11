@@ -182,16 +182,7 @@ def verify_all(
     loaded = verify_config_files(config_path, db_config_path, project_dir)
     sections.append(_section("CONFIG", loaded.checks))
     resolved_targets = _resolve_loaded_targets(loaded)
-    default_target = resolved_targets.default if resolved_targets is not None else None
-    backend = default_target.backend_name if default_target is not None else "unknown"
-    configured_driver = (
-        default_target.config.driver
-        if default_target is not None and backend == "mssql"
-        else ""
-    )
-    sections.append(
-        _section("DEPENDENCIES", verify_dependencies(backend, configured_driver))
-    )
+    sections.append(_section("DEPENDENCIES", verify_dependencies(loaded.db_config)))
     sections.append(_section("BUILTIN", verify_builtin()))
 
     skipped_queries: int | None = None
