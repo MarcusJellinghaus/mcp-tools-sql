@@ -4,6 +4,7 @@ from __future__ import annotations
 
 from pathlib import Path
 from typing import Any
+from unittest.mock import MagicMock
 
 import pytest
 from pydantic import ValidationError
@@ -55,8 +56,12 @@ def _write_configs(
     updates: str = _UPDATES,
     allow_updates: bool = True,
     multi: bool = False,
+    extra_connections: str = "",
 ) -> tuple[Path, Path]:
-    """Write SQLite query + database configs and return their paths."""
+    """Write SQLite query + database configs and return their paths.
+
+    ``extra_connections`` is TOML appended after the sqlite connections.
+    """
     db_a = tmp_path / "a.db"
     _make_db(db_a)
     qcfg = tmp_path / "mcp-tools-sql.toml"
@@ -68,6 +73,7 @@ def _write_configs(
         text += (
             f'\n[connections.second]\nbackend = "sqlite"\npath = "{db_b.as_posix()}"\n'
         )
+    text += extra_connections
     text += f"\n[security]\nallow_updates = {str(allow_updates).lower()}\n"
     dbcfg = tmp_path / "db.toml"
     dbcfg.write_text(text, encoding="utf-8")
@@ -292,3 +298,82 @@ def test_context_manager_closes_registry(
     with build_toolset(*_write_configs(tmp_path)) as toolset:
         assert not closed
     assert closed == [toolset.registry]
+
+
+_PROD_MSSQL = (
+    '\n[connections.prod]\nbackend = "mssql"\nhost = "db1"\ndatabase = "app"\n'
+)
+_CHECK = "mcp_tools_sql.backends.connection_check"
+
+
+def _no_registry(monkeypatch: pytest.MonkeyPatch) -> MagicMock:
+    """Replace ``BackendRegistry`` in ``toolset`` with a mock to detect use."""
+    registry = MagicMock()
+    monkeypatch.setattr("mcp_tools_sql.toolset.BackendRegistry", registry)
+    return registry
+
+
+def _raise_import_error() -> str:
+    raise ImportError("No module named 'pyodbc'")
+
+
+def test_build_raises_when_pyodbc_missing(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    registry = _no_registry(monkeypatch)
+    monkeypatch.setattr(f"{_CHECK}.pyodbc_version", _raise_import_error)
+    qcfg, dbcfg = _write_configs(tmp_path, extra_connections=_PROD_MSSQL)
+    with pytest.raises(ValueError, match=r"'prod'") as exc_info:
+        build_toolset(qcfg, dbcfg)
+    assert "[mssql]" in str(exc_info.value)
+    registry.assert_not_called()
+
+
+def test_build_raises_on_unsupported_backend(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    registry = _no_registry(monkeypatch)
+    extra = '\n[connections.pg]\nbackend = "postgresql"\ndatabase = "x"\n'
+    qcfg, dbcfg = _write_configs(tmp_path, extra_connections=extra)
+    with pytest.raises(ValueError, match=r"'pg'") as exc_info:
+        build_toolset(qcfg, dbcfg)
+    assert "unsupported backend" in str(exc_info.value)
+    registry.assert_not_called()
+
+
+def test_build_raises_when_configured_driver_missing(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    registry = _no_registry(monkeypatch)
+    monkeypatch.setattr(f"{_CHECK}.pyodbc_version", lambda: "5.2.0")
+    monkeypatch.setattr(f"{_CHECK}.odbc_drivers", lambda: ["SQL Server"])
+    extra = _PROD_MSSQL + 'driver = "ODBC Driver 99 for SQL Server"\n'
+    qcfg, dbcfg = _write_configs(tmp_path, extra_connections=extra)
+    with pytest.raises(ValueError, match="ODBC Driver 99 for SQL Server"):
+        build_toolset(qcfg, dbcfg)
+    registry.assert_not_called()
+
+
+def test_build_raises_on_missing_explicit_database_config(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    registry = _no_registry(monkeypatch)
+    qcfg, _ = _write_configs(tmp_path)
+    missing = tmp_path / "nope.toml"
+    with pytest.raises(ValueError, match="nope.toml"):
+        build_toolset(qcfg, missing)
+    registry.assert_not_called()
+
+
+def test_build_succeeds_with_mssql_dependencies_present(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    monkeypatch.setattr(f"{_CHECK}.pyodbc_version", lambda: "5.2.0")
+    monkeypatch.setattr(
+        f"{_CHECK}.odbc_drivers", lambda: ["ODBC Driver 18 for SQL Server"]
+    )
+    qcfg, dbcfg = _write_configs(tmp_path, extra_connections=_PROD_MSSQL)
+    with build_toolset(qcfg, dbcfg) as toolset:
+        names = {s.name for s in toolset.specs}
+    assert "query_foo" in names
+    assert "read_databases" in names

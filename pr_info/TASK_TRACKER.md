@@ -45,9 +45,9 @@ This tracks **Feature Implementation** consisting of multiple **Tasks**.
 ### Step 4: `build_toolset` fails early on dependency errors
 [Detail](./steps/step_4.md)
 
-- [ ] Implementation (tests + production code)
-- [ ] Quality checks — fix all issues
-- [ ] Commit message prepared
+- [x] Implementation (tests + production code)
+- [x] Quality checks — fix all issues
+- [x] Commit message prepared
 
 ### Step 5: Config-only section parameters (CONNECTION `connect`, QUERIES `registry=None`)
 [Detail](./steps/step_5.md)

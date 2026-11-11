@@ -10,6 +10,7 @@ from __future__ import annotations
 from dataclasses import dataclass
 from typing import TYPE_CHECKING
 
+from mcp_tools_sql.backends.connection_check import check_connections
 from mcp_tools_sql.backends.registry import BackendRegistry
 from mcp_tools_sql.config.loader import (
     load_database_config,
@@ -31,7 +32,11 @@ if TYPE_CHECKING:
     from collections.abc import Awaitable, Callable
     from pathlib import Path
 
-    from mcp_tools_sql.config.models import QueryFileConfig, ResolvedTargets
+    from mcp_tools_sql.config.models import (
+        DatabaseConfig,
+        QueryFileConfig,
+        ResolvedTargets,
+    )
     from mcp_tools_sql.utils.tool_spec import ToolSpec
 
 _READ_DATABASES_DESC = (
@@ -167,19 +172,36 @@ def assemble_toolset(
     return SqlToolset(sink.specs, targets, config, registry)
 
 
+def _raise_on_dependency_errors(db_config: DatabaseConfig) -> None:
+    """Raise ValueError for the first connection failing the dependency check.
+
+    Raises:
+        ValueError: Naming the connection, the failing check and its hint.
+    """
+    for row in check_connections(db_config.connections):
+        if not row.ok:
+            hint = f" ({row.hint})" if row.hint else ""
+            raise ValueError(
+                f"Connection {row.connection!r}: {row.key}: "
+                f"{row.error or row.value}{hint}"
+            )
+
+
 def build_toolset(
     query_config: Path, database_config: Path | None = None
 ) -> SqlToolset:
     """Load both config files and build every tool spec.
 
     Callable repeatedly: to pick up config edits, build a new toolset, swap
-    it in and close the old one.
+    it in and close the old one. A broken setup (unsupported backend,
+    missing pyodbc or ODBC driver) raises before any connection is opened.
 
     Returns:
         The assembled toolset; close it when done.
     """
     qcfg = load_query_config(query_config)
     dbcfg = load_database_config(database_config)
+    _raise_on_dependency_errors(dbcfg)
     targets = resolve_targets(qcfg, dbcfg)
     return assemble_toolset(
         qcfg,
