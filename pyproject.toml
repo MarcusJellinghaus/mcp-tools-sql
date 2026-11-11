@@ -227,6 +227,9 @@ format_code = true
 [tool.mcp-coder.implement]
 check_type_hints = true
 
+[tool.mcp-coder.toolkit]
+toolkit = "mcp-tools-py"
+
 [tool.mcp-coder.install]
 # Extras `mcp-coder install` passes to `uv` when provisioning this repo.
 extras = "dev"
