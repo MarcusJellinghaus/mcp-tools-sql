@@ -2,6 +2,8 @@
 
 from __future__ import annotations
 
+import socket
+import sys
 from pathlib import Path
 from typing import Any
 from unittest.mock import MagicMock
@@ -9,9 +11,12 @@ from unittest.mock import MagicMock
 import pytest
 from pydantic import ValidationError
 
+from mcp_tools_sql.backends.mssql import MSSQLBackend
 from mcp_tools_sql.backends.registry import BackendRegistry
-from mcp_tools_sql.toolset import SqlToolset, build_toolset
+from mcp_tools_sql.backends.sqlite import SQLiteBackend
+from mcp_tools_sql.toolset import SqlToolset, build_toolset, verify
 from mcp_tools_sql.utils.tool_spec import ToolSpec
+from mcp_tools_sql.utils.toolkit import VerifyItem
 from tests.sqlite_fixtures import create_db
 
 _QUERIES = (
@@ -377,3 +382,223 @@ def test_build_succeeds_with_mssql_dependencies_present(
         names = {s.name for s in toolset.specs}
     assert "query_foo" in names
     assert "read_databases" in names
+
+
+# ---------------------------------------------------------------------------
+# verify
+# ---------------------------------------------------------------------------
+
+_SKIPPED_EARLIER = "skipped (earlier errors)"
+_SKIPPED_DEFAULT_DOWN = "skipped (connection default unreachable)"
+_DB_PROBE_SUFFIXES = (".select_1", ".dns_lookup", ".kerberos_ticket", ".sql")
+
+
+def _by_item_name(items: list[VerifyItem]) -> dict[str, VerifyItem]:
+    return {item.name: item for item in items}
+
+
+def _mssql_deps_present(monkeypatch: pytest.MonkeyPatch) -> None:
+    monkeypatch.setattr(f"{_CHECK}.pyodbc_version", lambda: "5.2.0")
+    monkeypatch.setattr(
+        f"{_CHECK}.odbc_drivers", lambda: ["ODBC Driver 18 for SQL Server"]
+    )
+
+
+def test_verify_config_only_opens_no_connection(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    extra = _PROD_MSSQL + "trusted_connection = true\n"
+    qcfg, dbcfg = _write_configs(tmp_path, extra_connections=extra)
+    _mssql_deps_present(monkeypatch)
+    monkeypatch.setattr(sys, "platform", "linux")
+    calls: list[str] = []
+
+    def forbid(label: str) -> Any:
+        def fail(*_args: object, **_kwargs: object) -> None:
+            calls.append(label)
+            raise AssertionError(f"{label} called under connect=False")
+
+        return fail
+
+    for owner, attr in (
+        (SQLiteBackend, "connect"),
+        (SQLiteBackend, "execute_readonly_query"),
+        (SQLiteBackend, "iter_readonly_batches"),
+        (SQLiteBackend, "execute_readonly_query_with_columns"),
+        (MSSQLBackend, "_open_connection"),
+        (socket, "gethostbyname"),
+    ):
+        monkeypatch.setattr(owner, attr, forbid(attr))
+    monkeypatch.setattr(
+        "mcp_tools_sql.verification.connection.execute_subprocess",
+        forbid("execute_subprocess"),
+    )
+
+    items = _by_item_name(verify(qcfg, dbcfg))
+
+    assert not calls
+    assert items["toolset.build"].status == "ok"
+    assert not [n for n in items if n.endswith(_DB_PROBE_SUFFIXES)]
+    assert not [n for n in items if n.startswith("updates.")]
+
+
+def _raise_on_drivers() -> list[str]:
+    raise AssertionError("drivers must not be listed without pyodbc")
+
+
+@pytest.mark.parametrize(
+    ("extra", "version", "drivers", "name", "needles"),
+    [
+        pytest.param(
+            _PROD_MSSQL,
+            _raise_import_error,
+            _raise_on_drivers,
+            "dependencies.prod.pyodbc",
+            ("not installed",),
+            id="pyodbc-missing",
+        ),
+        pytest.param(
+            '\n[connections.pg]\nbackend = "postgresql"\ndatabase = "x"\n',
+            _raise_import_error,
+            _raise_on_drivers,
+            "dependencies.pg.backend",
+            ("unsupported backend",),
+            id="unsupported-backend",
+        ),
+        pytest.param(
+            _PROD_MSSQL + 'driver = "ODBC Driver 99 for SQL Server"\n',
+            lambda: "5.2.0",
+            lambda: ["SQL Server"],
+            "dependencies.prod.odbc_driver",
+            ("ODBC Driver 99 for SQL Server", "installed: SQL Server"),
+            id="driver-missing",
+        ),
+    ],
+)
+def test_verify_dependency_error_skips_build(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+    extra: str,
+    version: Any,
+    drivers: Any,
+    name: str,
+    needles: tuple[str, ...],
+) -> None:
+    monkeypatch.setattr(f"{_CHECK}.pyodbc_version", version)
+    monkeypatch.setattr(f"{_CHECK}.odbc_drivers", drivers)
+    qcfg, dbcfg = _write_configs(tmp_path, extra_connections=extra)
+
+    items = _by_item_name(verify(qcfg, dbcfg))
+
+    assert items[name].status == "error"
+    for needle in needles:
+        assert needle in items[name].message
+    assert items["toolset.build"].status == "warning"
+    assert items["toolset.build"].message == _SKIPPED_EARLIER
+
+
+def test_verify_pyodbc_missing_carries_install_hint(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    monkeypatch.setattr(f"{_CHECK}.pyodbc_version", _raise_import_error)
+    qcfg, dbcfg = _write_configs(tmp_path, extra_connections=_PROD_MSSQL)
+
+    hint = _by_item_name(verify(qcfg, dbcfg))["dependencies.prod.pyodbc"].hint
+
+    assert hint is not None
+    assert "[mssql]" in hint
+
+
+@pytest.mark.parametrize(
+    ("queries", "name", "needle"),
+    [
+        pytest.param(
+            '\n[queries."bad-name"]\ndescription = "Bad"\nsql = "SELECT 1"\n',
+            "toolset.build",
+            "Invalid query name",
+            id="invalid-query-name",
+        ),
+        pytest.param(
+            '\n[queries.wipe]\ndescription = "Wipe"\nsql = "DELETE FROM customers"\n',
+            "queries.wipe.read_only[sqlite]",
+            "",
+            id="not-read-only",
+        ),
+    ],
+)
+def test_verify_query_error_rows(
+    tmp_path: Path, queries: str, name: str, needle: str
+) -> None:
+    qcfg, dbcfg = _write_configs(tmp_path, queries=queries)
+
+    item = _by_item_name(verify(qcfg, dbcfg))[name]
+
+    assert item.status == "error"
+    assert needle in item.message
+
+
+def test_verify_connect_with_default_down_skips_database_rows(
+    tmp_path: Path,
+) -> None:
+    qcfg, dbcfg = _write_configs(tmp_path)
+    text = dbcfg.read_text(encoding="utf-8")
+    dbcfg.write_text(text.replace("/a.db", "/no_such_dir/a.db"), encoding="utf-8")
+
+    offline = verify(qcfg, dbcfg)
+    online = _by_item_name(verify(qcfg, dbcfg, connect=True))
+
+    assert online["connection.default/main.select_1"].status == "error"
+    assert online["queries.foo.read_only[sqlite]"].status == "ok"
+    skipped = [
+        online[n]
+        for n in online
+        if n.startswith("updates.") or (n.startswith("queries.") and n.endswith(".sql"))
+    ]
+    assert {item.name for item in skipped} >= {
+        "queries.foo.sql",
+        "queries.by_name.sql",
+        "updates.set_name.table",
+    }
+    assert all(
+        item.status == "warning" and item.message == _SKIPPED_DEFAULT_DOWN
+        for item in skipped
+    )
+    assert {item.name for item in offline} <= set(online)
+
+
+def test_verify_maps_names_messages_and_hints(tmp_path: Path) -> None:
+    extra = (
+        f'\n[connections.Prod]\nbackend = "sqlite"\n'
+        f'path = "{(tmp_path / "a.db").as_posix()}"\n'
+        '\n[connections.pg]\nbackend = "postgresql"\ndatabase = "x"\n'
+    )
+    qcfg, dbcfg = _write_configs(tmp_path, extra_connections=extra)
+
+    items = verify(qcfg, dbcfg)
+    by_name = _by_item_name(items)
+
+    assert all(isinstance(item, VerifyItem) for item in items)
+    assert by_name["dependencies.Prod.info"].status == "ok"
+    assert by_name["dependencies.Prod.info"].hint is None
+    assert (
+        by_name["dependencies.Prod.info"].message
+        == "(no optional dependencies for sqlite)"
+    )
+    assert "connection.Prod/main.backend" in by_name
+    assert by_name["dependencies.pg.backend"].message.startswith(
+        "postgresql - unsupported backend 'postgresql'"
+    )
+    assert all(item.name.split(".", 1)[0].islower() for item in items)
+    assert not [n for n in by_name if n.startswith("install instructions")]
+
+
+def test_verify_missing_explicit_database_config_does_not_raise(
+    tmp_path: Path,
+) -> None:
+    qcfg, _ = _write_configs(tmp_path)
+
+    items = _by_item_name(verify(qcfg, tmp_path / "nope.toml"))
+
+    assert items["config.database_config_path"].status == "error"
+    assert items["toolset.build"].status == "warning"
+    assert items["toolset.build"].message == _SKIPPED_EARLIER

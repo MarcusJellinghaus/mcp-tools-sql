@@ -182,7 +182,7 @@ import sqlite3
 import sys
 from pathlib import Path
 
-from mcp_tools_sql.toolset import build_toolset
+from mcp_tools_sql.toolset import build_toolset, verify
 
 tmp = Path(sys.argv[1])
 db = tmp / "test.db"
@@ -197,12 +197,14 @@ dbcfg.write_text(
 with build_toolset(qcfg, dbcfg) as toolset:
     spec = next(s for s in toolset.specs if s.name == "read_tables")
     asyncio.run(spec.fn(schema="main"))
+print("mcp_coder_utils.toolkit" in sys.modules)
+verify(qcfg, dbcfg)
 print("mcp" in sys.modules or any(m.startswith("mcp.") for m in sys.modules))
 """
 
 
 def test_toolset_does_not_import_mcp(tmp_path: Path) -> None:
-    """Building and calling a toolset never imports the ``mcp`` package."""
+    """Building a toolset skips the verify contract; verify never imports ``mcp``."""
     script = tmp_path / "toolset_probe.py"
     script.write_text(_TOOLSET_NO_MCP_SCRIPT, encoding="utf-8")
     src_parent = str(Path(mcp_tools_sql.__file__).resolve().parent.parent)
@@ -213,7 +215,7 @@ def test_toolset_does_not_import_mcp(tmp_path: Path) -> None:
     )
 
     assert not result.timed_out and result.return_code == 0, result.stderr[-4000:]
-    assert result.stdout.strip() == "False"
+    assert result.stdout.strip().splitlines() == ["False", "False"]
 
 
 def test_all_mcp_tools_sql_modules_import(tmp_path: Path) -> None:

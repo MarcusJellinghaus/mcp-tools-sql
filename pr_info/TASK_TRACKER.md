@@ -66,9 +66,9 @@ This tracks **Feature Implementation** consisting of multiple **Tasks**.
 ### Step 7: Public `toolset.verify` and the `utils/<home>.py` shim
 [Detail](./steps/step_7.md)
 
-- [ ] Implementation (tests + production code)
-- [ ] Quality checks — fix all issues
-- [ ] Commit message prepared
+- [x] Implementation (tests + production code)
+- [x] Quality checks — fix all issues
+- [x] Commit message prepared
 
 ### Step 8: Docs
 [Detail](./steps/step_8.md)
