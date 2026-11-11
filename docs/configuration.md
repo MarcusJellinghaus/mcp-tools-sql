@@ -37,8 +37,9 @@ table is then read as the query config.
 
 **Database config**:
 
-1. `--database-config PATH`
-2. `~/.mcp-tools-sql/config.toml`
+1. `--database-config PATH` — must exist; a missing file is an error.
+2. `~/.mcp-tools-sql/config.toml` — when absent, defaults apply (no
+   connections, default `[security]`).
 
 Discovery is relative to the **working directory of the process**. MCP clients
 choose that directory themselves, so pass an absolute `--config` in client
@@ -56,7 +57,7 @@ refers to.
 
 | Key | Backends | Default | Meaning |
 |-----|----------|---------|---------|
-| `backend` | all | `"sqlite"` | `"sqlite"` or `"mssql"`. `"postgresql"` passes config validation but has no backend implementation yet — server and `tool` startup fail with `Unsupported backend` when a configured query or update targets it (backends are created during tool registration); otherwise the first built-in tool call fails. |
+| `backend` | all | `"sqlite"` | `"sqlite"` or `"mssql"`. `"postgresql"` passes config validation but has no backend implementation yet (#29) — any `postgresql` connection fails server and `tool` startup with an unsupported-backend error, whether or not a query targets it. |
 | `description` | all | `""` | Shown by the `read_databases` tool. |
 | `path` | sqlite | `""` | Database file; relative paths resolve from the working directory. `":memory:"` opens a new, empty database on every connection (`verify` warns). |
 | `host` | mssql | `""` | `"server"` or a named instance `"server\\instance"` — see [MSSQL host and port](#mssql-host-and-port). |

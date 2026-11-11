@@ -152,10 +152,10 @@ One connection can reach several catalogs; see
 
 #### Example — postgresql
 
-> PostgreSQL has no backend implementation yet: `init` scaffolds the config
-> and it validates, but server and `tool` startup fail with
-> `Unsupported backend` once a configured query or update targets it
-> (backends are created during tool registration).
+> PostgreSQL has no backend implementation yet (#29): `init` scaffolds the
+> config and it validates, but server and `tool` startup fail with an
+> unsupported-backend error for any `postgresql` connection, and `verify`
+> reports it in `DEPENDENCIES`.
 
 ```text
 $ mcp-tools-sql init --backend postgresql --pyproject
@@ -235,7 +235,7 @@ Sections, in order:
 |---------|---------|
 | `ENVIRONMENT` | Python version, virtualenv status, installed package versions of `mcp_tools_sql` and `mcp_coder_utils`. |
 | `CONFIG` | Project query config and database config: resolved path, parse status, sensitive-key warning when credentials are detected in the project query config. Each `[queries.*]` / `[updates.*]` entry is validated on its own: an invalid entry gets a `queries.<name>.parse` / `updates.<name>.parse` row (a non-table `queries` / `updates` value gets `queries.parse` / `updates.parse`), and the remaining entries still go through every other check. |
-| `DEPENDENCIES` | Backend-conditional checks (e.g. `pyodbc` and an ODBC driver for `mssql`, `psycopg` for `postgresql`, none for `sqlite`). |
+| `DEPENDENCIES` | Backend-conditional checks for every configured connection, rows keyed `<connection>.<key>`: `pyodbc` and an ODBC driver for `mssql` (e.g. `prod.pyodbc`, `prod.odbc_driver`), an `info` row for `sqlite` (e.g. `default.info`). An unsupported backend (e.g. `postgresql`) is an `[ERR]` `<connection>.backend` row. Without a valid database config the section is a single `backend` `[ERR]` row. |
 | `BUILTIN` | Built-in default queries load successfully and have at least one tool registered. |
 | `CONNECTION` | Backend-shape checks (host/port/database/path/credentials), then `SELECT 1` against the configured database. A sqlite `path` of `:memory:` reports `[WARN]`: every fresh connection to `:memory:` is a new, empty database, so read paths silently return zero rows while `updates.*` still writes to the persistent connection. On Linux only, when the connection uses `backend = "mssql"` with `trusted_connection = true`, an extra `kerberos_ticket` row runs `klist -s` and reports `[ERR]` when no cached Kerberos ticket is found. |
 | `INSTALL INSTRUCTIONS` | Aggregated install hints from any failing `[ERR]` rows above (printed only when at least one row carries a hint). |
@@ -282,7 +282,7 @@ $ mcp-tools-sql verify
 [OK]  database_config_parse         loaded
 
 === DEPENDENCIES ===
-[OK]  info                          (no optional dependencies for sqlite)
+[OK]  default.info                  (no optional dependencies for sqlite)
 
 === BUILTIN ===
 [OK]  default_queries_loaded        5 queries
@@ -313,7 +313,7 @@ $ mcp-tools-sql verify
 ```text
 $ mcp-tools-sql verify
 === DEPENDENCIES ===
-[ERR]  pyodbc                       (not installed)  - No module named 'pyodbc'
+[ERR]  default.pyodbc               (not installed)  - No module named 'pyodbc'
 ...
 === INSTALL INSTRUCTIONS ===
 [OK]  hint_0                        pip install mcp-tools-sql[mssql]

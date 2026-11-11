@@ -152,16 +152,23 @@ def load_query_config(path: Path) -> QueryFileConfig:
 def load_database_config(path: Path | None = None) -> DatabaseConfig:
     """Load database config from path or default location.
 
-    Returns defaults if the file does not exist. No side effects.
+    With ``path=None`` a missing default file yields defaults (zero-config).
+    No side effects.
 
     Returns:
-        Database configuration loaded from file or defaults.
+        Database configuration loaded from file, or defaults when the
+        default-location file does not exist.
+
+    Raises:
+        ValueError: If an explicit ``path`` does not exist, or the file cannot
+            be read or contains invalid data.
     """
     if path is None:
         path = get_user_app_data_dir("mcp-tools-sql") / "config.toml"
-
-    if not path.exists():
-        return DatabaseConfig()
+        if not path.exists():
+            return DatabaseConfig()
+    elif not path.exists():
+        raise ValueError(f"Database config not found: {path}")
 
     data = _read_toml(path)
     expanded = _expand_env_vars(data)

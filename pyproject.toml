@@ -90,6 +90,9 @@ known_first_party = ["mcp_tools_sql"]
 # but importing one from src/ is still reported (DEP004). deptry does not expand
 # the `mcp-tools-sql[typecheck]` self-reference in `dev`, so name both.
 optional_dependencies_dev_groups = ["dev", "typecheck"]
+# psycopg is declared in the `postgresql` / `all-backends` extras but not imported
+# until the PostgreSQL backend lands (#29).
+per_rule_ignores = { DEP002 = ["psycopg"] }
 
 # pyodbc / psycopg are absent in `.[dev]`-only installs (the CI `architecture` job),
 # so deptry cannot read their metadata; name the modules explicitly.

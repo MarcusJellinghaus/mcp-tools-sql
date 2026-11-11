@@ -10,6 +10,7 @@ from __future__ import annotations
 from dataclasses import dataclass
 from typing import TYPE_CHECKING
 
+from mcp_tools_sql.backends.connection_check import check_connections
 from mcp_tools_sql.backends.registry import BackendRegistry
 from mcp_tools_sql.config.loader import (
     load_database_config,
@@ -25,14 +26,21 @@ from mcp_tools_sql.update_tools import UpdateTools
 from mcp_tools_sql.utils.tool_spec import ToolCollector, tool_spec
 from mcp_tools_sql.validation_tools import ValidationTools
 from mcp_tools_sql.verification import verify_all
+from mcp_tools_sql.verification.orchestrator import collect_sections
 from mcp_tools_sql.verification.render import render_short
 
 if TYPE_CHECKING:
     from collections.abc import Awaitable, Callable
     from pathlib import Path
 
-    from mcp_tools_sql.config.models import QueryFileConfig, ResolvedTargets
+    from mcp_tools_sql.config.models import (
+        DatabaseConfig,
+        QueryFileConfig,
+        ResolvedTargets,
+    )
     from mcp_tools_sql.utils.tool_spec import ToolSpec
+    from mcp_tools_sql.utils.toolkit import VerifyItem, VerifyStatus
+    from mcp_tools_sql.verification import CheckResult
 
 _READ_DATABASES_DESC = (
     "List the (connection, database) targets configured for this server, with "
@@ -167,19 +175,36 @@ def assemble_toolset(
     return SqlToolset(sink.specs, targets, config, registry)
 
 
+def _raise_on_dependency_errors(db_config: DatabaseConfig) -> None:
+    """Raise ValueError for the first connection failing the dependency check.
+
+    Raises:
+        ValueError: Naming the connection, the failing check and its hint.
+    """
+    for row in check_connections(db_config.connections):
+        if not row.ok:
+            hint = f" ({row.hint})" if row.hint else ""
+            raise ValueError(
+                f"Connection {row.connection!r}: {row.key}: "
+                f"{row.error or row.value}{hint}"
+            )
+
+
 def build_toolset(
     query_config: Path, database_config: Path | None = None
 ) -> SqlToolset:
     """Load both config files and build every tool spec.
 
     Callable repeatedly: to pick up config edits, build a new toolset, swap
-    it in and close the old one.
+    it in and close the old one. A broken setup (unsupported backend,
+    missing pyodbc or ODBC driver) raises before any connection is opened.
 
     Returns:
         The assembled toolset; close it when done.
     """
     qcfg = load_query_config(query_config)
     dbcfg = load_database_config(database_config)
+    _raise_on_dependency_errors(dbcfg)
     targets = resolve_targets(qcfg, dbcfg)
     return assemble_toolset(
         qcfg,
@@ -189,3 +214,66 @@ def build_toolset(
         query_config_path=query_config,
         database_config_path=database_config,
     )
+
+
+def _status(row: CheckResult) -> VerifyStatus:
+    """Map a verifier row to a ``VerifyItem`` status.
+
+    Returns:
+        ``"ok"``, ``"warning"`` or ``"error"``.
+    """
+    if row["ok"]:
+        return "ok"
+    return "warning" if row["severity"] == "warning" else "error"
+
+
+def _message(row: CheckResult) -> str:
+    """Join a verifier row's value and error.
+
+    Returns:
+        ``"value - error"``, or whichever of the two is non-empty.
+    """
+    return " - ".join(p for p in (row["value"], row.get("error", "")) if p)
+
+
+def verify(
+    query_config: Path,
+    database_config: Path | None = None,
+    *,
+    connect: bool = False,
+) -> list[VerifyItem]:
+    """Verify the setup :func:`build_toolset` would use on the same paths.
+
+    Never raises for problems it detects: each becomes an ``error`` or
+    ``warning`` item. With ``connect=False`` (the default) it opens no
+    connection, does no DNS lookup and runs no subprocess; ``connect=True``
+    adds the connection probes, EXPLAIN of every query and the update
+    checks. The ``toolset.build`` item runs the real :func:`build_toolset`,
+    so when every item passes, building the toolset succeeds.
+
+    Returns:
+        One item per check in section order, named
+        ``<section lowercased>.<check key>``.
+    """
+    # The result contract is only needed here: build_toolset and server start
+    # must not pay for its import (#39; toolkit pulls in jsonschema).
+    from mcp_tools_sql.utils.toolkit import (  # pylint: disable=import-outside-toplevel
+        VerifyItem,
+    )
+
+    sections = collect_sections(
+        query_config,
+        database_config,
+        connect=connect,
+        build_probe=lambda: build_toolset(query_config, database_config).close(),
+    )
+    return [
+        VerifyItem(
+            name=f"{section['title'].lower()}.{key}",
+            status=_status(row),
+            message=_message(row),
+            hint=row.get("install_hint") or None,
+        )
+        for section in sections
+        for key, row in section["checks"].items()
+    ]

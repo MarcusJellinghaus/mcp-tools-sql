@@ -2,20 +2,26 @@
 
 from __future__ import annotations
 
+from collections.abc import Callable
 from pathlib import Path
 from unittest.mock import MagicMock
 
 import pytest
 
+from mcp_tools_sql.config.models import ConnectionConfig
 from mcp_tools_sql.verification._helpers import (
     VerifyResult,
     VerifySection,
     make_entry,
 )
 from mcp_tools_sql.verification.orchestrator import (
+    _verify_connections,
     collect_install_instructions,
+    collect_sections,
     verify_all,
 )
+
+from .conftest import make_targets
 
 
 def _stub_ok_backend() -> MagicMock:
@@ -291,6 +297,31 @@ def test_verify_all_connection_probes_every_pair(
     assert checks["prod/hr.select_1"]["ok"] is True
 
 
+def test_verify_connections_without_registry_creates_no_backend(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """registry=None → config rows only; no backend is created or probed."""
+    monkeypatch.setattr(
+        "mcp_tools_sql.backends.registry.create_backend",
+        MagicMock(side_effect=AssertionError("backend created in config-only mode")),
+    )
+    monkeypatch.setattr(
+        "mcp_tools_sql.verification.connection.socket.gethostbyname",
+        MagicMock(side_effect=AssertionError("DNS probe in config-only mode")),
+    )
+    conn = ConnectionConfig(
+        backend="mssql", host="h", database="d", trusted_connection=True
+    )
+    targets = make_targets(backend_name="mssql", connection="prod", config=conn)
+
+    checks, default_ok, reachable = _verify_connections(targets, None)
+
+    assert not any(key.endswith(".select_1") for key in checks)
+    assert "prod/d.host_port" in checks
+    assert default_ok is True
+    assert reachable == {("prod", "d"): True}
+
+
 def test_verify_all_connection_not_ok_when_a_pair_fails(
     tmp_path: Path,
     monkeypatch: pytest.MonkeyPatch,
@@ -558,3 +589,150 @@ def test_verify_all_uses_project_dir_for_discovery(
     row = _by_title(result)["CONFIG"]["checks"]["query_config_path"]
     assert row["ok"] is True
     assert row["value"] == str(expected)
+
+
+# ---------------------------------------------------------------------------
+# collect_sections
+# ---------------------------------------------------------------------------
+
+
+_QUERY_AND_UPDATE = (
+    'connection = "default"\n\n'
+    '[queries.q]\nsql = "SELECT * FROM customers"\nmax_rows_default = 10\n'
+    'description = "d"\n\n'
+    '[updates.u]\ntable = "customers"\ndescription = "d"\n'
+    'key = { field = "id" }\nfields = [{ field = "name" }]\n'
+)
+
+
+def _recording_probe(
+    exc: Exception | None = None,
+) -> tuple[list[bool], Callable[[], None]]:
+    """Return ``(calls, probe)``; ``probe`` records each call, then raises ``exc``."""
+    calls: list[bool] = []
+
+    def probe() -> None:
+        calls.append(True)
+        if exc is not None:
+            raise exc
+
+    return calls, probe
+
+
+def _index(sections: list[VerifySection]) -> dict[str, VerifySection]:
+    """Index ``sections`` by title."""
+    return {section["title"]: section for section in sections}
+
+
+def test_collect_sections_config_only(tmp_path: Path, sqlite_db: Path) -> None:
+    """``connect=False``: TOOLSET after BUILTIN, no UPDATES, no database rows."""
+    query_cfg = _query_config(tmp_path, _QUERY_AND_UPDATE)
+    db_cfg = _sqlite_db_config(tmp_path, sqlite_db)
+    calls, probe = _recording_probe()
+
+    sections = collect_sections(query_cfg, db_cfg, connect=False, build_probe=probe)
+
+    assert [s["title"] for s in sections] == [
+        "ENVIRONMENT",
+        "CONFIG",
+        "DEPENDENCIES",
+        "BUILTIN",
+        "TOOLSET",
+        "CONNECTION",
+        "QUERIES",
+    ]
+    by_title = _index(sections)
+    assert by_title["TOOLSET"]["checks"] == {"build": make_entry(ok=True, value="ok")}
+    assert calls == [True]
+    assert not any(k.endswith(".select_1") for k in by_title["CONNECTION"]["checks"])
+    assert "q.sql" not in by_title["QUERIES"]["checks"]
+    assert "q.params" in by_title["QUERIES"]["checks"]
+
+
+def test_collect_sections_connect_probes_database(
+    tmp_path: Path, sqlite_db: Path
+) -> None:
+    """``connect=True`` on a valid sqlite db adds select_1, EXPLAIN and UPDATES."""
+    query_cfg = _query_config(tmp_path, _QUERY_AND_UPDATE)
+    db_cfg = _sqlite_db_config(tmp_path, sqlite_db)
+    _calls, probe = _recording_probe()
+
+    sections = collect_sections(query_cfg, db_cfg, connect=True, build_probe=probe)
+
+    by_title = _index(sections)
+    assert [s["title"] for s in sections][-3:] == ["CONNECTION", "QUERIES", "UPDATES"]
+    assert by_title["CONNECTION"]["checks"]["default/main.select_1"]["ok"] is True
+    assert by_title["QUERIES"]["checks"]["q.sql"]["value"] == "EXPLAIN ok"
+    assert by_title["UPDATES"]["checks"]["u.table"]["ok"] is True
+    assert "INSTALL INSTRUCTIONS" not in by_title
+
+
+def test_collect_sections_default_down_gates_per_target(tmp_path: Path) -> None:
+    """Unreachable default: static QUERIES rows stay; database rows are skips."""
+    query_cfg = _query_config(tmp_path, _QUERY_AND_UPDATE)
+    db_cfg = _sqlite_db_config(tmp_path, tmp_path / "no_such_dir" / "db.sqlite")
+    _calls, probe = _recording_probe()
+
+    sections = collect_sections(query_cfg, db_cfg, connect=True, build_probe=probe)
+
+    by_title = _index(sections)
+    assert by_title["CONNECTION"]["checks"]["default/main.select_1"]["ok"] is False
+    skipped = make_entry(
+        ok=False, value="skipped (connection default unreachable)", severity="warning"
+    )
+    queries = by_title["QUERIES"]["checks"]
+    assert queries["q.sql"] == skipped
+    for key in ("q.read_only[sqlite]", "q.params", "q.max_rows_default"):
+        assert queries[key]["ok"] is True
+    updates = by_title["UPDATES"]["checks"]
+    assert list(updates) == ["u.table", "u.key_column", "u.fields"]
+    assert all(row == skipped for row in updates.values())
+
+
+def test_collect_sections_build_probe_error(tmp_path: Path, sqlite_db: Path) -> None:
+    """A raising ``build_probe`` becomes an ERR ``build`` row carrying the message."""
+    query_cfg = _query_config(tmp_path, 'connection = "default"\n')
+    db_cfg = _sqlite_db_config(tmp_path, sqlite_db)
+    _calls, probe = _recording_probe(ValueError("boom"))
+
+    sections = collect_sections(query_cfg, db_cfg, connect=False, build_probe=probe)
+
+    toolset = _index(sections)["TOOLSET"]
+    assert toolset["checks"]["build"] == make_entry(
+        ok=False, value="failed", error="boom"
+    )
+    assert toolset["ok"] is False
+
+
+@pytest.mark.parametrize(
+    ("query_text", "db_exists", "expected_calls", "expected_value"),
+    [
+        ('connection = "default"\n', False, [], "skipped (earlier errors)"),
+        ('connection = "default"\npassword = "leaked"\n', True, [True], "ok"),
+    ],
+    ids=["earlier-error-skips", "warnings-do-not-skip"],
+)
+def test_collect_sections_build_row_gating(
+    tmp_path: Path,
+    sqlite_db: Path,
+    query_text: str,
+    db_exists: bool,
+    expected_calls: list[bool],
+    expected_value: str,
+) -> None:
+    """An earlier ERR skips the build probe; a head with only warnings runs it."""
+    query_cfg = _query_config(tmp_path, query_text)
+    db_cfg = (
+        _sqlite_db_config(tmp_path, sqlite_db)
+        if db_exists
+        else tmp_path / "missing-db-config.toml"
+    )
+    calls, probe = _recording_probe()
+
+    sections = collect_sections(query_cfg, db_cfg, connect=False, build_probe=probe)
+
+    by_title = _index(sections)
+    assert by_title["CONFIG"]["ok"] is db_exists
+    assert calls == expected_calls
+    assert by_title["TOOLSET"]["checks"]["build"]["value"] == expected_value
+    assert by_title["TOOLSET"]["ok"] is True

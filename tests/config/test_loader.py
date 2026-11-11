@@ -175,21 +175,23 @@ password = "secret"
 
     def test_none_path_uses_default(self, tmp_path: Path) -> None:
         """None path defaults to ~/.mcp-tools-sql/config.toml."""
-        # Point home to tmp_path so the default file won't exist
-        with patch("mcp_tools_sql.config.loader.Path.home", return_value=tmp_path):
+        # Point the app data dir to tmp_path so the default file won't exist
+        with patch(
+            "mcp_tools_sql.config.loader.get_user_app_data_dir", return_value=tmp_path
+        ):
             config = load_database_config(None)
 
         assert isinstance(config, DatabaseConfig)
         assert config.connections == {}
 
-    def test_missing_file_returns_defaults(self, tmp_path: Path) -> None:
-        """Non-existent file returns DatabaseConfig() with empty connections."""
+    def test_explicit_missing_file_raises(self, tmp_path: Path) -> None:
+        """An explicit non-existent path raises ValueError naming the path."""
         missing = tmp_path / "nonexistent.toml"
 
-        config = load_database_config(missing)
+        with pytest.raises(ValueError) as exc_info:
+            load_database_config(missing)
 
-        assert isinstance(config, DatabaseConfig)
-        assert config.connections == {}
+        assert str(missing) in str(exc_info.value)
 
     def test_invalid_toml_raises_value_error(self, tmp_path: Path) -> None:
         """Malformed database config raises ValueError."""
