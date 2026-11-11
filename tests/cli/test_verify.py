@@ -186,10 +186,12 @@ def test_verify_dependencies_rows_per_connection(
     query_cfg = tmp_path / "mcp-tools-sql.toml"
     query_cfg.write_text('connection = "default"\n', encoding="utf-8")
 
+    db_a = tmp_path / "a.sqlite"
+    db_b = tmp_path / "b.sqlite"
     db_cfg = tmp_path / "db-config.toml"
     db_cfg.write_text(
-        '[connections.default]\nbackend = "sqlite"\npath = "a.sqlite"\n'
-        '[connections.second]\nbackend = "sqlite"\npath = "b.sqlite"\n',
+        f'[connections.default]\nbackend = "sqlite"\npath = "{db_a.as_posix()}"\n'
+        f'[connections.second]\nbackend = "sqlite"\npath = "{db_b.as_posix()}"\n',
         encoding="utf-8",
     )
 
